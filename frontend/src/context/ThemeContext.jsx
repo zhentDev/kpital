@@ -1,15 +1,15 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
-const ThemeContext = createContext({ theme: "dark", toggleTheme: () => {} });
+const ThemeContext = createContext({ theme: "light", toggleTheme: () => {} });
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    if (typeof window === "undefined") return "dark";
+    if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("kpital_theme") || localStorage.getItem("titanes_theme");
     if (localStorage.getItem("titanes_theme")) {
       localStorage.removeItem("titanes_theme");
     }
-    return saved || "dark";
+    return saved || "light";
   });
 
   useEffect(() => {

@@ -52,6 +52,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
     setAbortBatch,
     togglePortfolioPlan,
     updatePortfolioSettings,
+    renamePurchasePortfolio,
     lastKnownQuotes,
     saveLastKnownQuotes,
     savePortfolioSummary,
@@ -1707,6 +1708,24 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   }}
                 >
                   <span>🛒</span> {portfolio.name}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const newName = await toastPrompt("Nuevo nombre para el portafolio de compras:", portfolio.name);
+                      if (newName && newName.trim()) renamePurchasePortfolio(portfolioId, newName.trim());
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "0.95rem",
+                      padding: "2px 6px",
+                      opacity: 0.7,
+                    }}
+                    title="Editar nombre del portafolio"
+                  >
+                    ✏️
+                  </button>
                 </h2>
 
                 {purchasePortfolios && purchasePortfolios.length > 1 && onSelectPortfolio && (

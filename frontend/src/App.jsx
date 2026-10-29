@@ -48,12 +48,20 @@ export default function App() {
     deleteCustomStrategy,
     purchasePortfolios,
     addPurchasePortfolio,
+    renamePurchasePortfolio,
     mainPortfolioSettings,
     setMainPortfolioSettings,
     strategyRebalances,
     initFetchPurchases,
     initFetchCustomStrategies,
   } = usePortfolioStore();
+
+  const [coreStrategyName, setCoreStrategyName] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("kpital_core_strategy_name") || "Titanes Tecnológicos";
+    }
+    return "Titanes Tecnológicos";
+  });
   const currentSettings = settingsByMode[mode] || settingsByMode.historical;
   const { tickers, investment, period, numSlots } = currentSettings;
   const [baseNavData, setBaseNavData] = useState(null);
@@ -138,11 +146,11 @@ export default function App() {
   }, [isInitialized, isPro, mode, setMode]);
 
   const currentStrategyLabel = useMemo(() => {
-    if (mode === "historical") return "🏆 Kpital Tech";
+    if (mode === "historical") return `🏆 ${coreStrategyName}`;
     if (mode === "live") return "⚡ Live Tracker";
     const match = (customStrategies || []).find((s) => s.id === mode);
     return match ? `${match.country || "🌎"} ${match.name}` : "Seleccionar...";
-  }, [mode, customStrategies]);
+  }, [mode, customStrategies, coreStrategyName]);
 
   const currentPurchaseLabel = useMemo(() => {
     const match = (purchasePortfolios || []).find((p) => p.id === mode);
@@ -739,18 +747,44 @@ export default function App() {
                 <div className="dropdown-header">Estrategias & Portafolios</div>
 
                 {/* Core Portfolios */}
-                <button
-                  type="button"
+                <div
                   className={`dropdown-item ${mode === "historical" ? "selected" : ""}`}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
                   onClick={() => {
                     setMode("historical");
                     setStratOpen(false);
                   }}
                 >
-                  <span className="item-icon">🏆</span>
-                  <span className="item-title">Kpital Tech</span>
-                  <span className="system-badge core">CORE</span>
-                </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <span className="item-icon">🏆</span>
+                    <span className="item-title">{coreStrategyName}</span>
+                    <span className="system-badge core">CORE</span>
+                  </div>
+                  <button
+                    type="button"
+                    title="Renombrar estrategia"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const newName = await toastPrompt("Nuevo nombre para la estrategia CORE:", coreStrategyName);
+                      if (newName && newName.trim()) {
+                        const trimmed = newName.trim();
+                        setCoreStrategyName(trimmed);
+                        localStorage.setItem("kpital_core_strategy_name", trimmed);
+                        toast.success(`Estrategia renombrada a "${trimmed}"`);
+                      }
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "2px 6px",
+                      fontSize: "0.85rem",
+                      opacity: 0.65,
+                    }}
+                  >
+                    ✏️
+                  </button>
+                </div>
 
                 <button
                   type="button"
@@ -776,19 +810,43 @@ export default function App() {
                         💵 Dinero Real Activo
                       </div>
                       {realMoneyStrats.map((strat) => (
-                        <button
-                          type="button"
+                        <div
                           key={strat.id}
                           className={`dropdown-item ${mode === strat.id ? "selected" : ""}`}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
                           onClick={() => {
                             setMode(strat.id);
                             setStratOpen(false);
                           }}
                         >
-                          <span className="item-icon">{strat.country || "💵"}</span>
-                          <span className="item-title">{strat.name}</span>
-                          <span className="system-badge real">REAL</span>
-                        </button>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                            <span className="item-icon">{strat.country || "💵"}</span>
+                            <span className="item-title">{strat.name}</span>
+                            <span className="system-badge real">REAL</span>
+                          </div>
+                          <button
+                            type="button"
+                            title="Renombrar estrategia"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const newName = await toastPrompt("Nuevo nombre para la estrategia:", strat.name);
+                              if (newName && newName.trim()) {
+                                await updateCustomStrategy(strat.id, { name: newName.trim() });
+                                toast.success(`Estrategia renombrada a "${newName.trim()}"`);
+                              }
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "2px 6px",
+                              fontSize: "0.85rem",
+                              opacity: 0.65,
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        </div>
                       ))}
                     </>
                   );
@@ -805,23 +863,47 @@ export default function App() {
                         🧪 Modelos & Simulaciones
                       </div>
                       {simulatedStrats.map((strat) => (
-                        <button
-                          type="button"
+                        <div
                           key={strat.id}
                           className={`dropdown-item ${mode === strat.id ? "selected" : ""}`}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
                           onClick={() => {
                             setMode(strat.id);
                             setStratOpen(false);
                           }}
                         >
-                          <span className="item-icon">{strat.country || "🌎"}</span>
-                          <span className="item-title">{strat.name}</span>
-                          {strat.isSystem ? (
-                            <span className="system-badge pro">PRO</span>
-                          ) : (
-                            <span className="system-badge custom">{strat.numSlots} slots</span>
-                          )}
-                        </button>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                            <span className="item-icon">{strat.country || "🌎"}</span>
+                            <span className="item-title">{strat.name}</span>
+                            {strat.isSystem ? (
+                              <span className="system-badge pro">PRO</span>
+                            ) : (
+                              <span className="system-badge custom">{strat.numSlots} slots</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            title="Renombrar estrategia"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const newName = await toastPrompt("Nuevo nombre para la estrategia:", strat.name);
+                              if (newName && newName.trim()) {
+                                await updateCustomStrategy(strat.id, { name: newName.trim() });
+                                toast.success(`Estrategia renombrada a "${newName.trim()}"`);
+                              }
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "2px 6px",
+                              fontSize: "0.85rem",
+                              opacity: 0.65,
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        </div>
                       ))}
                     </>
                   );
@@ -862,22 +944,45 @@ export default function App() {
                 <div className="dropdown-header">Históricos de Compras</div>
 
                 {(purchasePortfolios || []).map((port) => (
-                  <button
-                    type="button"
+                  <div
                     key={port.id}
                     className={`dropdown-item ${mode === port.id ? "selected" : ""}`}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
                     onClick={() => {
                       setMode(port.id);
                       setPurchasesOpen(false);
                     }}
                   >
-                    <span className="item-icon">
-                      {port.id === "hist_crypto" || (port.name && port.name.toLowerCase().includes("cripto"))
-                        ? "🪙"
-                        : "🛒"}
-                    </span>
-                    <span className="item-title">{port.name}</span>
-                  </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                      <span className="item-icon">
+                        {port.id === "hist_crypto" || (port.name && port.name.toLowerCase().includes("cripto"))
+                          ? "🪙"
+                          : "🛒"}
+                      </span>
+                      <span className="item-title">{port.name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      title="Renombrar portafolio de compras"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const newName = await toastPrompt("Nuevo nombre para el portafolio de compras:", port.name);
+                        if (newName && newName.trim()) {
+                          await renamePurchasePortfolio(port.id, newName.trim());
+                        }
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "2px 6px",
+                        fontSize: "0.85rem",
+                        opacity: 0.65,
+                      }}
+                    >
+                      ✏️
+                    </button>
+                  </div>
                 ))}
 
                 <div className="dropdown-divider" />
@@ -1426,7 +1531,7 @@ export default function App() {
                   title="Cambiar de Estrategia o Portafolio"
                 >
                   <option value="historical" style={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}>
-                    🏆 Kpital Tech (CORE)
+                    🏆 {coreStrategyName} (CORE)
                   </option>
                   <option value="live" style={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}>
                     ⚡ Live Tracker (LIVE)
@@ -1437,6 +1542,46 @@ export default function App() {
                     </option>
                   ))}
                 </select>
+
+                <button
+                  type="button"
+                  title="Renombrar la estrategia activa"
+                  onClick={async () => {
+                    if (mode === "historical") {
+                      const newName = await toastPrompt("Nuevo nombre para la estrategia CORE:", coreStrategyName);
+                      if (newName && newName.trim()) {
+                        const trimmed = newName.trim();
+                        setCoreStrategyName(trimmed);
+                        localStorage.setItem("kpital_core_strategy_name", trimmed);
+                        toast.success(`Estrategia renombrada a "${trimmed}"`);
+                      }
+                    } else {
+                      const currentStrat = (customStrategies || []).find((s) => s.id === mode);
+                      if (currentStrat) {
+                        const newName = await toastPrompt("Nuevo nombre para la estrategia:", currentStrat.name);
+                        if (newName && newName.trim()) {
+                          await updateCustomStrategy(mode, { name: newName.trim() });
+                          toast.success(`Estrategia renombrada a "${newName.trim()}"`);
+                        }
+                      }
+                    }
+                  }}
+                  style={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  ✏️ Renombrar
+                </button>
               </div>
               <div
                 style={{
@@ -2673,6 +2818,7 @@ export default function App() {
                 />
               ) : (
                 <NavChart
+                  strategyName={mode === "historical" ? "Titanes" : currentStrategyLabel}
                   navData={navData?.nav}
                   sp500Data={navData?.sp500}
                   nasdaqData={navData?.nasdaq}

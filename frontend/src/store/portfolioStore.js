@@ -20,6 +20,7 @@ import {
   saveCustomStrategyApi,
   togglePortfolioPlanApi,
   updatePortfolioSettingsApi,
+  renamePurchasePortfolioApi,
   updatePurchaseLots,
 } from "../api/client";
 import { getMarketOpenTime } from "../utils/marketHours";
@@ -265,6 +266,21 @@ export const usePortfolioStore = create((set, get) => ({
       toast.success("Configuración del portafolio actualizada");
     } catch {
       toast.error("Error actualizando configuración del portafolio");
+    }
+  },
+  renamePurchasePortfolio: async (id, newName) => {
+    if (!id || !newName || !newName.trim()) return;
+    const trimmed = newName.trim();
+    try {
+      await renamePurchasePortfolioApi(id, trimmed);
+      set((state) => ({
+        purchasePortfolios: state.purchasePortfolios.map((p) =>
+          p.id === id ? { ...p, name: trimmed } : p
+        ),
+      }));
+      toast.success(`Portafolio renombrado a "${trimmed}"`);
+    } catch {
+      toast.error("Error al actualizar el nombre del portafolio");
     }
   },
   // ── BATCH RECALCULATE STATE ──

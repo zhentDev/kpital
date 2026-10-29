@@ -641,7 +641,7 @@ export default function NavChart({
                 transition: "all 0.15s ease",
                 fontVariantNumeric: "tabular-nums",
               }}
-              title="Clic para mostrar/ocultar curva de Kpital"
+              title="Clic para mostrar/ocultar curva de Titanes"
             >
               <span
                 style={{
@@ -653,7 +653,7 @@ export default function NavChart({
                   flexShrink: 0,
                 }}
               />
-              <strong>{isLiveMode ? (strategyName ? `En Vivo: ${strategyName}` : "Portafolio En Vivo") : (strategyName || "Kpital")}</strong>
+              <strong>{isLiveMode ? (strategyName ? `En Vivo: ${strategyName}` : "Portafolio En Vivo") : (strategyName || "Titanes")}</strong>
               <InfoTooltip conceptKey="nav" />
               {currentNav != null && (
                 <span
@@ -1211,7 +1211,7 @@ export default function NavChart({
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", fontWeight: 700 }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: chartColors.nav, flexShrink: 0 }} />
                 <span style={{ color: isLight ? "#0f172a" : "#f8fafc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {isLiveMode ? (strategyName ? `En Vivo (${strategyName})` : "En Vivo") : (strategyName || "Kpital")}
+                  {isLiveMode ? (strategyName ? `En Vivo (${strategyName})` : "En Vivo") : (strategyName || "Titanes")}
                 </span>
               </div>
             )}

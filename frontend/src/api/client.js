@@ -109,13 +109,13 @@ export async function fetchNAV({
 // Real-world baseline quotes for active assets
 const KNOWN_TICKER_PRICES = {
   ON: 75.24,
-  HPQ: 35.80,
+  HPQ: 34.51,
   ORCL: 172.50,
-  AMAT: 198.40,
-  ACN: 350.20,
-  SWKS: 88.50,
-  ONTO: 195.00,
-  ACLS: 92.00,
+  AMAT: 193.64,
+  ACN: 354.05,
+  SWKS: 83.90,
+  ONTO: 198.12,
+  ACLS: 85.76,
   NTAP: 124.30,
   MCK: 540.00,
   SPCX: 105.00,
@@ -325,6 +325,15 @@ export async function createPurchasePortfolio(id, name, isPlan = false) {
   const { error } = await supabase.from("rv_portfolios").upsert(row);
   if (error) throw error;
   return row;
+}
+
+export async function renamePurchasePortfolioApi(id, newName) {
+  const { error } = await supabase
+    .from("rv_portfolios")
+    .update({ name: newName })
+    .eq("id", id);
+  if (error) throw error;
+  return { ok: true, id, name: newName };
 }
 
 export async function deletePurchasePortfolioApi(id) {
