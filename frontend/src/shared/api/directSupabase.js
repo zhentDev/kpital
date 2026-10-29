@@ -491,3 +491,21 @@ export async function directFetchColInflation() {
     monthly_rates: [],
   };
 }
+
+// ── 7. Direct Market Indices History from Supabase ─────────────────────────
+export async function directFetchIndicesHistory(startDate = "2020-01-01") {
+  const { data, error } = await supabase
+    .from("market_indices_history")
+    .select("date_str, values_json")
+    .gte("date_str", startDate)
+    .order("date_str", { ascending: true });
+
+  if (error || !data) return {};
+  const result = {};
+  data.forEach((row) => {
+    if (row.date_str && row.values_json) {
+      result[row.date_str] = row.values_json;
+    }
+  });
+  return result;
+}

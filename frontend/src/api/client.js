@@ -14,6 +14,7 @@ import {
   directFetchStockAlerts,
   directFetchFxRate,
   directFetchColInflation,
+  directFetchIndicesHistory,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -268,13 +269,18 @@ export async function fetchHoldingChart({ ticker, startDate, exitDate, shares, c
 /** GET /api/prices/indices_history?start_date=YYYY-MM-DD */
 export async function fetchIndicesHistory(startDate) {
   try {
-    const data = await fetchFromBackend(
-      `/prices/indices_history?start_date=${encodeURIComponent(startDate || "2020-01-01")}`,
-      { timeoutMs: 15000 },
-    );
-    return data && typeof data === "object" ? data : {};
-  } catch {
-    return {};
+    return await directFetchIndicesHistory(startDate);
+  } catch (err) {
+    console.warn("Direct Supabase indices fetch fallback:", err);
+    try {
+      const data = await fetchFromBackend(
+        `/prices/indices_history?start_date=${encodeURIComponent(startDate || "2020-01-01")}`,
+        { timeoutMs: 15000 },
+      );
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      return {};
+    }
   }
 }
 
