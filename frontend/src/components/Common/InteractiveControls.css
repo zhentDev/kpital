@@ -1,0 +1,1204 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   TITANES PORTFOLIO — INTERACTIVE CONTROLS DESIGN SYSTEM
+   Dark Glassmorphism UI/UX Suite inspired by Online Tutorials
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Global Control Tokens & Resets ──────────────────────────────────── */
+.interactive-control-base {
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+/* Hide native number input spinners across all browsers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ── 1. CURRENCY INPUT ───────────────────────────────────────────────── */
+.currency-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.currency-input-container:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.currency-input-container:focus-within {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4), 0 0 16px rgba(56, 189, 248, 0.2);
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.currency-input-container.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.currency-prefix-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 0 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.05em;
+  user-select: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.currency-native-input,
+input.currency-native-input,
+input.currency-native-input:focus {
+  flex: 1;
+  min-width: 0;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: #f8fafc;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 9px 12px !important;
+  text-align: left;
+}
+
+.currency-native-input::placeholder {
+  color: #475569;
+  font-weight: 400;
+}
+
+.currency-clear-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.currency-clear-btn:hover {
+  color: #f43f5e;
+}
+
+
+/* ── 2. DYNAMIC DATE PICKER ─────────────────────────────────────────── */
+.dynamic-datepicker-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.dynamic-datepicker-input-group {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.dynamic-datepicker-input-group:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dynamic-datepicker-input-group:focus-within,
+.dynamic-datepicker-input-group.active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4), 0 0 16px rgba(56, 189, 248, 0.2);
+}
+
+.dynamic-datepicker-field,
+input.dynamic-datepicker-field,
+input.dynamic-datepicker-field:focus {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: #f8fafc;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 8px 6px 8px 11px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dynamic-datepicker-field.formatted-display {
+  color: #38bdf8;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.dynamic-datepicker-field::placeholder {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.dynamic-datepicker-trigger-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #38bdf8;
+  cursor: pointer;
+  padding: 6px 10px 6px 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease;
+  user-select: none;
+}
+
+.dynamic-datepicker-trigger-btn:hover {
+  transform: scale(1.15);
+  color: #00e5ff;
+}
+
+.dynamic-picker-format-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #38bdf8;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  white-space: nowrap;
+  user-select: none;
+  margin-right: 2px;
+}
+
+/* Native date/time inputs global fallback styling */
+input[type="date"],
+input[type="time"] {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #f8fafc;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  color-scheme: dark;
+  transition: all 0.2s ease;
+}
+
+input[type="date"]:focus,
+input[type="time"]:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4), 0 0 14px rgba(56, 189, 248, 0.2);
+  outline: none;
+}
+
+/* Glassmorphism Popover */
+.dynamic-datepicker-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 2500;
+  width: 310px;
+  background: rgba(13, 18, 38, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(56, 189, 248, 0.12);
+  padding: 14px;
+  animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dynamic-datepicker-popover.align-right {
+  left: auto;
+  right: 0;
+}
+
+.dynamic-datepicker-popover.open-upwards {
+  top: auto;
+  bottom: calc(100% + 6px);
+  animation-name: popoverFadeInUp;
+}
+
+@keyframes popoverFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.datepicker-header-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.datepicker-select-control {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 6px;
+  outline: none;
+  cursor: pointer;
+}
+.datepicker-select-control option {
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.datepicker-nav-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.datepicker-nav-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.datepicker-weekdays-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.datepicker-weekday-cell {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  padding: 4px 0;
+}
+
+.datepicker-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 12px;
+}
+
+.datepicker-day-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.datepicker-day-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.datepicker-day-btn.other-month {
+  color: #475569;
+  opacity: 0.5;
+}
+
+.datepicker-day-btn.today {
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #10b981;
+  font-weight: 700;
+}
+
+.datepicker-day-btn.selected {
+  background: linear-gradient(135deg, #0284c7, #38bdf8) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+}
+
+/* Quick Action Preset Chips */
+.datepicker-presets-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.datepicker-preset-chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 3px 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.datepicker-preset-chip:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+}
+
+
+/* ── 3. FLOATING INPUT ───────────────────────────────────────────────── */
+.floating-input-group {
+  position: relative;
+  width: 100%;
+}
+
+.floating-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  padding: 0 14px;
+  min-height: 52px;
+}
+
+.floating-input-container.no-label {
+  min-height: 40px;
+  height: 40px;
+}
+
+.floating-input-container:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.floating-input-container:focus-within {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4), 0 0 16px rgba(56, 189, 248, 0.2);
+}
+
+.floating-input-field,
+input.floating-input-field,
+input.floating-input-field:focus {
+  flex: 1;
+  width: 100%;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: #f8fafc;
+  font-size: 0.92rem;
+  padding: 20px 0 6px 0 !important;
+  font-family: inherit;
+  line-height: 1.25;
+}
+
+.floating-input-container.no-label .floating-input-field,
+.floating-input-container.no-label input.floating-input-field,
+.floating-input-container.no-label input.floating-input-field:focus {
+  padding: 8px 0 !important;
+}
+
+.floating-input-field::placeholder {
+  color: #64748b;
+  font-size: 0.84rem;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.floating-input-container:not(:focus-within):not(.has-value) .floating-input-field::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+.floating-label-text {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 500;
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: left top;
+}
+
+.floating-input-container:focus-within .floating-label-text,
+.floating-input-container.has-value .floating-label-text {
+  top: 7px;
+  transform: translateY(0) scale(0.74);
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.floating-suffix {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  margin-left: 6px;
+  user-select: none;
+}
+
+
+/* ── 4. CUSTOM SELECT DROPDOWN ───────────────────────────────────────── */
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #f1f5f9;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  min-height: 42px;
+}
+
+.custom-select-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.custom-select-trigger.is-open {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4), 0 0 16px rgba(56, 189, 248, 0.2);
+}
+
+.select-selection-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.select-logo-container {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.select-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 2px;
+}
+
+.select-label-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-chevron {
+  font-size: 0.75rem;
+  color: #64748b;
+  transition: transform 0.2s ease;
+  margin-left: 6px;
+}
+
+.custom-select-trigger.is-open .select-chevron {
+  transform: rotate(180deg);
+  color: #38bdf8;
+}
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 2600;
+  background: rgba(13, 18, 38, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(56, 189, 248, 0.12);
+  padding: 6px;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.select-search-box {
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.select-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.select-search-input:focus {
+  border-color: #38bdf8;
+}
+
+.select-options-list {
+  overflow-y: auto;
+  flex: 1;
+  max-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.select-option-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.select-option-item:hover {
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.select-option-item.selected {
+  background: rgba(56, 189, 248, 0.2);
+  border-left: 3px solid #38bdf8;
+}
+
+.select-option-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.select-option-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.select-option-badge {
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+
+/* ── 5. HOURGLASS RANGE SLIDER ───────────────────────────────────────── */
+.hourglass-slider-wrapper {
+  width: 100%;
+  position: relative;
+  padding: 16px 0 6px 0;
+}
+
+.hourglass-track-container {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.hourglass-progress-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #00e5ff 50%, #38bdf8 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+  transition: width 0.05s linear;
+}
+
+.hourglass-native-slider {
+  position: absolute;
+  top: -6px;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 10;
+  margin: 0;
+}
+
+/* Floating Tooltip */
+.hourglass-tooltip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #38bdf8;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.hourglass-thumb-indicator {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  background: #0f172a;
+  border: 2px solid #38bdf8;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.6);
+  pointer-events: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.hourglass-native-slider:hover ~ .hourglass-thumb-indicator,
+.hourglass-native-slider:active ~ .hourglass-thumb-indicator {
+  transform: translate(-50%, -50%) scale(1.2);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.9);
+}
+
+
+/* ── 6. GLASS MODAL WRAPPER ──────────────────────────────────────────── */
+.glass-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 12, 24, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  overflow-y: auto;
+  animation: modalOverlayFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.glass-modal-panel {
+  position: relative;
+  width: 100%;
+  margin: auto;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.85), 0 0 40px rgba(0, 229, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  animation: modalPanelScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-modal-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.glass-modal-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.glass-modal-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+[data-theme="light"] .glass-modal-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 640px) {
+  .glass-modal-overlay {
+    padding: 12px 8px;
+    align-items: flex-start;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .glass-modal-panel {
+    max-height: calc(100dvh - 24px);
+    border-radius: 14px;
+    margin: 8px auto;
+  }
+}
+
+@keyframes modalPanelScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.glass-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.glass-modal-close-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.glass-modal-close-btn:hover {
+  background: rgba(244, 63, 94, 0.2);
+  color: #f43f5e;
+  border-color: rgba(244, 63, 94, 0.4);
+}
+
+/* ── INFO TOOLTIP STYLES ─────────────────────────────────────────────── */
+.info-tooltip-btn:hover {
+  background: rgba(0, 229, 255, 0.2) !important;
+  color: #00e5ff !important;
+  border-color: rgba(0, 229, 255, 0.5) !important;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.info-tooltip-trigger-custom:hover {
+  border-bottom-color: #00e5ff !important;
+  color: #00e5ff;
+}
+
+.info-tooltip-popover {
+  animation: tooltipFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LIGHT MODE CONTROLS OVERRIDES ([data-theme="light"])
+   ═══════════════════════════════════════════════════════════════════════ */
+[data-theme="light"] .glass-modal-overlay {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+[data-theme="light"] .glass-modal-panel {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #0f172a;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2), 0 0 20px rgba(2, 132, 199, 0.08);
+}
+
+[data-theme="light"] .glass-modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+[data-theme="light"] .glass-modal-close-btn {
+  background: #f1f5f9;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #64748b;
+}
+
+[data-theme="light"] .glass-modal-close-btn:hover {
+  background: rgba(244, 63, 94, 0.12);
+  color: #f43f5e;
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+[data-theme="light"] .currency-input-container {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .currency-input-container:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+  background: #ffffff;
+}
+
+[data-theme="light"] .currency-input-container:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+  background: #ffffff;
+}
+
+[data-theme="light"] .currency-native-input {
+  color: #0f172a;
+}
+
+[data-theme="light"] .currency-prefix-badge {
+  color: #0284c7;
+  border-right-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .hourglass-track {
+  background: #e2e8f0;
+}
+
+/* ── Light Mode: Floating Input ───────────────────────────── */
+[data-theme="light"] .floating-input-container {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .floating-input-container:hover {
+  border-color: rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] .floating-input-container:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+  background: #ffffff;
+}
+
+[data-theme="light"] .floating-input-field {
+  color: #0f172a;
+}
+
+[data-theme="light"] .floating-input-field::placeholder {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .floating-input-container:not(:focus-within):not(.has-value) .floating-input-field::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+
+[data-theme="light"] .floating-label-text {
+  color: #475569;
+}
+
+[data-theme="light"] .floating-input-container:focus-within .floating-label-text,
+[data-theme="light"] .floating-input-container.has-value .floating-label-text {
+  color: #0284c7;
+}
+
+[data-theme="light"] .floating-suffix {
+  color: #64748b;
+}
+
+/* ── Light Mode: Custom Select Dropdown ───────────────────── */
+[data-theme="light"] .custom-select-trigger {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  color: #0f172a;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .custom-select-trigger:hover {
+  border-color: rgba(0, 0, 0, 0.28);
+  background: #ffffff;
+}
+
+[data-theme="light"] .custom-select-trigger.is-open {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+[data-theme="light"] .select-label-text {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+[data-theme="light"] .select-chevron {
+  color: #64748b;
+}
+
+[data-theme="light"] .custom-select-trigger.is-open .select-chevron {
+  color: #0284c7;
+}
+
+[data-theme="light"] .custom-select-menu {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="light"] .select-search-box {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .select-search-input {
+  background: #f8fafc;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #0f172a;
+}
+
+[data-theme="light"] .select-search-input::placeholder {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .select-search-input:focus {
+  border-color: #0284c7;
+}
+
+[data-theme="light"] .select-option-item {
+  color: #1e293b;
+}
+
+[data-theme="light"] .select-option-item:hover {
+  background: #f1f5f9;
+  color: #0284c7;
+}
+
+[data-theme="light"] .select-option-item.selected {
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
+  font-weight: 700;
+}
+
+[data-theme="light"] .select-option-name {
+  color: #1e293b;
+}
+
+[data-theme="light"] .select-option-badge {
+  background: #f1f5f9;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #0284c7;
+}
+
+/* ── Light Mode: Dynamic Date Picker ──────────────────────── */
+[data-theme="light"] .dynamic-datepicker-input-group {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .dynamic-datepicker-input-group:hover {
+  border-color: rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] .dynamic-datepicker-input-group:focus-within,
+[data-theme="light"] .dynamic-datepicker-input-group.active {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+[data-theme="light"] .dynamic-datepicker-field {
+  color: #0f172a;
+}
+
+[data-theme="light"] .dynamic-datepicker-field.formatted-display {
+  color: #0284c7;
+}
+
+[data-theme="light"] .dynamic-datepicker-field::placeholder {
+  color: #94a3b8;
+}
+
+[data-theme="light"] .dynamic-datepicker-trigger-btn {
+  color: #0284c7;
+}
+
+[data-theme="light"] .dynamic-datepicker-popover {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="light"] .datepicker-header-nav {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .datepicker-select-control {
+  background: #f8fafc;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #0f172a;
+}
+
+[data-theme="light"] .datepicker-select-control option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+[data-theme="light"] .datepicker-nav-btn {
+  background: #f1f5f9;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #475569;
+}
+
+[data-theme="light"] .datepicker-nav-btn:hover {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, 0.3);
+}
+
+[data-theme="light"] .datepicker-weekday-cell {
+  color: #64748b;
+}
+
+[data-theme="light"] .datepicker-day-btn {
+  color: #1e293b;
+}
+
+[data-theme="light"] .datepicker-day-btn:hover:not(:disabled) {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+}
+
+[data-theme="light"] .datepicker-day-btn.other-month {
+  color: #94a3b8;
+  opacity: 0.6;
+}
+
+[data-theme="light"] .datepicker-presets-container {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .datepicker-preset-chip {
+  background: #f1f5f9;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #475569;
+}
+
+[data-theme="light"] .datepicker-preset-chip:hover {
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+
+[data-theme="light"] .dynamic-picker-format-badge {
+  background: rgba(2, 132, 199, 0.1);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  color: #0284c7;
+}
+
+[data-theme="light"] input[type="date"],
+[data-theme="light"] input[type="time"] {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  color: #0f172a;
+  color-scheme: light;
+}
+

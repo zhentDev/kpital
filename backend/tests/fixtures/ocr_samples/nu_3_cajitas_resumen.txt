@@ -1,0 +1,46 @@
+[backend] 2026-08-11 03:00:24,721 [services.statement_parser] DEBUG === OCR RAW TEXT ===
+[backend] 2026-08-11 03:00:24,721 [services.statement_parser] DEBUG 45G
+[backend] 3:16
+[backend] 04".
+[backend] KB/S
+[backend] VoLTE
+[backend] LTE
+[backend] cajital
+[backend]  0
+[backend] e
+[backend] Agregaste dinero a tu
+[backend] -850.000,00
+[backend] Cajita Deuda mom
+[backend] 30 oct
+[backend] 17:50
+[backend] Agregaste dinero a tu
+[backend] -850.000,00
+[backend] Cajita Viaje
+[backend] 29 sep
+[backend] 00.31
+[backend] Agregaste dinero a tu
+[backend] $100.000,00
+[backend] Cajita Estudios
+[backend] 29 sep
+[backend] 00.31
+[backend] Agregaste dinero a tu
+[backend] -850.000,00
+[backend] Cajita Deuda mom
+[backend] 29 sep
+[backend] 00:30
+[backend] Agregaste dinero a tu
+[backend] -850.000,00
+[backend] Cajita Viaje
+[backend] 15 sep
+[backend] 01.43
+[backend] Agregaste dinero a tu
+[backend] -850.000,00
+[backend] Cajita Estudios
+[backend] 15 sep
+[backend] 01.42
+[backend] Agregaste dinero a tu
+[backend] 840.000,00
+[backend] Cajita Viaje
+[backend] 03 sep
+[backend] 17.52
+[backend] 2026-08-11 03:00:24,721 [services.statement_parser] DEBUG === END OCR TEXT ===

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zhentdev.github.io/titanes-portfolio/sitemap.xml

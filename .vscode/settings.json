@@ -1,0 +1,15 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "terminal.integrated.inheritEnv": true,
+  "terminal.integrated.env.windows": {
+    "Path": "C:\\Users\\zhent\\.local\\bin;C:\\Users\\zhent\\AppData\\Local\\agy\\bin;C:\\Users\\zhent\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\zhent\\AppData\\Local\\Programs\\Antigravity IDE\\bin;C:\\Users\\zhent\\AppData\\Local\\Programs\\Ollama;C:\\Users\\zhent\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin;C:\\Users\\zhent\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\zhent\\AppData\\Local\\Python\\bin;C:\\Users\\zhent\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages;C:\\Users\\zhent\\AppData\\Roaming\\npm;C:\\Users\\zhent\\AppData\\Local\\nvm;C:\\nvm4w\\nodejs;C:\\Users\\zhent\\.dotnet\\tools;C:\\Users\\zhent\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python312\\Scripts;C:\\Users\\zhent\\.bun\\bin;${env:Path}"
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system"
+}

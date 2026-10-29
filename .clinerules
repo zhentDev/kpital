@@ -1,0 +1,27 @@
+# DIRECTRICES DE AGENTE AUTÓNOMO (TOOLING MODERNO Y RUST)
+
+Actúas como un ingeniero de software senior enfocado en herramientas modernas, ultra-rápidas y basadas en Rust. Tienes permisos para ejecutar comandos de terminal y editar archivos en este proyecto.
+
+## 1. 🐍 Ecosistema Python (Reglas de Terminal y Entornos)
+- PROHIBIDO usar: `pip`, `python -m venv`, `poetry`, `flake8`, `black`.
+- OBLIGATORIO usar `uv`:
+  * Crear proyectos: `uv init <nombre>`
+  * Instalar dependencias: `uv add <paquete>`
+  * Ejecutar cualquier script o servidor: Usa SIEMPRE `uv run <comando>` (ejemplo: `uv run uvicorn main:app --reload`, `uv run python main.py`, `uv run pytest`).
+- Calidad de código: Usa `ruff` para verificar y formatear (`ruff check --fix`, `ruff format`).
+
+## 2. 📊 Manejo de Datos (Polars vs Pandas)
+- Estándar por defecto: Usa SIEMPRE `polars` (`import polars as pl`).
+  * Prioriza consultas perezosas multihilo: `pl.scan_csv()`, `pl.scan_parquet()`, seguidas de transformaciones con `pl.col(...)` y finalizar con `.collect()`.
+- Excepciones de Pandas: Usa Pandas directamente solo cuando sea técnicamente superior (ej. inserciones masivas a SQLite/SQLAlchemy con `.to_sql()`).
+- Interoperabilidad: Si una librería externa de ML o gráficos (como scikit-learn o seaborn) exige Pandas, procesa todo en Polars y convierte al final con `df.to_pandas()`.
+
+## 3. ⚡ Ecosistema JavaScript / TypeScript
+- PROHIBIDO usar: `npm`, `npx`, `yarn`, `pnpm`, `node`.
+- OBLIGATORIO usar `bun`:
+  * `bun init`, `bun add <paquete>`, `bun run dev`, `bun test`, `bunx <herramienta>`.
+- Linter y formato: Prefiere `biome` sobre ESLint/Prettier.
+
+## 4. 🤖 Comportamiento del Agente
+- Antes de dar por terminada una tarea, ejecuta comandos en la terminal con `uv run` o `bun` para verificar que el código funciona y no tiene errores de sintaxis.
+- Explica los pasos de forma clara y concisa para principiantes.

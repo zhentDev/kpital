@@ -1,0 +1,810 @@
+/* ═══════════════════════════════════════════════════════
+   Titanes Portfolio — Global Design System
+   Dark premium theme inspired by Bloomberg Terminal + ARK
+   ═══════════════════════════════════════════════════════ */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ── Tokens ─────────────────────────────────────────── */
+:root {
+  /* Background layers */
+  --bg-base: #080c18;
+  --bg-surface: #0d1226;
+  --bg-card: #111829;
+  --bg-card-hover: #161f35;
+  --bg-overlay: rgba(13, 18, 38, 0.85);
+
+  /* Portfolio accent */
+  --accent-primary: #00e5ff;
+  --accent-primary-d: #00b8d4;
+  --accent-glow: rgba(0, 229, 255, 0.15);
+
+  /* Benchmark colors */
+  --sp500-color: #f59e0b;
+  --nasdaq-color: #a855f7;
+
+  /* Semantic */
+  --gain: #10b981;
+  --loss: #ef4444;
+  --gain-bg: rgba(16, 185, 129, 0.12);
+  --loss-bg: rgba(239, 68, 68, 0.12);
+  --neutral: #6b7280;
+
+  /* Text */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --text-accent: #00e5ff;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-accent: rgba(0, 229, 255, 0.3);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 30px rgba(0, 229, 255, 0.08);
+
+  /* Transitions */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration: 200ms;
+}
+
+/* ── Tokens: Modo Diurno (Light Mode) ───────────────── */
+[data-theme="light"] {
+  /* Background layers */
+  --bg-base: #f0f4f8;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-overlay: rgba(255, 255, 255, 0.94);
+
+  /* Portfolio accent */
+  --accent-primary: #0284c7;
+  --accent-primary-d: #0369a1;
+  --accent-glow: rgba(2, 132, 199, 0.12);
+
+  /* Benchmark colors */
+  --sp500-color: #b45309;
+  --nasdaq-color: #7c3aed;
+
+  /* Semantic */
+  --gain: #059669;
+  --loss: #dc2626;
+  --gain-bg: rgba(5, 150, 105, 0.10);
+  --loss-bg: rgba(220, 38, 38, 0.10);
+  --neutral: #64748b;
+
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-accent: #0284c7;
+
+  /* Borders */
+  --border: rgba(0, 0, 0, 0.10);
+  --border-accent: rgba(2, 132, 199, 0.35);
+
+  /* Shadows */
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-glow: 0 0 20px rgba(2, 132, 199, 0.08);
+}
+
+[data-theme="light"] body::before {
+  background-image: linear-gradient(rgba(2, 132, 199, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2, 132, 199, 0.025) 1px, transparent 1px);
+}
+
+/* ── Light Mode: Element Overrides ─────────────────── */
+
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+[data-theme="light"] input:not(.floating-input-field):not(.currency-native-input):not(.dynamic-datepicker-field):not(.select-search-input):focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
+  border-color: #0284c7 !important;
+}
+
+/* Cards in light mode */
+[data-theme="light"] .card:hover {
+  border-color: rgba(2, 132, 199, 0.18);
+  box-shadow: var(--shadow-card);
+}
+
+/* Button overrides */
+[data-theme="light"] .btn-primary {
+  background: #0284c7;
+  color: #ffffff;
+}
+[data-theme="light"] .btn-primary:hover {
+  background: #0369a1;
+  box-shadow: 0 0 16px rgba(2, 132, 199, 0.25);
+}
+[data-theme="light"] .btn-ghost {
+  background: transparent;
+  color: #334155;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .btn-ghost:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: rgba(2, 132, 199, 0.3);
+}
+
+/* Mode Toggle (dark/light pill selectors) */
+[data-theme="light"] .mode-toggle {
+  background: #e2e8f0;
+  border-color: rgba(0, 0, 0, 0.10);
+}
+[data-theme="light"] .mode-toggle button {
+  color: #475569;
+}
+[data-theme="light"] .mode-toggle button.active {
+  background: #0284c7;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(2, 132, 199, 0.25);
+}
+
+/* Period selector */
+[data-theme="light"] .period-selector {
+  background: #e2e8f0;
+  border-color: rgba(0, 0, 0, 0.10);
+}
+[data-theme="light"] .period-btn {
+  color: #64748b;
+}
+[data-theme="light"] .period-btn.active {
+  background: #ffffff;
+  color: #0284c7;
+}
+[data-theme="light"] .period-btn:hover:not(.active) {
+  color: #334155;
+}
+
+/* Badges */
+[data-theme="light"] .badge.gain {
+  background: rgba(5, 150, 105, 0.12);
+  color: #059669;
+}
+[data-theme="light"] .badge.loss {
+  background: rgba(220, 38, 38, 0.10);
+  color: #dc2626;
+}
+
+/* Scrollbar */
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Nav pills / dropdown buttons (common inline-styled in App.jsx) */
+[data-theme="light"] .nav-pill-btn,
+[data-theme="light"] .nav-dropdown-btn,
+[data-theme="light"] .nav-action-btn {
+  color: #334155;
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .nav-pill-btn:hover,
+[data-theme="light"] .nav-dropdown-btn:hover,
+[data-theme="light"] .nav-action-btn:hover {
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+}
+
+/* Tables */
+[data-theme="light"] table,
+[data-theme="light"] th,
+[data-theme="light"] td {
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.07);
+}
+[data-theme="light"] tr:hover td {
+  background: rgba(2, 132, 199, 0.04);
+}
+
+/* Spinner (uses accent color automatically via --accent-primary var) */
+[data-theme="light"] .spinner {
+  border-color: rgba(0, 0, 0, 0.10);
+  border-top-color: #0284c7;
+}
+
+/* Market dot */
+[data-theme="light"] .market-dot.open {
+  box-shadow: 0 0 6px #059669;
+}
+
+/* ── Light Mode: Fixed Income & Deep Component Overrides ── */
+
+/* Entity cards in FixedIncomeHub use rgba(15,23,42,.65) inline backgrounds — 
+   Override via color-scheme aware CSS properties */
+[data-theme="light"] [style*="rgba(15, 23, 42"] {
+  background-color: rgba(248, 250, 252, 0.95) !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] [style*="rgba(0, 0, 0, 0."] {
+  background-color: rgba(241, 245, 249, 0.80) !important;
+}
+
+/* General: any inline dark backgrounds → light in light mode */
+[data-theme="light"] [style*="#080c18"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="#0d1226"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="#111829"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="#0f172a"]:not(.badge-active-in-chart):not(.btn-primary) {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Any inline white/light text on dark backgrounds → dark text in light mode */
+[data-theme="light"] [style*="color: \"#f1f5f9\""]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: \"#e2e8f0\""]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: \"#f8fafc\""]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: #f1f5f9"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: #e2e8f0"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: #f8fafc"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: #ffffff"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: \"#ffffff\""]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: #fff"]:not(.badge-active-in-chart):not(.btn-primary),
+[data-theme="light"] [style*="color: \"#fff\""]:not(.badge-active-in-chart):not(.btn-primary) {
+  color: #0f172a !important;
+}
+
+/* Badges for active holding/lot charted */
+.badge-active-in-chart {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-weight: 800 !important;
+  font-size: 0.72rem !important;
+  padding: 3px 10px !important;
+  border-radius: 6px !important;
+  letter-spacing: 0.3px !important;
+  white-space: nowrap !important;
+  transition: all 0.2s ease !important;
+}
+.badge-active-in-chart.group-consolidated {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border: 1px solid #0284c7 !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25) !important;
+}
+[data-theme="dark"] .badge-active-in-chart.group-consolidated {
+  background: rgba(0, 229, 255, 0.18) !important;
+  color: #00e5ff !important;
+  border: 1px solid rgba(0, 229, 255, 0.45) !important;
+  box-shadow: 0 2px 10px rgba(0, 229, 255, 0.25) !important;
+}
+
+.badge-active-in-chart.group-lot {
+  background: #7c3aed !important;
+  color: #ffffff !important;
+  border: 1px solid #7c3aed !important;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25) !important;
+}
+[data-theme="dark"] .badge-active-in-chart.group-lot {
+  background: rgba(168, 85, 247, 0.2) !important;
+  color: #c084fc !important;
+  border: 1px solid rgba(168, 85, 247, 0.45) !important;
+  box-shadow: 0 2px 10px rgba(168, 85, 247, 0.25) !important;
+}
+
+/* Light blue / pale cyan accents on light background → high contrast blue */
+[data-theme="light"] [style*="color: #38bdf8"],
+[data-theme="light"] [style*="color: \"#38bdf8\""],
+[data-theme="light"] [style*="color: #00e5ff"],
+[data-theme="light"] [style*="color: \"#00e5ff\""] {
+  color: #0284c7 !important;
+}
+
+/* Pale yellow / amber on light background → readable dark amber */
+[data-theme="light"] [style*="color: #fbbf24"],
+[data-theme="light"] [style*="color: \"#fbbf24\""],
+[data-theme="light"] [style*="color: #f59e0b"],
+[data-theme="light"] [style*="color: \"#f59e0b\""] {
+  color: #b45309 !important;
+}
+
+/* Muted secondary text */
+[data-theme="light"] [style*="color: #94a3b8"],
+[data-theme="light"] [style*="color: \"#94a3b8\""],
+[data-theme="light"] [style*="color: #cbd5e1"],
+[data-theme="light"] [style*="color: \"#cbd5e1\""],
+[data-theme="light"] [style*="color: #64748b"],
+[data-theme="light"] [style*="color: \"#64748b\""] {
+  color: #475569 !important;
+}
+
+/* Inner inputs inside custom control wrappers */
+[data-theme="light"] .floating-input-field,
+[data-theme="light"] .currency-native-input,
+[data-theme="light"] .dynamic-datepicker-field {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Table rows with dark border in light mode */
+[data-theme="light"] [style*="borderBottom: \"1px solid rgba(255, 255, 255"] {
+  border-bottom-color: rgba(0, 0, 0, 0.07) !important;
+}
+
+/* React Hot Toast Theme Support */
+[data-theme="light"] [role="status"] {
+  color: #0f172a !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] div[class*="go"] {
+  color: #0f172a;
+}
+
+/* Modal/overlay backgrounds */
+[data-theme="light"] [style*="background: \"rgba(0, 0, 0, 0."] {
+  background: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Ticker chips and button chips in light mode */
+[data-theme="light"] .btn-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #334155;
+}
+[data-theme="light"] .btn-chip:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #0f172a;
+}
+[data-theme="light"] .btn-chip.gainer {
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.3);
+  background: rgba(22, 163, 74, 0.08);
+}
+[data-theme="light"] .btn-chip.loser {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.3);
+  background: rgba(220, 38, 38, 0.08);
+}
+[data-theme="light"] .ticker-chip.inactive {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #94a3b8;
+}
+[data-theme="light"] .ticker-chip.active {
+  background: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.4);
+  color: #0284c7;
+}
+
+
+/* ── Reset & Base ──────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Allow text selection only inside editable input fields and textareas */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+}
+
+/* Subtle grid background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(rgba(0, 229, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Typography ──────────────────────────────────── */
+h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.mono {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ── Utility Classes ──────────────────────────────── */
+.gain {
+  color: var(--gain);
+}
+.loss {
+  color: var(--loss);
+}
+.muted {
+  color: var(--text-muted);
+}
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.top-nav {
+  position: relative;
+  z-index: 50;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 100px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+}
+.badge.gain {
+  background: var(--gain-bg);
+  color: var(--gain);
+}
+.badge.loss {
+  background: var(--loss-bg);
+  color: var(--loss);
+}
+
+/* ── Card ──────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease);
+}
+.card:hover {
+  border-color: rgba(0, 229, 255, 0.12);
+  box-shadow: var(--shadow-glow);
+}
+
+/* ── Button ───────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+  border: 1px solid transparent;
+}
+.btn-primary {
+  background: var(--accent-primary);
+  color: #080c18;
+  font-weight: 700;
+}
+.btn-primary:hover {
+  background: #33eaff;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.btn-ghost:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--loss);
+  border-color: rgba(239, 68, 68, 0.2);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+.btn-danger:hover {
+  background: var(--loss-bg);
+  border-color: var(--loss);
+}
+
+/* ── Toggle Switch ────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 3px;
+  gap: 2px;
+  position: relative;
+  z-index: 50;
+}
+.mode-toggle button {
+  padding: 6px 16px;
+  border-radius: 100px;
+  border: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+  background: transparent;
+  color: var(--text-secondary);
+}
+.mode-toggle button.active {
+  background: var(--accent-primary);
+  color: #080c18;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+/* ── Period Selector (Horizontal Smooth Scrollable Carousel) ──────────────── */
+.period-selector {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  gap: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+}
+
+.period-selector::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
+}
+
+.period-btn {
+  padding: 6px 14px;
+  min-height: 36px; /* Ergonomic touch height */
+  border-radius: 6px;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all var(--duration) var(--ease);
+  font-family: "JetBrains Mono", monospace;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+.period-btn.active {
+  background: var(--bg-card);
+  color: var(--accent-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.period-btn:hover:not(.active) {
+  color: var(--text-secondary);
+}
+
+/* ── Input ──────────────────────────────────── */
+input[type="text"]:not(.floating-input-field):not(.currency-native-input):not(.dynamic-datepicker-field):not(.select-search-input),
+input[type="number"]:not(.floating-input-field):not(.currency-native-input) {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: "Inter", sans-serif;
+  font-size: 0.875rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color var(--duration) var(--ease);
+  width: 100%;
+}
+input[type="text"]:not(.floating-input-field):not(.currency-native-input):not(.dynamic-datepicker-field):not(.select-search-input):focus,
+input[type="number"]:not(.floating-input-field):not(.currency-native-input):focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.1);
+}
+input[type="number"]:not(.floating-input-field):not(.currency-native-input) {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ── Scrollbar ──────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ── Holdings Table Scroll Wrapper & Prominent Horizontal Scrollbar ── */
+.holdings-table-scroll-wrapper {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0, 229, 255, 0.5) rgba(0, 0, 0, 0.2);
+  padding-bottom: 10px;
+}
+
+.holdings-table-scroll-wrapper::-webkit-scrollbar {
+  height: 14px; /* Barra horizontal más grande, visible y fácil de agarrar */
+}
+
+.holdings-table-scroll-wrapper::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  margin: 0 4px;
+}
+
+.holdings-table-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.45);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  transition: all 0.2s ease;
+}
+
+.holdings-table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.85);
+  border: 1px solid transparent;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+[data-theme="light"] .holdings-table-scroll-wrapper {
+  scrollbar-color: rgba(2, 132, 199, 0.55) rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .holdings-table-scroll-wrapper::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+}
+
+[data-theme="light"] .holdings-table-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(2, 132, 199, 0.55);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+[data-theme="light"] .holdings-table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(2, 132, 199, 0.9);
+  border: 1px solid transparent;
+  box-shadow: 0 0 10px rgba(2, 132, 199, 0.35);
+}
+
+/* ── Hide Chart Floating Legend on smaller/medium screens to maximize chart canvas ── */
+@media (max-width: 1024px) {
+  .chart-floating-legend {
+    display: none !important;
+  }
+}
+
+/* ── Loading Spinner ────────────────────────── */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Market Status Dot ──────────────────────── */
+.market-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.market-dot.open {
+  background: var(--gain);
+  box-shadow: 0 0 6px var(--gain);
+  animation: pulse 2s ease-in-out infinite;
+}
+.market-dot.closed {
+  background: var(--neutral);
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ── Fade in animation ────────────────────── */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fadeUp 0.4s var(--ease) both;
+}

@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Titanes Bank Simulator & Gateway</title>
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-surface: #111827;
+      --bg-card: rgba(17, 24, 39, 0.7);
+      --bg-card-hover: rgba(30, 41, 59, 0.85);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(99, 102, 241, 0.3);
+      --accent-primary: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-light: rgba(99, 102, 241, 0.15);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-card: #ffffff;
+      --bg-card-hover: #f8fafc;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-accent: rgba(99, 102, 241, 0.4);
+      --accent-primary: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-light: rgba(79, 70, 229, 0.1);
+      --success: #059669;
+      --success-bg: rgba(5, 150, 105, 0.12);
+      --warning: #d97706;
+      --warning-bg: rgba(217, 119, 6, 0.12);
+      --danger: #dc2626;
+      --danger-bg: rgba(220, 38, 38, 0.12);
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      padding-bottom: 60px;
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    /* HEADER */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-icon {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent-primary);
+    }
+
+    /* WI-FI CARD / STATUS BANNER */
+    .wifi-card {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.08));
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .wifi-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .wifi-icon {
+      font-size: 26px;
+    }
+
+    .wifi-label {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .wifi-url {
+      font-family: var(--font-mono);
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--accent-primary);
+    }
+
+    .wifi-btn {
+      background: var(--accent-primary);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+
+    .wifi-btn:hover {
+      background: var(--accent-hover);
+    }
+
+    /* BACKEND CONFIG TOGGLE */
+    .backend-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 16px;
+      margin-bottom: 24px;
+      font-size: 0.85rem;
+    }
+
+    .backend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      background: var(--accent-light);
+      color: var(--accent-primary);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+    }
+
+    .backend-switch {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+
+    .backend-switch:hover {
+      color: var(--text-primary);
+      border-color: var(--accent-primary);
+    }
+
+    /* SECTION TITLES */
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .section-desc {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+
+    /* BANK FILTER TABS */
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 16px;
+      scrollbar-width: none;
+    }
+
+    .filter-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 7px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active, .tab-btn:hover {
+      background: var(--accent-primary);
+      color: #fff;
+      border-color: var(--accent-primary);
+    }
+
+    /* PRESETS GRID */
+    .presets-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .preset-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+      backdrop-filter: blur(8px);
+    }
+
+    .preset-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .preset-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .preset-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-debit {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .badge-credit {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .badge-yield {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    .preset-bank {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .preset-name {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .preset-detail {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      background: var(--bg-surface);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      font-family: var(--font-sans);
+    }
+
+    .preset-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: auto;
+    }
+
+    .preset-amount {
+      font-family: var(--font-mono);
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .btn-simulate {
+      background: var(--accent-light);
+      color: var(--accent-primary);
+      border: 1px solid var(--border-accent);
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-simulate:hover, .btn-simulate:active {
+      background: var(--accent-primary);
+      color: #fff;
+    }
+
+    .btn-simulate:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* CUSTOM TESTER */
+    .custom-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 600px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .form-input, .form-textarea {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 9px 12px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      transition: border-color 0.2s;
+    }
+
+    .form-input:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+    }
+
+    .form-textarea {
+      grid-column: 1 / -1;
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .btn-primary {
+      background: var(--accent-primary);
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    /* LIVE CONSOLE (SSE) */
+    .console-card {
+      background: #070a11;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+
+    [data-theme="light"] .console-card {
+      background: #0f172a;
+      border-color: #334155;
+    }
+
+    .console-header {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .console-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    .console-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-console {
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      border: none;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+
+    .btn-console:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+    }
+
+    .console-body {
+      max-height: 380px;
+      min-height: 220px;
+      overflow-y: auto;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      scroll-behavior: smooth;
+    }
+
+    .log-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+      padding: 4px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 3px solid transparent;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .log-line.INFO {
+      border-left-color: #6366f1;
+      color: #cbd5e1;
+    }
+
+    .log-line.SUCCESS {
+      border-left-color: #10b981;
+      color: #a7f3d0;
+    }
+
+    .log-line.WARN {
+      border-left-color: #f59e0b;
+      color: #fde68a;
+    }
+
+    .log-line.ERROR {
+      border-left-color: #ef4444;
+      color: #fca5a5;
+    }
+
+    .log-time {
+      color: #64748b;
+      flex-shrink: 0;
+    }
+
+    .log-tag {
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 0.68rem;
+      flex-shrink: 0;
+    }
+
+    .log-line.INFO .log-tag { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+    .log-line.SUCCESS .log-tag { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .log-line.WARN .log-tag { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .log-line.ERROR .log-tag { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+
+    .log-msg {
+      word-break: break-all;
+    }
+
+    /* TOAST */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #111827;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-accent);
+      box-shadow: var(--shadow-md);
+      font-size: 0.85rem;
+      font-weight: 600;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HEADER -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div>
+          <div class="brand-title">Titanes Simulator</div>
+          <div class="brand-subtitle">Bank Notifications Gateway & Testing Lab</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-icon" id="theme-toggle" title="Cambiar Tema (Día/Noche)">🌓</button>
+      </div>
+    </header>
+
+    <!-- WI-FI LOCAL ACCESS -->
+    <div class="wifi-card">
+      <div class="wifi-info">
+        <div class="wifi-icon">📲</div>
+        <div>
+          <div class="wifi-label">Acceso Directo desde tu Celular (Wi-Fi Local)</div>
+          <div class="wifi-url" id="lan-url">Cargando IP...</div>
+        </div>
+      </div>
+      <button class="wifi-btn" id="copy-btn">
+        <span>📋</span> Copiar URL
+      </button>
+    </div>
+
+    <!-- TARGET BACKEND BAR -->
+    <div class="backend-bar">
+      <div>
+        <span>Destino FastAPI: </span>
+        <span class="backend-pill" id="backend-target">...</span>
+      </div>
+      <button class="backend-switch" id="toggle-backend-btn">Cambiar a Render Cloud</button>
+    </div>
+
+    <!-- TELEGRAM TEST CARD -->
+    <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(6, 182, 212, 0.08)); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: var(--radius-lg); padding: 14px 18px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="font-size: 24px;">📱</div>
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 700;">Sistema de Alarmas Telegram</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">Prueba la recepción de alertas sonoras en tu celular al instante</div>
+        </div>
+      </div>
+      <button class="wifi-btn" id="btn-test-telegram" style="background: #10b981;">
+        <span>🔔</span> Probar Alarma en Celular
+      </button>
+    </div>
+
+    <!-- SIMULATOR PRESETS -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Plantillas Sintéticas de Bancos</h2>
+          <p class="section-desc">Simula gastos, ingresos y rendimientos reales sin mover un solo peso.</p>
+        </div>
+      </div>
+
+      <!-- FILTER TABS -->
+      <div class="filter-tabs" id="filter-tabs">
+        <button class="tab-btn active" data-bank="all">Todos (14)</button>
+        <button class="tab-btn" data-bank="Nu Colombia">Nu Colombia</button>
+        <button class="tab-btn" data-bank="RappiPay">RappiPay</button>
+        <button class="tab-btn" data-bank="Plenti (Ahorros)">Plenti</button>
+        <button class="tab-btn" data-bank="Bancolombia">Bancolombia</button>
+        <button class="tab-btn" data-bank="Banco Caja Social">Caja Social</button>
+      </div>
+
+      <!-- GRID -->
+      <div class="presets-grid" id="presets-grid">
+        <!-- Rendered via JS -->
+      </div>
+    </section>
+
+    <!-- MANUAL NOTIFICATION TESTER -->
+    <section>
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Simulador de Notificación Personalizada</h2>
+          <p class="section-desc">Escribe o pega el texto exacto que enviaría tu celular Android vía MacroDroid.</p>
+        </div>
+      </div>
+
+      <div class="custom-card">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">App Bancaria / Origen</label>
+            <input type="text" id="custom-app" class="form-input" placeholder="Ej: Nubank, Rappi, Bancolombia" value="Nubank">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Título de Notificación</label>
+            <input type="text" id="custom-title" class="form-input" placeholder="Ej: Compra aprobada o Enviaste $50.000" value="Nubank">
+          </div>
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label">Cuerpo de Notificación (Texto Crudo)</label>
+            <textarea id="custom-text" class="form-textarea" placeholder="Pega el texto de la notificación bancaria">Compra aprobada en EXITO CALLE 170 por $45.000 con tu tarjeta Nu</textarea>
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-custom-send">
+          <span>🚀</span> Procesar y Despachar a Titanes
+        </button>
+      </div>
+    </section>
+
+    <!-- LIVE SSE CONSOLE -->
+    <section>
+      <div class="console-card">
+        <div class="console-header">
+          <div class="console-title">
+            <div class="status-dot" id="sse-dot"></div>
+            <span>Consola de Eventos en Vivo (SSE)</span>
+          </div>
+          <div class="console-actions">
+            <button class="btn-console" id="clear-console-btn">Limpiar</button>
+          </div>
+        </div>
+        <div class="console-body" id="console-stream">
+          <div class="log-line INFO">
+            <span class="log-time">--:--:--</span>
+            <span class="log-tag">SYSTEM</span>
+            <span class="log-msg">Iniciando conexión con el motor de eventos SSE en Go...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast">Operación completada</div>
+
+  <script>
+    // THEME MANAGEMENT (Dual Mode Support)
+    const htmlEl = document.documentElement;
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const savedTheme = localStorage.getItem('titanes_theme') || 'dark';
+    htmlEl.setAttribute('data-theme', savedTheme);
+
+    themeToggleBtn.addEventListener('click', () => {
+      const current = htmlEl.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      htmlEl.setAttribute('data-theme', next);
+      localStorage.setItem('titanes_theme', next);
+    });
+
+    // TOAST HELPER
+    function showToast(msg, isSuccess = true) {
+      const toast = document.getElementById('toast');
+      toast.textContent = (isSuccess ? '✅ ' : '❌ ') + msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3200);
+    }
+
+    // STATE
+    let allPresets = [];
+    let currentBankFilter = 'all';
+    let currentBackend = 'http://localhost:8000';
+
+    // LOAD SERVER STATUS
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        document.getElementById('lan-url').textContent = data.access_url;
+        document.getElementById('backend-target').textContent = data.target_backend;
+        currentBackend = data.target_backend;
+        updateBackendButtonLabel();
+      } catch (err) {
+        console.error('Error fetching status:', err);
+      }
+    }
+
+    function updateBackendButtonLabel() {
+      const btn = document.getElementById('toggle-backend-btn');
+      if (currentBackend.includes('localhost')) {
+        btn.textContent = 'Cambiar a Render Cloud';
+      } else {
+        btn.textContent = 'Cambiar a Localhost (8000)';
+      }
+    }
+
+    // TOGGLE BACKEND
+    document.getElementById('toggle-backend-btn').addEventListener('click', async () => {
+      const newTarget = currentBackend.includes('localhost')
+        ? 'https://titanes-portfolio-backend.onrender.com'
+        : 'http://localhost:8000';
+
+      try {
+        const res = await fetch('/api/config/backend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base_url: newTarget })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentBackend = data.target_url;
+          document.getElementById('backend-target').textContent = currentBackend;
+          updateBackendButtonLabel();
+          showToast(`Destino cambiado a: ${currentBackend}`);
+        }
+      } catch (err) {
+        showToast('Error cambiando backend', false);
+      }
+    });
+
+    // COPY URL BUTTON
+    document.getElementById('copy-btn').addEventListener('click', () => {
+      const url = document.getElementById('lan-url').textContent;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('URL copiada al portapapeles');
+      }).catch(() => {
+        showToast('Copia manual: ' + url);
+      });
+    });
+
+    // TEST TELEGRAM BUTTON
+    document.getElementById('btn-test-telegram').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳</span> Enviando...';
+      try {
+        const res = await fetch('/api/telegram/test', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('¡Alarma enviada a tu Telegram con éxito!');
+        } else {
+          showToast('Aviso: ' + (data.error || 'No se pudo enviar'), false);
+        }
+      } catch (err) {
+        showToast('Error conectando con el servidor', false);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🔔</span> Probar Alarma en Celular';
+      }
+    });
+
+    // LOAD PRESETS
+    async function loadPresets() {
+      try {
+        const res = await fetch('/api/presets');
+        allPresets = await res.json();
+        renderPresets();
+      } catch (err) {
+        console.error('Error loading presets:', err);
+      }
+    }
+
+    function renderPresets() {
+      const grid = document.getElementById('presets-grid');
+      grid.innerHTML = '';
+
+      const filtered = currentBankFilter === 'all'
+        ? allPresets
+        : allPresets.filter(p => p.bank === currentBankFilter);
+
+      filtered.forEach(preset => {
+        const card = document.createElement('div');
+        card.className = 'preset-card';
+
+        let badgeClass = 'badge-debit';
+        let badgeText = 'Gasto Débito';
+        if (preset.action_type === 'credit') {
+          badgeClass = 'badge-credit';
+          badgeText = 'Abono / Ingreso';
+        } else if (preset.action_type === 'yield_payout') {
+          badgeClass = 'badge-yield';
+          badgeText = 'Rendimientos';
+        }
+
+        const formattedAmt = new Intl.NumberFormat('es-CO', {
+          style: 'currency',
+          currency: 'COP',
+          maximumFractionDigits: 0
+        }).format(preset.amount);
+
+        card.innerHTML = `
+          <div>
+            <div class="preset-top">
+              <span class="preset-bank">${preset.bank}</span>
+              <span class="preset-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            <div class="preset-name">${preset.name}</div>
+            <div class="preset-detail">
+              <strong>Cuenta:</strong> ${preset.target_account}<br>
+              <strong>Texto:</strong> "${preset.text}"
+            </div>
+          </div>
+          <div class="preset-footer">
+            <span class="preset-amount">${formattedAmt}</span>
+            <button class="btn-simulate" data-id="${preset.id}">
+              <span>⚡</span> Simular
+            </button>
+          </div>
+        `;
+
+        card.querySelector('.btn-simulate').addEventListener('click', (e) => {
+          triggerPreset(preset.id, e.currentTarget);
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    // FILTER TABS CLICK
+    document.getElementById('filter-tabs').addEventListener('click', (e) => {
+      if (e.target.classList.contains('tab-btn')) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        e.target.classList.add('active');
+        currentBankFilter = e.target.getAttribute('data-bank');
+        renderPresets();
+      }
+    });
+
+    // TRIGGER PRESET
+    async function triggerPreset(presetId, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '<span>⏳</span> Enviando...';
+      }
+
+      try {
+        const res = await fetch('/api/presets/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: presetId })
+        });
+        const result = await res.json();
+        if (result.success) {
+          const lat = result.dispatch ? result.dispatch.latency_ms : 0;
+          showToast(`Simulado en ${lat}ms: ${result.parsed.description}`);
+        } else {
+          showToast(`Error: ${result.error || 'Fallo'}`, false);
+        }
+      } catch (err) {
+        showToast('Error de conexión con el simulador', false);
+      } finally {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = '<span>⚡</span> Simular';
+        }
+      }
+    }
+
+    // CUSTOM TESTER
+    document.getElementById('btn-custom-send').addEventListener('click', async () => {
+      const appName = document.getElementById('custom-app').value;
+      const title = document.getElementById('custom-title').value;
+      const text = document.getElementById('custom-text').value;
+
+      if (!text.trim()) {
+        showToast('Escribe el texto de la notificación', false);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/notifications/incoming', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app_name: appName,
+            title: title,
+            text: text,
+            timestamp: new Date().toISOString()
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Reconocido: ${data.parsed.bank} - $${data.parsed.amount}`);
+        } else {
+          showToast(`Aviso: ${data.message || 'No reconocido'}`, false);
+        }
+      } catch (err) {
+        showToast('Error enviando notificación manual', false);
+      }
+    });
+
+    // SSE EVENT STREAM
+    function setupSSE() {
+      const consoleEl = document.getElementById('console-stream');
+      const dotEl = document.getElementById('sse-dot');
+
+      const evtSource = new EventSource('/api/logs/stream');
+
+      evtSource.onopen = () => {
+        dotEl.style.background = '#10b981';
+        dotEl.style.boxShadow = '0 0 8px #10b981';
+      };
+
+      evtSource.onerror = () => {
+        dotEl.style.background = '#ef4444';
+        dotEl.style.boxShadow = '0 0 8px #ef4444';
+      };
+
+      evtSource.addEventListener('log', (e) => {
+        try {
+          const log = JSON.parse(e.data);
+          appendLog(log);
+        } catch (err) {
+          console.error('Error parsing SSE log:', err);
+        }
+      });
+    }
+
+    function appendLog(log) {
+      const consoleEl = document.getElementById('console-stream');
+      const date = new Date(log.timestamp);
+      const timeStr = date.toTimeString().split(' ')[0];
+
+      const line = document.createElement('div');
+      line.className = `log-line ${log.level}`;
+      line.innerHTML = `
+        <span class="log-time">${timeStr}</span>
+        <span class="log-tag">${log.source}</span>
+        <span class="log-msg">${escapeHtml(log.message)}</span>
+      `;
+
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // CLEAR CONSOLE
+    document.getElementById('clear-console-btn').addEventListener('click', () => {
+      document.getElementById('console-stream').innerHTML = '';
+      showToast('Consola limpiada');
+    });
+
+    // INITIALIZATION
+    window.addEventListener('DOMContentLoaded', () => {
+      loadStatus();
+      loadPresets();
+      setupSSE();
+    });
+  </script>
+</body>
+</html>

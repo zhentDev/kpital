@@ -1,0 +1,7 @@
+
+/* ── Master-Detail 30%-70% Grid Responsive ── */
+@media (max-width: 860px) {
+  .fixed-income-master-detail-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
