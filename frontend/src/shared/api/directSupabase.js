@@ -1,14 +1,46 @@
 /**
  * Kpital V2 — Supabase Direct Data & Auth Service
- * 100% Direct to Supabase (Zero Render / Zero Python intermediary required).
+ * 100% Native Web Crypto API (Zero external Node/Buffer dependencies).
  */
 import { supabase, OWNER_USER_ID } from "./supabaseClient";
-import pbkdf2 from "pbkdf2";
+
+/**
+ * Native Browser PBKDF2 verification using window.crypto.subtle
+ * Matches Python's hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
+ */
+async function verifyPasswordNative(plainPassword, saltStr, expectedHex) {
+  const enc = new TextEncoder();
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(plainPassword),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: enc.encode(saltStr),
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    passwordKey,
+    256 // 32 bytes * 8 bits
+  );
+
+  const derivedArray = Array.from(new Uint8Array(derivedBits));
+  const derivedHex = derivedArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return derivedHex.toLowerCase() === expectedHex.toLowerCase();
+}
 
 // ── 1. Direct Authentication with Supabase ──────────────────────────────────
 export async function directSupabaseLogin(email, plainPassword) {
   const cleanEmail = (email || "").trim().toLowerCase();
-  
+
   // Query users table directly in Supabase
   const { data: userRows, error } = await supabase
     .from("users")
@@ -29,16 +61,8 @@ export async function directSupabaseLogin(email, plainPassword) {
   const salt = hashParts[1];
   const expectedHash = hashParts[2];
 
-  // Derive PBKDF2 hash directly in browser
-  const derivedKey = pbkdf2.pbkdf2Sync(
-    plainPassword,
-    salt,
-    100000,
-    32,
-    "sha256"
-  ).toString("hex");
-
-  if (derivedKey !== expectedHash) {
+  const isValid = await verifyPasswordNative(plainPassword, salt, expectedHash);
+  if (!isValid) {
     throw new Error("Contraseña incorrecta");
   }
 
