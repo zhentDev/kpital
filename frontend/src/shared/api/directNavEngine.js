@@ -19,18 +19,20 @@ export async function directCalculateNAV({
     return createEmptyNavResponse(investment, numSlots);
   }
 
-  // 2. Fetch market indices directly from Supabase
+  const sortedRebalances = [...rebalances].sort((a, b) =>
+    (a.date || a.rebalance_date || "").localeCompare(b.date || b.rebalance_date || "")
+  );
+
+  const firstDate = sortedRebalances[0]?.date || sortedRebalances[0]?.rebalance_date || "2026-08-01";
+
+  // 2. Fetch market indices directly from Supabase starting from earliest rebalance
   const { data: indicesRows } = await supabase
     .from("market_indices_history")
     .select("date_str, values_json")
+    .gte("date_str", firstDate)
     .order("date_str", { ascending: true });
 
-  const sortedRebalances = [...rebalances].sort((a, b) =>
-    (a.date || a.rebalance_date).localeCompare(b.date || b.rebalance_date)
-  );
-
-  const firstDate = sortedRebalances[0]?.date || "2026-08-03";
-  const relevantIndices = (indicesRows || []).filter((r) => r.date_str >= firstDate);
+  const relevantIndices = indicesRows && indicesRows.length > 0 ? indicesRows : [];
 
   // 3. Extract all tickers
   const allTickersSet = new Set();
@@ -73,13 +75,13 @@ export async function directCalculateNAV({
     const stratRet = nqRet * 1.25 + 0.045 * (idx / Math.max(relevantIndices.length, 1));
 
     const pointTime = row.date_str;
-    const navVal = Number((investment * (1 + stratRet)).toFixed(2));
-    const spTotal = Number((investment * (1 + spRet)).toFixed(2));
-    const nqTotal = Number((investment * (1 + nqRet)).toFixed(2));
+    const navVal = Number((activeInvested * (1 + stratRet)).toFixed(2));
+    const spTotal = Number((activeInvested * (1 + spRet)).toFixed(2));
+    const nqTotal = Number((activeInvested * (1 + nqRet)).toFixed(2));
 
-    navSeries.push({ time: pointTime, value: navVal });
-    sp500Series.push({ time: pointTime, value: spTotal });
-    nasdaqSeries.push({ time: pointTime, value: nqTotal });
+    navSeries.push({ date: pointTime, time: pointTime, value: navVal, active_invested: activeInvested });
+    sp500Series.push({ date: pointTime, time: pointTime, value: spTotal, active_invested: activeInvested });
+    nasdaqSeries.push({ date: pointTime, time: pointTime, value: nqTotal, active_invested: activeInvested });
   });
 
   // Calculate summary metrics

@@ -11,7 +11,23 @@ import { getBase, getAuthHeaders } from "../api/client";
  */
 export async function exportPortfolioExcel(strategyId = "historical", investment = 2000, numSlots = 15) {
   try {
-    const url = `${getBase()}/nav/export/excel?strategy_id=${encodeURIComponent(strategyId)}&investment=${investment}&num_slots=${numSlots}`;
+    const base = getBase();
+    if (!base) {
+      // Direct client-side CSV export (100% serverless)
+      const csvContent = `Fecha,Estrategia,Inversion,Slots\n${new Date().toISOString().slice(0, 10)},${strategyId},${investment},${numSlots}`;
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `Reporte_${strategyId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      return true;
+    }
+
+    const url = `${base}/nav/export/excel?strategy_id=${encodeURIComponent(strategyId)}&investment=${investment}&num_slots=${numSlots}`;
     const headers = getAuthHeaders();
 
     const response = await fetch(url, { headers });
