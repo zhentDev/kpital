@@ -3,6 +3,13 @@
  * Zero static JSON file fallbacks — 100% cloud relational database.
  */
 import { getBankPreset } from "../utils/bankPresets";
+import {
+  directSupabaseLogin,
+  directSupabaseFetchMe,
+  directFetchCashFlow,
+  directFetchFixedIncome,
+  directFetchPurchases,
+} from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
 const LOCAL_BACKEND_BASE = "http://127.0.0.1:8000/api";
@@ -379,11 +386,16 @@ export async function deleteCustomStrategyApi(strategyId) {
 
 /** PURCHASES API */
 export async function fetchPurchasesData() {
-  const data = await fetchFromBackend("/purchases/portfolios");
-  if (!data || (!data.purchasePortfolios && !data.individualPurchases)) {
-    throw new Error("Error fetching purchases data");
+  try {
+    return await directFetchPurchases();
+  } catch (err) {
+    console.warn("Direct Supabase purchases fetch failed, falling back to backend:", err);
+    const data = await fetchFromBackend("/purchases/portfolios");
+    if (!data || (!data.purchasePortfolios && !data.individualPurchases)) {
+      throw new Error("Error fetching purchases data");
+    }
+    return data;
   }
-  return data;
 }
 
 export async function createPurchasePortfolio(id, name, isPlan = false) {
@@ -594,7 +606,12 @@ export async function syncPurchasesMigration(purchasePortfolios, individualPurch
 /** ── FIXED INCOME & SAVINGS ACCOUNTS API ── */
 
 export async function fetchFixedIncomeData(options = {}) {
-  return await fetchFromBackend("/fixed-income/data", options);
+  try {
+    return await directFetchFixedIncome();
+  } catch (err) {
+    console.warn("Direct Supabase fixed income fetch failed, falling back to backend:", err);
+    return await fetchFromBackend("/fixed-income/data", options);
+  }
 }
 
 export async function createFixedIncomeEntity(entity) {
@@ -784,7 +801,12 @@ export async function applyUpdatedAccountRate({ accountId, newRate, effectiveDat
 // ── Cash Flow & Budget Allocation API ────────────────────────────
 
 export async function fetchCashFlowData(options = {}) {
-  return await fetchFromBackend("/cash-flow", options);
+  try {
+    return await directFetchCashFlow();
+  } catch (err) {
+    console.warn("Direct Supabase cash flow fetch failed, falling back to backend:", err);
+    return await fetchFromBackend("/cash-flow", options);
+  }
 }
 
 export async function syncCashFlowStateApi(payload) {
@@ -905,20 +927,26 @@ export async function checkDebtRemindersApi() {
 // ── AUTH API ENDPOINTS ─────────────────────────────────────────────────────────
 
 export async function loginApi(email, password) {
-  const res = await safeFetch(
-    `${getBase()}/auth/login`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    },
-    2,
-    1500,
-  );
-  if (!res) throw new Error("Servidor no disponible");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Error al iniciar sesión");
-  return data;
+  try {
+    // 100% Direct Supabase authentication (Zero Render / Zero cold start)
+    return await directSupabaseLogin(email, password);
+  } catch (err) {
+    console.warn("Direct Supabase login fallback:", err);
+    const res = await safeFetch(
+      `${getBase()}/auth/login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      },
+      2,
+      1500,
+    );
+    if (!res) throw err || new Error("Servidor no disponible");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Error al iniciar sesión");
+    return data;
+  }
 }
 
 export async function registerApi(email, password, name) {
@@ -957,6 +985,10 @@ export async function oauthLoginApi(idToken, profile = {}) {
 
 export async function fetchMeApi() {
   try {
+    const token = localStorage.getItem("kpital_auth_token");
+    const directUser = await directSupabaseFetchMe(token);
+    if (directUser) return directUser;
+
     const res = await safeFetch(`${getBase()}/auth/me`);
     if (!res || !res.ok) return null;
     return await res.json();

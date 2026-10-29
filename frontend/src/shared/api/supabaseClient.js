@@ -1,21 +1,33 @@
 /**
- * Kpital V2 — Supabase Cloud & Realtime Sync Client
+ * Kpital V2 — Supabase Cloud Direct Client (SSOT)
  * Target Cloud Project: ixnidzllqwbkexsrmgwz (https://ixnidzllqwbkexsrmgwz.supabase.co)
  *
- * Provides direct cloud synchronization helpers and multi-device event
- * dispatching so Kpital Zustand stores stay synchronized in real time
- * without persisting any financial data in localStorage.
+ * Direct browser-to-database architecture:
+ * Eliminates Render cold starts and proxy dependencies completely.
  */
+import { createClient } from "@supabase/supabase-js";
 
-export const SUPABASE_PROJECT_ID = "ixnidzllqwbkexsrmgwz";
-export const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || `https://${SUPABASE_PROJECT_ID}.supabase.co`;
-export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+export const SUPABASE_URL = "https://ixnidzllqwbkexsrmgwz.supabase.co";
+export const SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_4Gbn-hZLX764m-gz-LAhRg_914uGNIR";
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
+
+export const OWNER_USER_ID = "usr_9487dd2209d2";
 
 /**
  * Subscribe to cross-tab / cloud sync events and visibility changes
- * so when the user switches devices or tabs, Kpital re-fetches authoritative
- * state directly from Supabase PostgreSQL via the API layer.
  */
 export function subscribeToCloudSync({
   onCashFlowRefresh,
