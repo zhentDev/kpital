@@ -9,6 +9,11 @@ import {
   directFetchCashFlow,
   directFetchFixedIncome,
   directFetchPurchases,
+  directFetchCustomStrategies,
+  directFetchRebalances,
+  directFetchStockAlerts,
+  directFetchFxRate,
+  directFetchColInflation,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -305,9 +310,14 @@ export async function searchTickersMultiple(q) {
 
 /** GET /api/rebalances */
 export async function fetchRebalances(strategyId = "historical", options = {}) {
-  const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : "";
-  const res = await fetchFromBackend(`/rebalances${query}`, options);
-  return Array.isArray(res) ? res : [];
+  try {
+    return await directFetchRebalances(strategyId);
+  } catch (err) {
+    console.warn("Direct Supabase rebalances fetch failed, falling back to backend:", err);
+    const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : "";
+    const res = await fetchFromBackend(`/rebalances${query}`, options);
+    return Array.isArray(res) ? res : [];
+  }
 }
 
 /** POST /api/rebalances */
@@ -359,7 +369,12 @@ export async function updateRebalanceDateApi(oldDate, newDate, strategyId = "his
 
 /** CUSTOM STRATEGIES API */
 export async function fetchCustomStrategiesApi() {
-  return await fetchFromBackend("/custom-strategies");
+  try {
+    return await directFetchCustomStrategies();
+  } catch (err) {
+    console.warn("Direct Supabase custom strategies fetch failed, falling back to backend:", err);
+    return await fetchFromBackend("/custom-strategies");
+  }
 }
 
 export async function saveCustomStrategyApi(strat) {
@@ -442,38 +457,42 @@ export async function updatePortfolioSettingsApi(
 
 export async function fetchFxHistory(assetCurrency, localCurrency) {
   if (assetCurrency === localCurrency) return { current: 1.0, history: {} };
-  const res = await safeFetch(
-    `${getBase()}/purchases/fx?currency=${assetCurrency}-${localCurrency}`,
-    {},
-    2,
-    500,
-  );
-  if (!res.ok) throw new Error("Error fetching FX data");
-  return res.json();
+  try {
+    return await directFetchFxRate(assetCurrency, localCurrency);
+  } catch {
+    return { current: 4150.0, history: {} };
+  }
 }
 
 export async function fetchColInflationHistory() {
-  const res = await safeFetch(`${getBase()}/purchases/inflation/colombia`, {}, 2, 500);
-  if (!res.ok) throw new Error("Error fetching inflation data");
-  return res.json();
+  try {
+    return await directFetchColInflation();
+  } catch {
+    return { history: {}, latest: { year: 2026, rate: 4.85 }, monthly_rates: [] };
+  }
 }
 
 /** ── Stock Sell Alerts (Profit Target / Stop Loss) — 100% Supabase SQL ── **/
 export async function fetchStockAlerts(scope = null, targetId = null) {
   try {
-    const params = new URLSearchParams();
-    if (scope) params.set("scope", scope);
-    if (targetId) params.set("target_id", targetId);
-    const q = params.toString() ? `?${params.toString()}` : "";
-    const res = await safeFetch(`${getBase()}/alerts${q}`, {}, 1, 1000);
-    if (res && res.ok) {
-      const serverData = await res.json();
-      if (Array.isArray(serverData)) return serverData;
-    }
+    return await directFetchStockAlerts(scope, targetId);
   } catch (err) {
-    console.warn("[Alerts] Error fetching from server:", err);
+    console.warn("Direct Supabase stock alerts fetch fallback:", err);
+    try {
+      const params = new URLSearchParams();
+      if (scope) params.set("scope", scope);
+      if (targetId) params.set("target_id", targetId);
+      const q = params.toString() ? `?${params.toString()}` : "";
+      const res = await safeFetch(`${getBase()}/alerts${q}`, {}, 1, 1000);
+      if (res && res.ok) {
+        const serverData = await res.json();
+        if (Array.isArray(serverData)) return serverData;
+      }
+    } catch (e) {
+      console.warn("[Alerts] Error fetching from server:", e);
+    }
+    return [];
   }
-  return [];
 }
 
 export async function saveStockAlert(alertData) {

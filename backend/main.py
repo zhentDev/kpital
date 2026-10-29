@@ -45,11 +45,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://zhent.homes",
+        "https://www.zhent.homes",
         "https://zhentdev.github.io",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
-    allow_origin_regex=r"^https://.*\.github\.io$",
+    allow_origin_regex=r"^https://(.*\.github\.io|.*zhent\.homes)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
