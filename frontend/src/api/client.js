@@ -2,7 +2,7 @@
  * API client — wraps fetch calls to the FastAPI backend & Supabase PostgreSQL (SSOT).
  * Zero static JSON file fallbacks — 100% cloud relational database.
  */
-import { getBankPreset } from "../utils/bankPresets";
+import { directCalculateNAV } from "../shared/api/directNavEngine";
 import {
   directSupabaseLogin,
   directSupabaseFetchMe,
@@ -189,53 +189,19 @@ export async function fetchNAV({
   selectedTickers,
   strategyId = "historical",
 }) {
-  const params = new URLSearchParams({
-    period,
-    investment: String(investment),
-    num_slots: String(numSlots),
-    strategy_id: strategyId || "historical",
-  });
-  if (selectedTickers && selectedTickers.length > 0) {
-    params.set("selected_tickers", selectedTickers.join(","));
-  }
-
-  let data;
   try {
-    data = await fetchFromBackend(`/nav?${params}`, { timeoutMs: 15000 });
+    // 100% Direct Browser-Side Quantitative Engine using Supabase data
+    return await directCalculateNAV({
+      period,
+      investment,
+      numSlots,
+      selectedTickers,
+      strategyId,
+    });
   } catch (err) {
-    console.warn(`fetchNAV could not fetch data for strategy ${strategyId}:`, err);
+    console.warn("Direct NAV calculation error:", err);
     return null;
   }
-
-  if (selectedTickers && data?.holdings) {
-    const validTickers = selectedTickers.map((t) => t.toUpperCase());
-    const filteredHoldings = data.holdings.map((h) => ({
-      ...h,
-      selected: validTickers.includes(h.ticker.toUpperCase()),
-    }));
-
-    const activeSelected = filteredHoldings.filter((h) => h.selected);
-    const activeCount = activeSelected.length;
-    const activeInvested = Number(((investment * activeCount) / numSlots).toFixed(2));
-    const activeStockValue = activeSelected.reduce((sum, h) => sum + (h.current_value || 0), 0);
-    const activeReturn = activeStockValue - activeInvested;
-    const activeReturnPct = activeInvested > 0 ? (activeReturn / activeInvested) * 100 : 0;
-
-    data = {
-      ...data,
-      holdings: filteredHoldings,
-      summary: {
-        ...data.summary,
-        num_holdings: activeCount,
-        active_invested: activeInvested,
-        active_stock_value: Number(activeStockValue.toFixed(2)),
-        active_return: Number(activeReturn.toFixed(2)),
-        active_return_pct: Number(activeReturnPct.toFixed(2)),
-      },
-    };
-  }
-
-  return data;
 }
 
 /** GET /api/prices/live */
