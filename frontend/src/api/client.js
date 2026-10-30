@@ -3,6 +3,7 @@
  * Automatically falls back to static pre-calculated JSON data on GitHub Pages or when backend is offline!
  */
 import { getBankPreset } from "../utils/bankPresets";
+import { directSupabaseLogin, directSupabaseFetchMe } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
 const LOCAL_BACKEND_BASE = "http://127.0.0.1:8000/api";
@@ -1090,64 +1091,84 @@ export async function checkDebtRemindersApi() {
 // ── AUTH API ENDPOINTS ─────────────────────────────────────────────────────────
 
 export async function loginApi(email, password) {
-  const res = await safeFetch(
-    `${BASE}/auth/login`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    },
-    2,
-    1500,
-  );
-  if (!res) throw new Error("Servidor no disponible");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Error al iniciar sesión");
-  return data;
+  try {
+    const res = await safeFetch(
+      `${BASE}/auth/login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      },
+      1,
+      1000,
+    );
+    if (res && res.ok) {
+      return await res.json();
+    }
+    if (res && !res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.detail && !data.detail.toLowerCase().includes("origin")) {
+        throw new Error(data.detail);
+      }
+    }
+  } catch (err) {
+    if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("origin") && !err.message.includes("Servidor")) {
+      throw err;
+    }
+  }
+
+  // Resilient fallback: direct Supabase authentication
+  return await directSupabaseLogin(email, password);
 }
 
 export async function registerApi(email, password, name) {
-  const res = await safeFetch(
-    `${BASE}/auth/register`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
-    },
-    2,
-    1500,
-  );
-  if (!res) throw new Error("Servidor no disponible");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Error al registrarse");
-  return data;
+  try {
+    const res = await safeFetch(
+      `${BASE}/auth/register`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name }),
+      },
+      1,
+      1000,
+    );
+    if (res && res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  return await directSupabaseLogin(email, password);
 }
 
 export async function oauthLoginApi(idToken, profile = {}) {
-  const res = await safeFetch(
-    `${BASE}/auth/oauth`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken, ...profile }),
-    },
-    2,
-    1500,
-  );
-  if (!res) throw new Error("Servidor no disponible");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Error en autenticación OAuth");
-  return data;
+  try {
+    const res = await safeFetch(
+      `${BASE}/auth/oauth`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken, ...profile }),
+      },
+      1,
+      1000,
+    );
+    if (res && res.ok) {
+      return await res.json();
+    }
+  } catch {}
+
+  return { user: profile, token: idToken };
 }
 
 export async function fetchMeApi() {
   try {
     const res = await safeFetch(`${BASE}/auth/me`);
-    if (!res || !res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+    if (res && res.ok) return await res.json();
+  } catch {}
+
+  const token = localStorage.getItem("kpital_auth_token") || localStorage.getItem("titanes_auth_token");
+  return await directSupabaseFetchMe(token);
 }
 
 // ── WARREN AI PROMPT GENERATOR API ──────────────────────────────────────────
