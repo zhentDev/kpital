@@ -94,6 +94,29 @@ export async function fetchNAV({
   selectedTickers,
   strategyId = "historical",
 } = {}) {
+  // 1. Try FastAPI Python Backend (Polars engine for exact curves across all strategies)
+  try {
+    const params = new URLSearchParams({
+      period,
+      investment: String(investment),
+      num_slots: String(numSlots),
+      strategy_id: strategyId,
+    });
+    if (selectedTickers && selectedTickers.length) {
+      params.set("selected_tickers", selectedTickers.join(","));
+    }
+    const res = await safeFetch(`${getBase()}/nav?${params}`, { timeoutMs: 5000 });
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data && data.nav && data.nav.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn("Backend NAV fetch fallback to direct Supabase calculation:", err);
+  }
+
+  // 2. Direct Supabase Client-Side fallback
   try {
     return await directCalculateNAV({
       period,
