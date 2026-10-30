@@ -64,7 +64,7 @@ export const usePortfolioStore = create((set, get) => ({
       numSlots: 20,
     },
   },
-  mode: "historical", // 'historical' | 'live' | custom strategy ID
+  mode: "cash_flow", // Default tab: Flujo de Caja ('cash_flow') | 'historical' | 'live' | etc
   period: "3M",
   visibleSeries: {
     nav: true,

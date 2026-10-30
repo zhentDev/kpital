@@ -134,16 +134,16 @@ export default function App() {
     mode === "historical" || mode === "live" || (customStrategies || []).some((s) => s.id === mode);
   const isPurchaseMode = (purchasePortfolios || []).some((p) => p.id === mode);
 
-  // If user is not PRO and lands on the historical default strategy mode, guide them to fixed_income
+  // Always ensure default initial mode is cash_flow (Flujo de Caja)
   const hasCheckedInitialMode = useRef(false);
   useEffect(() => {
     if (isInitialized && !hasCheckedInitialMode.current) {
       hasCheckedInitialMode.current = true;
-      if (!isPro && mode === "historical") {
-        setMode("fixed_income");
+      if (!mode || mode === "historical") {
+        setMode("cash_flow");
       }
     }
-  }, [isInitialized, isPro, mode, setMode]);
+  }, [isInitialized, mode, setMode]);
 
   const currentStrategyLabel = useMemo(() => {
     if (mode === "historical") return `🏆 ${coreStrategyName}`;
