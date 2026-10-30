@@ -182,7 +182,7 @@ export default function LoanSettlementModal({
     if (p.customShare !== undefined && p.customShare !== null && p.customShare !== "") {
       return Number(p.customShare) || 0;
     }
-    return Number(p.share) > 0 ? Number(p.share) : sharePerPerson;
+    return sharePerPerson;
   };
 
   const getParticipantPaid = (p) => {
@@ -217,7 +217,7 @@ export default function LoanSettlementModal({
     const newPart = {
       id: `part_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: trimmed,
-      share: sharePerPerson,
+      share: 0,
       paid: false,
     };
     const updated = [...participants, newPart];
@@ -305,7 +305,7 @@ export default function LoanSettlementModal({
     const paidSoFar = getParticipantPaid(participant);
     const pendingToPay = Math.max(0, effShare - paidSoFar);
 
-    if (participant.paid || (pendingToPay === 0 && effShare > 0)) {
+    if (pendingToPay === 0 && effShare > 0) {
       // Already fully paid -> offer to revert
       const ok = await toastConfirm(`¿Deseas desmarcar el pago de ${participant.name}?`);
       if (ok) {
