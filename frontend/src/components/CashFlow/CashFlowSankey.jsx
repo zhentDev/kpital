@@ -272,13 +272,24 @@ export default function CashFlowSankey({
           liquidColorStart = isLight ? "rgba(16, 185, 129, 0.26)" : "rgba(16, 185, 129, 0.42)";
           liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.14)" : "rgba(0, 245, 160, 0.22)";
         } else if (spent > budgeted) {
-          statusLabel = `🚨 +${Math.round((spent / budgeted - 1) * 100)}%`;
-          statusColor = "#ff2a5f";
-          statusBg = "rgba(255, 42, 95, 0.22)";
-          isExceeded = true;
-          dynamicNodeColor = "#ff2a5f";
-          liquidColorStart = isLight ? "rgba(244, 63, 94, 0.26)" : "rgba(255, 42, 95, 0.44)";
-          liquidColorEnd = isLight ? "rgba(225, 29, 72, 0.14)" : "rgba(244, 63, 94, 0.22)";
+          const isWealthPocket = item.pillarType === "wealth" || item.id?.startsWith("wealth_");
+          if (isWealthPocket) {
+            statusLabel = `🚀 +${Math.round((spent / budgeted - 1) * 100)}%`;
+            statusColor = isLight ? "#059669" : "#10b981";
+            statusBg = isLight ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.25)";
+            isPaid = true;
+            dynamicNodeColor = isLight ? "#059669" : "#10b981";
+            liquidColorStart = isLight ? "rgba(16, 185, 129, 0.3)" : "rgba(16, 185, 129, 0.45)";
+            liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.16)" : "rgba(52, 211, 153, 0.22)";
+          } else {
+            statusLabel = `🚨 +${Math.round((spent / budgeted - 1) * 100)}%`;
+            statusColor = "#ff2a5f";
+            statusBg = "rgba(255, 42, 95, 0.22)";
+            isExceeded = true;
+            dynamicNodeColor = "#ff2a5f";
+            liquidColorStart = isLight ? "rgba(244, 63, 94, 0.26)" : "rgba(255, 42, 95, 0.44)";
+            liquidColorEnd = isLight ? "rgba(225, 29, 72, 0.14)" : "rgba(244, 63, 94, 0.22)";
+          }
         } else if (progressPct >= 80) {
           statusLabel = `⚠️ ${progressPct.toFixed(0)}%`;
           statusColor = "#fbbf24";

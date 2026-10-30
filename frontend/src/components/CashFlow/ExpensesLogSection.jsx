@@ -1343,8 +1343,23 @@ export default function ExpensesLogSection({
                             fontWeight: 700,
                           }}
                         >
-                          📥 Entrada (Consignación)
+                          {item.isDebtCollection ? "🤝 Cobro de Préstamo (Reintegro)" : "📥 Entrada (Consignación)"}
                         </span>
+                        {item.isDebtCollection && (
+                          <span
+                            style={{
+                              background: isLight ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.18)",
+                              border: isLight ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(16, 185, 129, 0.4)",
+                              padding: "2px 8px",
+                              borderRadius: "6px",
+                              fontSize: "0.70rem",
+                              color: isLight ? "#047857" : "#34d399",
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓ Asignado a Préstamo
+                          </span>
+                        )}
 
                         {/* Libertad Total: Clasificar movimiento opcionalmente como nuevo ingreso presupuestado en Sankey */}
                         <button
@@ -1532,7 +1547,7 @@ export default function ExpensesLogSection({
                     )}
 
                     {/* Option to toggle as loan if not yet marked */}
-                    {!isLoan && onToggleExpenseLoan && (
+                    {!isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
                       <>
                         <span>•</span>
                         <button
@@ -1560,7 +1575,7 @@ export default function ExpensesLogSection({
                     )}
 
                     {/* Option to reclassify / assign movement */}
-                    {!isLoan && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
+                    {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
                       <>
                         <span>•</span>
                         <button
