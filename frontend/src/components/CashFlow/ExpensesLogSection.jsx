@@ -224,7 +224,8 @@ export default function ExpensesLogSection({
       // 2. Category / Envelope filter
       if (filterCategory !== "all") {
         if (filterCategory === "unassigned") {
-          if (item.budgetItemId || item.isLoan || item.itemType === "card_payment") return false;
+          // Un movimiento ya no está "sin asignar" si tiene rubro presupuestal, es préstamo, es cobro de deuda/préstamo o es pago a tarjeta
+          if (item.budgetItemId || item.isLoan || item.isDebtCollection || item.isDebtPayment || item.itemType === "card_payment") return false;
         } else if (filterCategory === "loans") {
           if (!item.isLoan && !item.isDebtPayment && !item.isDebtCollection) return false;
         } else {
