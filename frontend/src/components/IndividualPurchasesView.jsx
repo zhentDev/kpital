@@ -890,6 +890,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
       const commission = Number(p.commissionAmount || 0);
       const liveQuote = liveQuotes[p.ticker];
       const cachedQuote = lastKnownQuotes?.[p.ticker];
+      const hasRealLivePrice = Boolean(p.manualCurrentPrice || (liveQuote?.price != null && liveQuote.price > 0) || (cachedQuote?.price != null && cachedQuote.price > 0));
       const currentPrice = p.manualCurrentPrice || liveQuote?.price || cachedQuote?.price || p.purchasePrice;
 
       // Calculate current value based on return ratio (ideal for ETFs/ETCs)
@@ -1011,7 +1012,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
         profitReal,
         profitPctReal,
         isPositive: profit >= 0,
-        hasLiveQuote: liveQuote?.price != null,
+        hasLiveQuote: hasRealLivePrice,
       };
     });
   }, [
@@ -1236,6 +1237,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
       g.profitPctReal = g.totalCostBasisFx > 0 ? (g.profitReal / g.totalCostBasisFx) * 100 : 0;
 
       g.currentPrice = g.lots[0].currentPrice;
+      g.hasLiveQuote = g.lots.some((lot) => lot.hasLiveQuote);
       g.avgOpenPrice = g.totalShares > 0 ? g.totalInvested / g.totalShares : 0;
       g.lots.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
@@ -1251,8 +1253,13 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
   const evaluatedAlertsRef = useRef(new Set());
   useEffect(() => {
     if (!groupedLots.length || !alerts.some((a) => a.is_active && !a.triggered_at)) return;
+    // Evitar falsas alarmas con +0.00% si las cotizaciones en vivo o cacheadas aún no se han cargado
+    const hasAnyLive = groupedLots.some((g) => g.hasLiveQuote);
+    if (!hasAnyLive) return;
+
     const positions = [];
     groupedLots.forEach((g) => {
+      if (!g.hasLiveQuote) return;
       positions.push({
         ticker: g.ticker,
         entry_price: g.avgOpenPrice,
@@ -1262,6 +1269,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
         scope_title: `Posición Consolidada (${portfolio.name || portfolioId})`,
       });
       (g.lots || []).forEach((lot) => {
+        if (!lot.hasLiveQuote) return;
         positions.push({
           ticker: `${g.ticker}::${lot.id}`,
           entry_price: lot.purchasePrice,
