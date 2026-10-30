@@ -50,14 +50,39 @@ app.add_middleware(
         "https://zhentdev.github.io",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "*",
     ],
-    allow_origin_regex=r"^https://(.*\.github\.io|.*zhent\.homes)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 from services.auth import current_user_id_var, get_optional_current_user
+
+
+@app.middleware("http")
+async def cors_headers_middleware(request: Request, call_next):
+    # Respond to preflight OPTIONS requests directly with 200 and permissive headers
+    if request.method == "OPTIONS":
+        return JSONResponse(
+            status_code=200,
+            content={"status": "ok"},
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, User-Agent, Cache-Control",
+                "Access-Control-Allow-Credentials": "true",
+            },
+        )
+    
+    response = await call_next(request)
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, User-Agent, Cache-Control"
+    return response
 
 
 @app.middleware("http")
@@ -137,6 +162,7 @@ def root():
     return {
         "name": "Kpital API",
         "version": "2.0.0",
+        "status": "healthy",
         "docs": "/docs",
         "endpoints": [
             "/api/nav",
@@ -148,3 +174,10 @@ def root():
             "/api/fixed-income/data",
         ],
     }
+
+
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    """Ultra-lightweight health check endpoint for keep-alive cron jobs."""
+    return {"status": "ok", "service": "kpital-backend", "always_on": True}

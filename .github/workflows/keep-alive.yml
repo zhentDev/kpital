@@ -1,0 +1,23 @@
+name: Keep Render Backend Alive
+
+on:
+  schedule:
+    # Runs every 10 minutes from minute 0 to 50
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Render Backend Health Endpoint
+        run: |
+          echo "Pinging https://titanes-portfolio-backend.onrender.com/health..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://titanes-portfolio-backend.onrender.com/health" || echo "failed")
+          echo "Response code: $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "Render backend is awake and healthy!"
+          else
+            echo "Keep-alive ping sent (Status: $STATUS). Waking up container."
+          fi

@@ -19,15 +19,15 @@ import {
   directFetchIndicesHistory,
 } from "../shared/api/directSupabase";
 
+const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
 const LOCAL_BACKEND_BASE = "http://127.0.0.1:8000/api";
 const IS_LOCAL_HOST =
   typeof window !== "undefined" &&
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
-// On production (zhent.homes / GitHub Pages), ACTIVE_BASE is null (100% Serverless Direct Supabase)
-let ACTIVE_BASE = IS_LOCAL_HOST ? LOCAL_BACKEND_BASE : null;
-export const getBase = () => ACTIVE_BASE || "";
-const TIMEOUT_MS = 4000;
+let ACTIVE_BASE = IS_LOCAL_HOST ? LOCAL_BACKEND_BASE : RENDER_BACKEND_BASE;
+export const getBase = () => ACTIVE_BASE;
+const TIMEOUT_MS = 6000;
 
 export function getAuthHeaders() {
   if (typeof window === "undefined") return {};
@@ -43,11 +43,9 @@ export function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// Resilient fetch helper for localhost only; short-circuits gracefully on serverless deployment
-async function safeFetch(url, options = {}, retries = 0, delayMs = 1500) {
-  if (!IS_LOCAL_HOST || !url || url.includes("onrender.com")) {
-    return null;
-  }
+// Resilient fetch helper: communicates seamlessly with Render or Localhost
+async function safeFetch(url, options = {}, retries = 1, delayMs = 1000) {
+  if (!url) return null;
 
   const { timeoutMs, signal: externalSignal, ...restOptions } = options;
   const mergedHeaders = {
@@ -65,7 +63,11 @@ async function safeFetch(url, options = {}, retries = 0, delayMs = 1500) {
     });
     clearTimeout(timer);
     return res;
-  } catch {
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      return safeFetch(url, options, retries - 1, delayMs);
+    }
     return null;
   }
 }
@@ -122,9 +124,18 @@ const KNOWN_TICKER_PRICES = {
   "PAXG-USD": 2730.00,
 };
 
-/** GET /api/prices/live — 100% Client-Side Direct Quotes (Zero Render calls) */
+/** GET /api/prices/live — Tries fast backend quotes, fallbacks gracefully to client */
 export async function fetchLiveQuotes(tickers) {
   if (!tickers || !tickers.length) return [];
+  try {
+    const params = new URLSearchParams({ tickers: tickers.join(",") });
+    const res = await safeFetch(`${getBase()}/prices/live?${params}`, { timeoutMs: 3000 });
+    if (res && res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch {}
+
   return tickers.map((ticker) => {
     const sym = ticker.toUpperCase();
     const baseP = KNOWN_TICKER_PRICES[sym] || 100.0;
