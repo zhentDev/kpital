@@ -34,11 +34,12 @@ export default function DebtsSection({
 
   const isReceivableTab = sectionTab === "receivable";
 
-  const handleDeletePayment = (debt, payment) => {
+  const handleDeletePayment = async (debt, payment) => {
     const formattedAmt = formatCashFlowMoney(payment.amount, currency, fxRate);
     const isRec = debt.debtType === "receivable";
     const confirmMsg = `¿Deseas eliminar este ${isRec ? "cobro recibido" : "abono realizado"} de ${formattedAmt} (${payment.note || payment.paymentMethod || "Registro"})?\n\nEl saldo de la deuda se corregirá automáticamente sin duplicidades.`;
-    if (window.confirm(confirmMsg)) {
+    const ok = await toastConfirm(confirmMsg);
+    if (ok) {
       if (onDeletePayment) {
         onDeletePayment(debt.id, payment.id);
       } else {
