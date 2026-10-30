@@ -1564,12 +1564,149 @@ export const useCashFlowStore = create(
         toast.success("Concepto reasignado exitosamente al nuevo rubro ✅");
       },
 
-      reclassifyMovement: ({ movementId, destinationType, targetId, targetItem, subItem, destinationAccount, cardId, distributions, paymentSource, newDebtData, alreadyRegisteredInDebt, selectedParticipantId, participantName }) => {
+      reclassifyMovement: ({ movementId, destinationType, targetId, targetItem, subItem, destinationAccount, cardId, distributions, debtDistributions, paymentSource, newDebtData, alreadyRegisteredInDebt, selectedParticipantId, participantName }) => {
         const state = get();
 
         // 0. Destination: Multi-Rubro Distribution (Split Movement / Distributed Card Payment)
         if (destinationType === "split_distribution") {
           get().splitExpenseMovement({ movementId, cardId, distributions });
+          return;
+        }
+
+        // 0a. Destination: Multi-Debt Distribution (Cobro o Abono distribuido en varias deudas)
+        if (destinationType === "multi_debt") {
+          const expense = (state.expensesLog || []).find((e) => e.id === movementId);
+          if (!expense) return;
+          const distList = Array.isArray(debtDistributions) ? debtDistributions.filter((d) => Number(d.amount) > 0) : [];
+          if (distList.length === 0) return;
+
+          let currentDebts = [...(state.debts || [])];
+          let updatedExpenses = [...(state.expensesLog || [])];
+          const isReceivable = expense.type === "credit" || distList.some((d) => d.debtType === "receivable");
+          const concepts = [];
+
+          for (const item of distList) {
+            const debt = currentDebts.find((d) => d.id === item.debtId);
+            if (!debt) continue;
+            const itemAmt = Number(item.amount) || 0;
+            const curRem = Number(debt.remainingAmount !== undefined ? debt.remainingAmount : debt.totalAmount || 0);
+            const newRem = item.alreadyRegistered ? curRem : Math.max(0, curRem - itemAmt);
+            const isSettled = newRem <= 0;
+            const pName = item.participantName || (Array.isArray(debt.participants) ? debt.participants.find((p) => p.id === item.participantId)?.name : null);
+            concepts.push(pName ? `${pName} (${debt.concept})` : debt.concept);
+
+            const paymentRecord = {
+              id: `pay_debt_multi_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              amount: itemAmt,
+              date: expense.date || new Date().toISOString().slice(0, 10),
+              paymentMethod: expense.paymentSource?.type === "payroll" ? "Nómina Nu Débito" : "Transferencia Débito",
+              paymentSourceId: expense.paymentSource?.targetId || null,
+              note: item.alreadyRegistered
+                ? `Conciliado previamente con ${expense.description || "extracto"} (sin doble descuento)`
+                : `Cobro/Abono multi-deuda asignado desde extracto: ${expense.description || ""}`,
+              createdAt: new Date().toISOString(),
+            };
+
+            currentDebts = currentDebts.map((d) => {
+              if (d.id !== debt.id) return d;
+              return {
+                ...d,
+                remainingAmount: newRem,
+                status: isSettled ? "paid" : "active",
+                paymentsLog: [paymentRecord, ...(d.paymentsLog || [])],
+              };
+            });
+
+            // Update linked expense loan (e.g. Vaca)
+            const linkedExpId = debt.linkedExpenseId || (debt.id?.startsWith("debt_tx_") ? debt.id.replace("debt_tx_", "") : null);
+            if (linkedExpId) {
+              updatedExpenses = updatedExpenses.map((exp) => {
+                if (exp.id === linkedExpId) {
+                  let updatedParts = exp.participants;
+                  if (Array.isArray(exp.participants) && (item.participantId || pName)) {
+                    updatedParts = exp.participants.map((p) => {
+                      if (p.id === item.participantId || (pName && p.name?.toLowerCase() === pName.toLowerCase())) {
+                        return {
+                          ...p,
+                          paid: true,
+                          paidAmount: (Number(p.paidAmount) || 0) + itemAmt,
+                          paidAt: expense.date || new Date().toISOString(),
+                        };
+                      }
+                      return p;
+                    });
+                  }
+
+                  const curSettlements = Array.isArray(exp.settlements) ? exp.settlements : [];
+                  const newSettlement = {
+                    id: `stl_multi_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+                    amount: itemAmt,
+                    date: expense.date || new Date().toISOString().slice(0, 10),
+                    targetName: expense.paymentSource?.targetName || "Nómina Nu Débito",
+                    participantId: item.participantId || null,
+                    participantName: pName || null,
+                    note: `Cobro multi-deuda asignado desde extracto (${expense.description || ""})`,
+                    settledAt: new Date().toISOString(),
+                  };
+                  const allPartsPaid = Array.isArray(updatedParts) && updatedParts.filter((p) => !p.isUser).every((p) => p.paid);
+                  const totalSettledSoFar = curSettlements.reduce((sum, s) => sum + (Number(s.amount) || 0), 0) + (item.alreadyRegistered ? 0 : itemAmt);
+
+                  return {
+                    ...exp,
+                    participants: updatedParts,
+                    loanStatus: allPartsPaid || newRem <= 0 ? "settled" : "partially_settled",
+                    remainingLoan: allPartsPaid ? 0 : newRem,
+                    totalSettled: totalSettledSoFar,
+                    settlements: item.alreadyRegistered ? curSettlements : [newSettlement, ...curSettlements],
+                  };
+                }
+                return exp;
+              });
+            }
+
+            // Also mark participant in debt object if present
+            currentDebts = currentDebts.map((d) => {
+              if (d.id === debt.id && Array.isArray(d.participants) && (item.participantId || pName)) {
+                return {
+                  ...d,
+                  participants: d.participants.map((p) => {
+                    if (p.id === item.participantId || (pName && p.name?.toLowerCase() === pName.toLowerCase())) {
+                      return {
+                        ...p,
+                        paid: true,
+                        paidAmount: (Number(p.paidAmount) || 0) + itemAmt,
+                        paidAt: expense.date || new Date().toISOString(),
+                      };
+                    }
+                    return p;
+                  }),
+                };
+              }
+              return d;
+            });
+          }
+
+          // Update parent expense entry
+          const summaryConcepts = concepts.slice(0, 3).join(", ") + (concepts.length > 3 ? ` (+${concepts.length - 3})` : "");
+          updatedExpenses = updatedExpenses.map((exp) => {
+            if (exp.id !== movementId) return exp;
+            return {
+              ...exp,
+              description: `Cobro Préstamos (${concepts.length}): ${summaryConcepts}`,
+              budgetItemId: null,
+              budgetItemName: `Cobro Préstamos Múltiples (${concepts.length})`,
+              budgetItemType: isReceivable ? "income" : "needs",
+              type: isReceivable ? "credit" : (exp.type || "debit"),
+              isDebtPayment: true,
+              isDebtCollection: isReceivable,
+              debtDistributions: distList,
+            };
+          });
+
+          const finalDebts = syncExpenseLoansToDebts(updatedExpenses, currentDebts);
+          set({ debts: finalDebts, expensesLog: updatedExpenses });
+          get().syncStateWithBackend();
+          toast.success(`Movimiento asignado exitosamente como cobro distribuido en ${distList.length} deudas ✅`, { icon: "📥" });
           return;
         }
 

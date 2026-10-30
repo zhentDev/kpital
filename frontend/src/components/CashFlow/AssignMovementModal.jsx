@@ -55,7 +55,9 @@ export default function AssignMovementModal({
   const [selectedDebtId, setSelectedDebtId] = useState(debts[0]?.id || "");
   const [selectedParticipantId, setSelectedParticipantId] = useState("");
   const isIncoming = movement?.type === "credit" || movement?.budgetItemType === "income";
-  const [debtMode, setDebtMode] = useState(debts.length === 0 ? "new" : "existing"); // "existing" | "new"
+  const [debtMode, setDebtMode] = useState(debts.length === 0 ? "new" : "existing"); // "existing" | "new" | "multi"
+  const [multiDebtSplits, setMultiDebtSplits] = useState({}); // { [debtId]: { amount, participantId, participantName, alreadyRegistered } }
+  const [multiDebtInputs, setMultiDebtInputs] = useState({});
   const [debtTypeFilter, setDebtTypeFilter] = useState("all"); // "all" | "receivable" | "payable"
   const [newDebtData, setNewDebtData] = useState(() => ({
     concept: `Préstamo a ${movement?.description || "Particular"}`,
@@ -483,6 +485,53 @@ export default function AssignMovementModal({
     });
   }, [budgetItems, selectedPillarFilter, searchQuery]);
 
+  // Multi-Debt calculation
+  const totalMultiDebtAssigned = useMemo(() => {
+    return Object.values(multiDebtSplits).reduce((sum, item) => sum + (Number(item?.amount) || 0), 0);
+  }, [multiDebtSplits]);
+  const multiDebtRemaining = Math.round((movementAmount - totalMultiDebtAssigned) * 100) / 100;
+
+  // Detect debtor/participant with multiple debts matching movement description
+  const personDebtsInfo = useMemo(() => {
+    const desc = (movement?.description || "").toLowerCase();
+    const map = new Map(); // personName -> array of { debt, participant }
+
+    (debts || []).forEach((d) => {
+      if (d.status === "paid" && Number(d.remainingAmount) <= 0) return;
+      const dName = (d.debtor || d.creditor || "").trim();
+      if (dName) {
+        const key = dName.toLowerCase();
+        if (!map.has(key)) map.set(key, { name: dName, items: [] });
+        map.get(key).items.push({ debt: d, participant: null });
+      }
+      if (Array.isArray(d.participants)) {
+        d.participants.forEach((p) => {
+          if (!p.name || p.isUser) return;
+          const pKey = p.name.toLowerCase();
+          if (!map.has(pKey)) map.set(pKey, { name: p.name, items: [] });
+          map.get(pKey).items.push({ debt: d, participant: p });
+        });
+      }
+    });
+
+    // Find person matching the movement description
+    let matchedPerson = null;
+    let matchedList = [];
+    for (const [key, val] of map.entries()) {
+      if (val.items.length >= 2) {
+        // Check if movement description matches person name or vice versa
+        const words = key.split(/\s+/).filter((w) => w.length > 2);
+        const matches = words.some((w) => desc.includes(w)) || desc.includes(key);
+        if (matches) {
+          matchedPerson = val.name;
+          matchedList = val.items;
+          break;
+        }
+      }
+    }
+    return { matchedPerson, matchedList };
+  }, [debts, movement?.description]);
+
   // Active debts only
   const activeDebts = useMemo(() => {
     return (debts || []).filter(
@@ -556,7 +605,32 @@ export default function AssignMovementModal({
       });
     } else if (activeTab === "debt") {
       const chosenSource = allPaymentSources.find((s) => s.key === selectedSourceAccountKey) || allPaymentSources[0];
-      if (debtMode === "new") {
+      if (debtMode === "multi") {
+        const distributions = Object.entries(multiDebtSplits)
+          .filter(([_, item]) => Number(item?.amount) > 0)
+          .map(([debtId, item]) => ({
+            debtId,
+            amount: Number(item.amount),
+            participantId: item.participantId || null,
+            participantName: item.participantName || null,
+            alreadyRegistered: Boolean(item.alreadyRegistered),
+          }));
+
+        if (distributions.length === 0 || multiDebtRemaining !== 0) return;
+
+        onReclassify({
+          movementId: movement.id,
+          destinationType: "multi_debt",
+          debtDistributions: distributions,
+          paymentSource: {
+            type: chosenSource.type,
+            targetId: chosenSource.id,
+            targetName: chosenSource.name,
+          },
+        });
+        onClose();
+        return;
+      } else if (debtMode === "new") {
         onReclassify({
           movementId: movement.id,
           destinationType: "debt",
@@ -633,7 +707,9 @@ export default function AssignMovementModal({
     (activeTab === "budget_envelope" && !selectedEnvelopeId) ||
     (activeTab === "internal_transfer" && !selectedTransferAccId) ||
     (activeTab === "debt" && (
-      debtMode === "existing"
+      debtMode === "multi"
+        ? (multiDebtRemaining !== 0 || totalMultiDebtAssigned <= 0)
+        : debtMode === "existing"
         ? !selectedDebtId
         : (!newDebtData.concept?.trim() || !newDebtData.debtor?.trim() || !newDebtData.totalAmount || Number(newDebtData.totalAmount) <= 0)
     )) ||
@@ -2248,13 +2324,75 @@ export default function AssignMovementModal({
               </p>
             </div>
 
-            {/* Mode Switcher: Deuda Existente vs Crear Nueva Deuda */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            {/* Person Multiple Debts Suggestion Banner */}
+            {personDebtsInfo.matchedPerson && personDebtsInfo.matchedList.length >= 2 && debtMode !== "multi" && (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: "10px 14px",
+                  borderRadius: "12px",
+                  background: isLight ? "rgba(245, 158, 11, 0.1)" : "rgba(245, 158, 11, 0.18)",
+                  border: "1px solid rgba(245, 158, 11, 0.4)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "1.2rem" }}>💡</span>
+                  <div style={{ fontSize: "0.78rem", color: isLight ? "#92400e" : "#fcd34d" }}>
+                    <strong>{personDebtsInfo.matchedPerson}</strong> tiene <strong>{personDebtsInfo.matchedList.length} deudas/préstamos pendientes</strong>. ¿Deseas hacer un solo cobro distribuido?
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDebtMode("multi");
+                    // Auto-fill suggested distribution across these debts
+                    const initialSplits = {};
+                    let rem = movementAmount;
+                    personDebtsInfo.matchedList.forEach((item) => {
+                      const d = item.debt;
+                      const quota = item.participant ? Number(item.participant.customShare || item.participant.share || 0) : Number(d.remainingAmount || 0);
+                      const toAssign = Math.min(rem, quota > 0 ? quota : rem);
+                      if (toAssign > 0) {
+                        initialSplits[d.id] = {
+                          amount: toAssign,
+                          participantId: item.participant?.id || null,
+                          participantName: item.participant?.name || null,
+                          alreadyRegistered: false,
+                        };
+                        rem -= toAssign;
+                      }
+                    });
+                    setMultiDebtSplits(initialSplits);
+                  }}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "8px",
+                    background: "#f59e0b",
+                    color: "#ffffff",
+                    border: "none",
+                    fontWeight: 700,
+                    fontSize: "0.76rem",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
+                  }}
+                >
+                  ⚡ Distribuir en sus deudas
+                </button>
+              </div>
+            )}
+
+            {/* Mode Switcher: Una Deuda vs Distribuir en Múltiples Deudas vs Crear Nueva */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: 6, marginBottom: 14 }}>
               <button
                 type="button"
                 onClick={() => setDebtMode("existing")}
                 style={{
-                  padding: "9px 12px",
+                  padding: "8px 10px",
                   borderRadius: "10px",
                   border: debtMode === "existing" ? "2px solid #2563eb" : (isLight ? "1px solid rgba(0,0,0,0.12)" : "1px solid var(--border)"),
                   background: debtMode === "existing"
@@ -2262,22 +2400,66 @@ export default function AssignMovementModal({
                     : (isLight ? "#ffffff" : "var(--bg-surface)"),
                   color: debtMode === "existing" ? (isLight ? "#1d4ed8" : "#60a5fa") : "var(--text-muted)",
                   fontWeight: 700,
-                  fontSize: "0.8rem",
+                  fontSize: "0.76rem",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 6,
+                  gap: 5,
                   transition: "all 0.15s ease",
                 }}
               >
-                <span>📋</span> Deuda Existente ({activeDebts.length})
+                <span>📋</span> Una Deuda ({activeDebts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDebtMode("multi");
+                  if (Object.keys(multiDebtSplits).length === 0 && personDebtsInfo.matchedList.length > 0) {
+                    const initialSplits = {};
+                    let rem = movementAmount;
+                    personDebtsInfo.matchedList.forEach((item) => {
+                      const d = item.debt;
+                      const quota = item.participant ? Number(item.participant.customShare || item.participant.share || 0) : Number(d.remainingAmount || 0);
+                      const toAssign = Math.min(rem, quota > 0 ? quota : rem);
+                      if (toAssign > 0) {
+                        initialSplits[d.id] = {
+                          amount: toAssign,
+                          participantId: item.participant?.id || null,
+                          participantName: item.participant?.name || null,
+                          alreadyRegistered: false,
+                        };
+                        rem -= toAssign;
+                      }
+                    });
+                    setMultiDebtSplits(initialSplits);
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "10px",
+                  border: debtMode === "multi" ? "2px solid #8b5cf6" : (isLight ? "1px solid rgba(0,0,0,0.12)" : "1px solid var(--border)"),
+                  background: debtMode === "multi"
+                    ? (isLight ? "rgba(139, 92, 246, 0.12)" : "rgba(139, 92, 246, 0.25)")
+                    : (isLight ? "#ffffff" : "var(--bg-surface)"),
+                  color: debtMode === "multi" ? (isLight ? "#6d28d9" : "#c084fc") : "var(--text-muted)",
+                  fontWeight: 700,
+                  fontSize: "0.76rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>📑</span> Distribuir en Múltiples
               </button>
               <button
                 type="button"
                 onClick={() => setDebtMode("new")}
                 style={{
-                  padding: "9px 12px",
+                  padding: "8px 10px",
                   borderRadius: "10px",
                   border: debtMode === "new" ? "2px solid #10b981" : (isLight ? "1px solid rgba(0,0,0,0.12)" : "1px solid var(--border)"),
                   background: debtMode === "new"
@@ -2285,16 +2467,16 @@ export default function AssignMovementModal({
                     : (isLight ? "#ffffff" : "var(--bg-surface)"),
                   color: debtMode === "new" ? (isLight ? "#047857" : "#34d399") : "var(--text-muted)",
                   fontWeight: 700,
-                  fontSize: "0.8rem",
+                  fontSize: "0.76rem",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 6,
+                  gap: 5,
                   transition: "all 0.15s ease",
                 }}
               >
-                <span>✨</span> Crear Nueva Deuda / Préstamo
+                <span>✨</span> Crear Nueva
               </button>
             </div>
 
@@ -2591,6 +2773,306 @@ export default function AssignMovementModal({
                     </div>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* Sub-view: Distribuir en Múltiples Deudas / Préstamos */}
+            {debtMode === "multi" && (
+              <div>
+                {/* Summary Card for multi-debt allocation */}
+                <div
+                  style={{
+                    background: multiDebtRemaining === 0
+                      ? (isLight ? "#ecfdf5" : "rgba(16, 185, 129, 0.12)")
+                      : multiDebtRemaining < 0
+                      ? (isLight ? "#fff1f2" : "rgba(244, 63, 94, 0.15)")
+                      : (isLight ? "#f8fafc" : "rgba(30, 41, 59, 0.6)"),
+                    border: multiDebtRemaining === 0
+                      ? "1px solid #10b981"
+                      : multiDebtRemaining < 0
+                      ? "1px solid #f43f5e"
+                      : (isLight ? "1px solid rgba(0,0,0,0.1)" : "1px solid var(--border)"),
+                    borderRadius: "12px",
+                    padding: "12px 16px",
+                    marginBottom: 14,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>
+                      Monto total del movimiento
+                    </span>
+                    <strong style={{ fontSize: "1rem", color: "var(--text-primary)", fontFamily: "JetBrains Mono, monospace" }}>
+                      {formatMoney(movementAmount, currency)}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>
+                      Asignado en deudas
+                    </span>
+                    <strong style={{ fontSize: "1rem", color: "#8b5cf6", fontFamily: "JetBrains Mono, monospace" }}>
+                      {formatMoney(totalMultiDebtAssigned, currency)}
+                    </strong>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>
+                      {multiDebtRemaining === 0 ? "Estado" : multiDebtRemaining > 0 ? "Por asignar" : "Excedido"}
+                    </span>
+                    <strong
+                      style={{
+                        fontSize: "0.95rem",
+                        fontFamily: "JetBrains Mono, monospace",
+                        color: multiDebtRemaining === 0 ? "#10b981" : multiDebtRemaining > 0 ? "#f59e0b" : "#f43f5e",
+                      }}
+                    >
+                      {multiDebtRemaining === 0 ? "✓ 100% Cuadrado" : formatMoney(Math.abs(multiDebtRemaining), currency)}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* List of Debts to Distribute Across */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                  {debts.map((debt) => {
+                    const isRec = debt.debtType === "receivable";
+                    const currentRemaining = Number(debt.remainingAmount !== undefined ? debt.remainingAmount : debt.totalAmount || 0);
+                    const splitItem = multiDebtSplits[debt.id];
+                    const isChecked = Boolean(splitItem);
+                    const allocatedAmt = Number(splitItem?.amount) || 0;
+                    const alreadyReg = Boolean(splitItem?.alreadyRegistered);
+
+                    // Auto-detect participant in shared debts
+                    const selectedPartId = splitItem?.participantId || "";
+
+                    return (
+                      <div
+                        key={debt.id}
+                        style={{
+                          padding: "12px 14px",
+                          borderRadius: "12px",
+                          border: isChecked ? "2px solid #8b5cf6" : (isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--border)"),
+                          background: isChecked
+                            ? (isLight ? "rgba(139, 92, 246, 0.05)" : "rgba(139, 92, 246, 0.12)")
+                            : (isLight ? "#ffffff" : "var(--bg-surface)"),
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  // Default amount: min of remaining movement money or debt quota/remaining
+                                  const defaultAmt = multiDebtRemaining > 0 ? Math.min(multiDebtRemaining, currentRemaining > 0 ? currentRemaining : multiDebtRemaining) : 0;
+                                  // Auto participant match
+                                  let autoPartId = null;
+                                  let autoPartName = null;
+                                  if (Array.isArray(debt.participants) && debt.participants.length > 0) {
+                                    const desc = (movement?.description || "").toLowerCase();
+                                    const m = debt.participants.find((p) => p.name && (desc.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes("sebas")));
+                                    if (m) {
+                                      autoPartId = m.id;
+                                      autoPartName = m.name;
+                                    }
+                                  }
+                                  setMultiDebtSplits((prev) => ({
+                                    ...prev,
+                                    [debt.id]: {
+                                      amount: defaultAmt,
+                                      participantId: autoPartId,
+                                      participantName: autoPartName,
+                                      alreadyRegistered: false,
+                                    },
+                                  }));
+                                } else {
+                                  setMultiDebtSplits((prev) => {
+                                    const copy = { ...prev };
+                                    delete copy[debt.id];
+                                    return copy;
+                                  });
+                                }
+                              }}
+                              style={{ marginTop: 3, accentColor: "#8b5cf6", cursor: "pointer", width: 16, height: 16 }}
+                            />
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <strong style={{ fontSize: "0.86rem", color: "var(--text-primary)" }}>
+                                  {debt.concept}
+                                </strong>
+                                <span
+                                  style={{
+                                    fontSize: "0.66rem",
+                                    fontWeight: 700,
+                                    padding: "2px 6px",
+                                    borderRadius: "6px",
+                                    background: isRec ? (isLight ? "#dcfce7" : "rgba(16, 185, 129, 0.2)") : (isLight ? "#fef3c7" : "rgba(245, 158, 11, 0.2)"),
+                                    color: isRec ? (isLight ? "#15803d" : "#4ade80") : (isLight ? "#b45309" : "#fbbf24"),
+                                  }}
+                                >
+                                  {isRec ? "📥 Por Cobrar" : "📤 Por Pagar"}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                {isRec ? "Deudor:" : "Acreedor:"} <strong style={{ color: "var(--text-primary)" }}>{debt.debtor || debt.creditor || "Particular"}</strong>
+                                {" • "}Saldo: <span style={{ fontFamily: "JetBrains Mono, monospace", color: isRec ? "#10b981" : "#f43f5e" }}>{formatMoney(currentRemaining, currency)}</span>
+                              </span>
+                            </div>
+                          </label>
+
+                          {/* Amount Input for this Debt */}
+                          {isChecked && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {multiDebtRemaining > 0 && allocatedAmt < movementAmount && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMultiDebtSplits((prev) => ({
+                                      ...prev,
+                                      [debt.id]: {
+                                        ...prev[debt.id],
+                                        amount: allocatedAmt + multiDebtRemaining,
+                                      },
+                                    }));
+                                  }}
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderRadius: "6px",
+                                    background: "rgba(139, 92, 246, 0.15)",
+                                    border: "1px dashed #8b5cf6",
+                                    color: "#8b5cf6",
+                                    fontSize: "0.68rem",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                  title="Asignar el restante a esta deuda"
+                                >
+                                  + Faltante
+                                </button>
+                              )}
+                              <div style={{ position: "relative", width: 110 }}>
+                                <span style={{ position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                  $
+                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={
+                                    multiDebtInputs[debt.id] !== undefined
+                                      ? multiDebtInputs[debt.id]
+                                      : allocatedAmt > 0
+                                      ? formatMoney(allocatedAmt, currency).replace("$", "").trim()
+                                      : ""
+                                  }
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    setMultiDebtInputs((prev) => ({ ...prev, [debt.id]: raw }));
+                                    const parsed = parseLocalNumber(raw);
+                                    setMultiDebtSplits((prev) => ({
+                                      ...prev,
+                                      [debt.id]: {
+                                        ...prev[debt.id],
+                                        amount: parsed,
+                                      },
+                                    }));
+                                  }}
+                                  onBlur={() => {
+                                    setMultiDebtInputs((prev) => {
+                                      const copy = { ...prev };
+                                      delete copy[debt.id];
+                                      return copy;
+                                    });
+                                  }}
+                                  placeholder="0"
+                                  style={{
+                                    width: "100%",
+                                    padding: "4px 6px 4px 18px",
+                                    borderRadius: "8px",
+                                    border: "1px solid var(--border)",
+                                    background: isLight ? "#ffffff" : "rgba(0,0,0,0.3)",
+                                    color: "var(--text-primary)",
+                                    fontSize: "0.8rem",
+                                    fontFamily: "JetBrains Mono, monospace",
+                                    fontWeight: 700,
+                                    textAlign: "right",
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Extra controls when debt is checked: Participant & Pre-registered toggle */}
+                        {isChecked && (
+                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)" }}>
+                            {/* Participant selection if shared debt */}
+                            {Array.isArray(debt.participants) && debt.participants.length > 0 && (
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
+                                  👤 Participante de esta vaca:
+                                </label>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                  {debt.participants.map((p) => {
+                                    const isPartSel = selectedPartId === p.id;
+                                    return (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setMultiDebtSplits((prev) => ({
+                                            ...prev,
+                                            [debt.id]: {
+                                              ...prev[debt.id],
+                                              participantId: isPartSel ? null : p.id,
+                                              participantName: isPartSel ? null : p.name,
+                                            },
+                                          }));
+                                        }}
+                                        style={{
+                                          padding: "3px 8px",
+                                          borderRadius: "6px",
+                                          fontSize: "0.7rem",
+                                          border: isPartSel ? "1px solid #10b981" : (isLight ? "1px solid rgba(0,0,0,0.1)" : "1px solid var(--border)"),
+                                          background: isPartSel ? (isLight ? "#ecfdf5" : "rgba(16, 185, 129, 0.2)") : "transparent",
+                                          color: isPartSel ? (isLight ? "#047857" : "#34d399") : "var(--text-primary)",
+                                          cursor: "pointer",
+                                          fontWeight: isPartSel ? 700 : 500,
+                                        }}
+                                      >
+                                        {p.name} {p.paid ? "✅" : "⏳"}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Checkbox already registered */}
+                            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 4 }}>
+                              <input
+                                type="checkbox"
+                                checked={alreadyReg}
+                                onChange={(e) => {
+                                  setMultiDebtSplits((prev) => ({
+                                    ...prev,
+                                    [debt.id]: {
+                                      ...prev[debt.id],
+                                      alreadyRegistered: e.target.checked,
+                                    },
+                                  }));
+                                }}
+                                style={{ accentColor: "#10b981", cursor: "pointer" }}
+                              />
+                              <span>📌 Ya registré este cobro previamente (conciliar sin volver a descontar)</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
