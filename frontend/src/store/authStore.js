@@ -3,6 +3,26 @@ import toast from "react-hot-toast";
 import { fetchMeApi, loginApi, oauthLoginApi, registerApi } from "../api/client";
 import { supabase } from "../shared/api/supabaseClient";
 
+export const MAIN_OWNER_EMAIL = "caballerojesus703@hotmail.com";
+
+export function isMainOwnerUser(userOrEmail) {
+  if (!userOrEmail) return false;
+  const email = typeof userOrEmail === "string" ? userOrEmail : userOrEmail?.email;
+  return Boolean(email && email.toLowerCase().trim() === MAIN_OWNER_EMAIL);
+}
+
+export function getCurrentUserEmail() {
+  if (typeof window === "undefined") return null;
+  const token = localStorage.getItem("kpital_auth_token") || localStorage.getItem("titanes_auth_token");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token));
+    return payload?.email?.toLowerCase().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 const LEGACY_STORAGE_KEYS = [
   "titanes_cash_flow_store",
   "titanes_cash_flow_store_v2",
@@ -58,13 +78,14 @@ export const useAuthStore = create((set, get) => ({
         const { data: { session } } = await supabase.auth.getSession();
         if (session && session.user) {
           const u = session.user;
+          const isMain = isMainOwnerUser(u.email);
           const sessionToken = btoa(
             JSON.stringify({
               id: u.id,
               email: u.email,
               name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "Usuario",
               avatar_url: u.user_metadata?.avatar_url || null,
-              is_pro: true,
+              is_pro: isMain,
               timestamp: Date.now(),
             })
           );
@@ -77,7 +98,7 @@ export const useAuthStore = create((set, get) => ({
               email: u.email,
               name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "Usuario",
               avatar_url: u.user_metadata?.avatar_url || null,
-              is_pro: true,
+              is_pro: isMain,
             },
             isInitialized: true,
           });

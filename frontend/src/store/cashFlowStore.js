@@ -28,6 +28,7 @@ import {
 import { getCurrentPeriod } from "../utils/periodUtils";
 import { sortMovementsByDateTimeDesc } from "../utils/cashFlowFormatters";
 import { useFixedIncomeStore } from "./fixedIncomeStore";
+import { isMainOwnerUser, getCurrentUserEmail, useAuthStore } from "./authStore";
 
 let syncDebounceTimer = null;
 
@@ -214,6 +215,38 @@ export const useCashFlowStore = create(
           localStorage.removeItem("kpital_cash_flow_store");
         }
         const cachedLocal = null;
+
+        const currentUser = useAuthStore.getState()?.user;
+        const currentEmail = currentUser?.email || getCurrentUserEmail();
+        const isOwner = isMainOwnerUser(currentEmail);
+
+        if (!isOwner) {
+          // Usuario no principal: Terminal 100% limpia/virgen (sin movimientos ni presupuestos previos)
+          set({
+            startPeriod: INCOME_SYSTEM_START_PERIOD,
+            activePeriod: INCOME_SYSTEM_START_PERIOD,
+            currency: "COP",
+            allocationModel: "custom",
+            customRatios: DEFAULT_RATIOS,
+            emergencyFundTargetMonths: 6,
+            payrollAccount: { ...DEFAULT_PAYROLL_ACCOUNT, balance: 0 },
+            creditCards: [],
+            creditPurchases: [],
+            creditCardPayments: [],
+            expensesLog: [],
+            debts: [],
+            inflows: [],
+            needs: [],
+            wants: [],
+            wealth: [],
+            periodsData: {},
+            deletedExpenseIds: [],
+            deletedDebtIds: [],
+            deletedCreditCardPaymentIds: [],
+            isInitialized: true,
+          });
+          return;
+        }
 
         const res = await fetchCashFlowData({ bypassCache: true });
         const source = res;
@@ -918,6 +951,13 @@ export const useCashFlowStore = create(
         const state = get();
         if (!state.isInitialized) {
           console.warn("[CashFlow] Safeguard: backend sync blocked because store is not initialized yet!");
+          return;
+        }
+
+        const currentUser = useAuthStore.getState()?.user;
+        const currentEmail = currentUser?.email || getCurrentUserEmail();
+        if (!isMainOwnerUser(currentEmail)) {
+          // Do not overwrite main owner cloud database from guest/secondary sessions
           return;
         }
 

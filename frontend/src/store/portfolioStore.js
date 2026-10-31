@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
  * Zero financial data persistence in localStorage.
  */
 import { create } from "zustand";
+import { isMainOwnerUser, getCurrentUserEmail, useAuthStore } from "./authStore";
 import {
   createPurchaseLot,
   createPurchasePortfolio,
@@ -94,6 +95,19 @@ export const usePortfolioStore = create((set, get) => ({
         localStorage.removeItem("titanes-portfolio");
         localStorage.removeItem("kpital-portfolio");
       }
+      const currentUser = useAuthStore.getState()?.user;
+      const currentEmail = currentUser?.email || getCurrentUserEmail();
+      const isOwner = isMainOwnerUser(currentEmail);
+
+      if (!isOwner) {
+        set({
+          purchasePortfolios: [{ id: "purchases_default", name: "Compras Principales", isPlan: false }],
+          individualPurchases: [],
+          purchaseSales: [],
+        });
+        return;
+      }
+
       const res = await fetchPurchasesData();
       if (res && Array.isArray(res.purchasePortfolios) && res.purchasePortfolios.length > 0) {
         set({

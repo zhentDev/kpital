@@ -6,6 +6,7 @@
 
 import toast from "react-hot-toast";
 import { create } from "zustand";
+import { isMainOwnerUser, getCurrentUserEmail, useAuthStore } from "./authStore";
 import {
   createFixedIncomeAccount,
   createFixedIncomeCDT,
@@ -45,6 +46,22 @@ export const useFixedIncomeStore = create((set, get) => ({
       if (typeof window !== "undefined") {
         localStorage.removeItem("titanes_fixed_income_store");
         localStorage.removeItem("kpital_fixed_income_store");
+      }
+
+      const currentUser = useAuthStore.getState()?.user;
+      const currentEmail = currentUser?.email || getCurrentUserEmail();
+      const isOwner = isMainOwnerUser(currentEmail);
+
+      if (!isOwner) {
+        // Terminal virgen/limpia para cuentas que no sean la principal
+        set({
+          entities: [],
+          accounts: [],
+          cdts: [],
+          transactions: [],
+          isInitialized: true,
+        });
+        return;
       }
 
       const res = await fetchFixedIncomeData({ bypassCache: true });
