@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
 import { fetchMeApi, loginApi, oauthLoginApi, registerApi } from "../api/client";
+import { supabase } from "../shared/api/supabaseClient";
 
 const LEGACY_STORAGE_KEYS = [
   "titanes_cash_flow_store",
@@ -49,7 +50,44 @@ export const useAuthStore = create((set, get) => ({
 
   fetchMe: async () => {
     purgeFinancialLocalStorage();
-    const token = get().token;
+    let token = get().token;
+
+    // Check if returning from Supabase OAuth (Google, Azure, Facebook, etc.)
+    if (!token && typeof window !== "undefined") {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+          const u = session.user;
+          const sessionToken = btoa(
+            JSON.stringify({
+              id: u.id,
+              email: u.email,
+              name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "Usuario",
+              avatar_url: u.user_metadata?.avatar_url || null,
+              is_pro: true,
+              timestamp: Date.now(),
+            })
+          );
+          localStorage.setItem("kpital_auth_token", sessionToken);
+          token = sessionToken;
+          set({
+            token: sessionToken,
+            user: {
+              id: u.id,
+              email: u.email,
+              name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "Usuario",
+              avatar_url: u.user_metadata?.avatar_url || null,
+              is_pro: true,
+            },
+            isInitialized: true,
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn("[Auth] Supabase session check:", err);
+      }
+    }
+
     if (!token) {
       set({ user: null, isInitialized: true });
       return;
@@ -118,6 +156,34 @@ export const useAuthStore = create((set, get) => ({
       return false;
     } finally {
       set({ isLoading: false });
+    }
+  },
+
+  signInWithProvider: async (provider = "google") => {
+    try {
+      const redirectTo = typeof window !== "undefined"
+        ? `${window.location.origin}`
+        : "https://zhent.homes";
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+
+      if (error) {
+        toast.error(`Error al conectar con ${provider}: ${error.message}`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      toast.error(err.message || `Error con ${provider}`);
+      return false;
     }
   },
 

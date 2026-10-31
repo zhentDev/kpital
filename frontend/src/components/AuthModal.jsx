@@ -10,7 +10,7 @@ export default function AuthModal() {
     setAuthModalTab,
     login,
     register,
-    loginWithOAuth,
+    loginWithOAuth, signInWithProvider,
     isLoading,
   } = useAuthStore();
 
@@ -30,15 +30,7 @@ export default function AuthModal() {
   };
 
   const handleGoogleOAuth = async () => {
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.prompt();
-      return;
-    }
-    toast("Para usar el popup oficial de Google se requiere configurar un Google Client ID. Puedes registrarte de forma rápida y directa con tu propio correo y contraseña.", {
-      icon: "ℹ️",
-      duration: 6000,
-    });
-    setAuthModalTab("register");
+    await signInWithProvider("google");
   };
 
   return (

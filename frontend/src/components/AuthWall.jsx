@@ -4,7 +4,7 @@ import { useAuthStore } from "../store/authStore";
 import { useTheme } from "../context/ThemeContext";
 
 export default function AuthWall() {
-  const { login, register, isLoading } = useAuthStore();
+  const { login, register, isLoading, signInWithProvider } = useAuthStore();
   const { theme, toggleTheme } = useTheme();
 
   const [tab, setTab] = useState("login"); // 'login' | 'register'
@@ -21,16 +21,8 @@ export default function AuthWall() {
     }
   };
 
-  const handleGoogleOAuth = () => {
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.prompt();
-      return;
-    }
-    toast(
-      "Para usar el popup de Google se requiere configurar un Google Client ID. Puedes acceder directamente con tu correo y contraseña.",
-      { icon: "ℹ️", duration: 5000 }
-    );
-    setTab("register");
+  const handleGoogleOAuth = async () => {
+    await signInWithProvider("google");
   };
 
   return (
