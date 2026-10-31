@@ -1688,14 +1688,15 @@ export const useCashFlowStore = create(
                     note: `Cobro multi-deuda asignado desde extracto (${expense.description || ""})`,
                     settledAt: new Date().toISOString(),
                   };
-                  const allPartsPaid = Array.isArray(updatedParts) && updatedParts.filter((p) => !p.isUser).every((p) => p.paid);
+                  const allPartsPaid = Array.isArray(updatedParts) && updatedParts.length > 0 && updatedParts.filter((p) => !p.isUser).every((p) => p.paid);
                   const totalSettledSoFar = curSettlements.reduce((sum, s) => sum + (Number(s.amount) || 0), 0) + (item.alreadyRegistered ? 0 : itemAmt);
+                  const isFullySettled = allPartsPaid || newRem <= 0;
 
                   return {
                     ...exp,
                     participants: updatedParts,
-                    loanStatus: allPartsPaid || newRem <= 0 ? "settled" : "partially_settled",
-                    remainingLoan: allPartsPaid ? 0 : newRem,
+                    loanStatus: isFullySettled ? "settled" : "partially_settled",
+                    remainingLoan: isFullySettled ? 0 : newRem,
                     totalSettled: totalSettledSoFar,
                     settlements: item.alreadyRegistered ? curSettlements : [newSettlement, ...curSettlements],
                   };
@@ -1967,13 +1968,14 @@ export const useCashFlowStore = create(
                   settledAt: new Date().toISOString(),
                 };
                 const totalSettledSoFar = currentSettlements.reduce((sum, s) => sum + (Number(s.amount) || 0), 0) + (alreadyRegisteredInDebt ? 0 : amount);
-                const allPartsPaid = Array.isArray(updatedParticipants) && updatedParticipants.filter((p) => !p.isUser).every((p) => p.paid);
+                const allPartsPaid = Array.isArray(updatedParticipants) && updatedParticipants.length > 0 && updatedParticipants.filter((p) => !p.isUser).every((p) => p.paid);
+                const isFullySettled = allPartsPaid || newRemaining <= 0;
 
                 return {
                   ...e,
                   participants: updatedParticipants,
-                  loanStatus: allPartsPaid || newRemaining <= 0 ? "settled" : "partially_settled",
-                  remainingLoan: allPartsPaid ? 0 : newRemaining,
+                  loanStatus: isFullySettled ? "settled" : "partially_settled",
+                  remainingLoan: isFullySettled ? 0 : newRemaining,
                   totalSettled: totalSettledSoFar,
                   settlements: alreadyRegisteredInDebt ? currentSettlements : [newSettlement, ...currentSettlements],
                 };
