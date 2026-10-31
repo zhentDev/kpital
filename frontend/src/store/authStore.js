@@ -226,16 +226,25 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
     localStorage.removeItem("kpital_auth_token");
     localStorage.removeItem("titanes_auth_token");
     purgeFinancialLocalStorage();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.warn("[Auth] Supabase signOut:", e);
+    }
+    // Clean any OAuth tokens or hashes from URL
+    if (typeof window !== "undefined" && window.location.hash) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
     set({ token: null, user: null });
     toast("Sesión cerrada correctamente", { icon: "🔒" });
     if (typeof window !== "undefined") {
       setTimeout(() => {
-        window.location.reload();
-      }, 400);
+        window.location.href = window.location.origin;
+      }, 300);
     }
   },
 }));
