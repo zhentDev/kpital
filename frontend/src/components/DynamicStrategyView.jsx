@@ -4,6 +4,7 @@ import {
   createRebalance,
   deleteRebalance,
   updateRebalanceDateApi,
+  toggleRebalanceActiveApi,
   fetchColInflationHistory,
   fetchFxHistory,
   fetchLiveQuotes,
@@ -274,8 +275,14 @@ export default function DynamicStrategyView({
   const [searchError, setSearchError] = useState("");
   const [batchInput, setBatchInput] = useState("");
 
+  // Filter active rebalances for current portfolio status
+  const activeRebalancesList = useMemo(() => {
+    const list = rebalances.filter((r) => (r.isActive ?? r.is_active ?? true));
+    return list.length > 0 ? list : rebalances;
+  }, [rebalances]);
+
   // Latest active rebalance
-  const activeRebalance = rebalances[rebalances.length - 1] || {
+  const activeRebalance = activeRebalancesList[activeRebalancesList.length - 1] || {
     tickers: [],
     rebalance_date: date,
   };
@@ -726,6 +733,97 @@ export default function DynamicStrategyView({
     } catch (e) {
       console.warn("Backend date update failed", e);
       toast.error(`Error actualizando fecha a ${newDate}`);
+    } finally {
+      setNavRefreshKey((prev) => prev + 1);
+    }
+  };
+
+  // Modal de edición de rebalanceo (tickers, sustitutos, capital)
+  const [editingRebalanceModal, setEditingRebalanceModal] = useState(null);
+  // Estado para sustitutos en el modal: { [ticker]: substitute_for }
+  const [editSubsMap, setEditSubsMap] = useState({});
+  const [editTickersList, setEditTickersList] = useState([]);
+  const [editNewTickerInput, setEditNewTickerInput] = useState("");
+  const [editNewSubInput, setEditNewSubInput] = useState("");
+  const [isSavingRebalanceEdit, setIsSavingRebalanceEdit] = useState(false);
+
+  const handleOpenEditRebalance = (reb) => {
+    setEditingRebalanceModal(reb);
+    setEditTickersList([...(reb.tickers || [])]);
+    setEditSubsMap({ ...(reb.substitutes || {}) });
+    setEditNewTickerInput("");
+    setEditNewSubInput("");
+  };
+
+  const handleSaveRebalanceEdit = async () => {
+    if (!editingRebalanceModal) return;
+    setIsSavingRebalanceEdit(true);
+    const targetDate = editingRebalanceModal.rebalance_date;
+    const isAct = editingRebalanceModal.isActive ?? editingRebalanceModal.is_active ?? true;
+    try {
+      await createRebalance({
+        rebalance_date: targetDate,
+        cash_added: editingRebalanceModal.cash_added || 0,
+        tickers: editTickersList,
+        strategy_id: strategy.id,
+        is_active: isAct,
+        substitutes: editSubsMap,
+      });
+
+      const updated = rebalances.map((r) => {
+        if (r.rebalance_date === targetDate) {
+          return {
+            ...r,
+            tickers: editTickersList,
+            substitutes: editSubsMap,
+            tickers_detail: editTickersList.map((t) => ({
+              ticker: t,
+              substitute_for: editSubsMap[t] || null,
+              substituteFor: editSubsMap[t] || null,
+            })),
+          };
+        }
+        return r;
+      });
+
+      setRebalances(updated);
+      setStrategyRebalances(strategy.id, updated);
+      toast.success(`Rebalanceo del ${targetDate} actualizado con éxito`);
+      setEditingRebalanceModal(null);
+    } catch (e) {
+      console.error(e);
+      toast.error(e.message || "Error al actualizar rebalanceo");
+    } finally {
+      setIsSavingRebalanceEdit(false);
+      setNavRefreshKey((prev) => prev + 1);
+    }
+  };
+
+  const handleToggleRebalanceActive = async (targetDate, currentActive) => {
+    const newStatus = !currentActive;
+    const updated = rebalances.map((r) => {
+      if (r.rebalance_date === targetDate) {
+        return { ...r, is_active: newStatus, isActive: newStatus };
+      }
+      return r;
+    });
+    setRebalances(updated);
+    setStrategyRebalances(strategy.id, updated);
+
+    try {
+      await toggleRebalanceActiveApi({
+        rebalance_date: targetDate,
+        is_active: newStatus,
+        strategy_id: strategy.id,
+      });
+      toast.success(
+        newStatus
+          ? `Rebalanceo ${targetDate} marcado como ACTIVO`
+          : `Rebalanceo ${targetDate} marcado como INACTIVO`
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error("Error al actualizar el estado del rebalanceo");
     } finally {
       setNavRefreshKey((prev) => prev + 1);
     }
@@ -3354,6 +3452,8 @@ export default function DynamicStrategyView({
           >
             {rebalances.map((reb, idx) => {
               const isCurrent = idx === rebalances.length - 1;
+              const isAct = reb.isActive ?? reb.is_active ?? true;
+              const subs = reb.substitutes || {};
               return (
                 <div
                   key={reb.rebalance_date}
@@ -3362,6 +3462,8 @@ export default function DynamicStrategyView({
                     borderRadius: "var(--radius)",
                     background: isCurrent ? `${strategy.color}10` : "var(--bg-surface)",
                     border: `1px solid ${isCurrent ? `${strategy.color}4D` : "var(--border)"}`,
+                    opacity: isAct ? 1 : 0.65,
+                    transition: "all 0.2s ease",
                   }}
                 >
                   <div
@@ -3370,9 +3472,11 @@ export default function DynamicStrategyView({
                       justifyContent: "space-between",
                       alignItems: "center",
                       marginBottom: 8,
+                      flexWrap: "wrap",
+                      gap: 8,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       {editingRebalanceDate?.oldDate === reb.rebalance_date ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <DynamicDatePicker
@@ -3471,23 +3575,70 @@ export default function DynamicStrategyView({
                               VIGENTE
                             </span>
                           )}
+                          {/* Toggle Activo / Inactivo */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRebalanceActive(reb.rebalance_date, isAct)}
+                            style={{
+                              fontSize: "0.65rem",
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              border: isAct
+                                ? "1px solid rgba(16, 185, 129, 0.4)"
+                                : isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid rgba(255, 255, 255, 0.15)",
+                              background: isAct
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.05)",
+                              color: isAct ? "#10b981" : "var(--text-muted)",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                            title={isAct ? "Haz clic para desactivar (excluir de la simulación)" : "Haz clic para activar (incluir en simulación)"}
+                          >
+                            <span style={{ fontSize: "0.6rem" }}>{isAct ? "●" : "○"}</span>
+                            {isAct ? "ACTIVO" : "INACTIVO"}
+                          </button>
                         </>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRebalance(reb.rebalance_date)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#ef4444",
-                        fontSize: "0.72rem",
-                        cursor: "pointer",
-                      }}
-                      title="Eliminar este evento"
-                    >
-                      🗑️ Eliminar
-                    </button>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditRebalance(reb)}
+                        style={{
+                          background: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
+                          border: isLight ? "1px solid rgba(0,0,0,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                          color: "var(--accent-primary)",
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                        }}
+                        title="Editar tickers y acciones sustitutas"
+                      >
+                        ⚙️ Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRebalance(reb.rebalance_date)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#ef4444",
+                          fontSize: "0.72rem",
+                          cursor: "pointer",
+                          padding: "2px 4px",
+                        }}
+                        title="Eliminar este evento"
+                      >
+                        🗑️ Eliminar
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: 8 }}>
@@ -3496,22 +3647,48 @@ export default function DynamicStrategyView({
                     {strategy.isRealMoney ? "invertido" : "simulado"})
                   </div>
 
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {reb.tickers?.map((t) => (
-                      <span
-                        key={t}
-                        className="mono"
-                        style={{
-                          fontSize: "0.68rem",
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          background: "rgba(255, 255, 255, 0.05)",
-                          color: "#cbd5e1",
-                        }}
-                      >
-                        {t}
-                      </span>
-                    ))}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {reb.tickers?.map((t) => {
+                      const sub = subs[t];
+                      return (
+                        <span
+                          key={t}
+                          className="mono"
+                          style={{
+                            fontSize: "0.7rem",
+                            padding: "3px 7px",
+                            borderRadius: 5,
+                            background: sub
+                              ? isLight ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.18)"
+                              : isLight ? "rgba(0,0,0,0.05)" : "rgba(255, 255, 255, 0.05)",
+                            border: sub
+                              ? "1px solid rgba(245, 158, 11, 0.4)"
+                              : isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)",
+                            color: sub ? (isLight ? "#b45309" : "#fbbf24") : "var(--text-primary)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                          title={sub ? `Acción sustituta de ${sub} sugerida por Warren AI` : undefined}
+                        >
+                          <strong>{t}</strong>
+                          {sub && (
+                            <span
+                              style={{
+                                fontSize: "0.62rem",
+                                padding: "1px 4px",
+                                borderRadius: 3,
+                                background: isLight ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.25)",
+                                color: isLight ? "#92400e" : "#fef08a",
+                                fontWeight: 700,
+                              }}
+                            >
+                              🔄 {sub}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -3519,6 +3696,297 @@ export default function DynamicStrategyView({
           </div>
         </div>
       </div>
+
+      {/* MODAL DE EDICIÓN DE REBALANCEO Y SUSTITUTAS */}
+      {editingRebalanceModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingRebalanceModal(null);
+          }}
+        >
+          <div
+            style={{
+              background: isLight ? "#ffffff" : "var(--bg-surface)",
+              border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 580,
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 24,
+              boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.1rem", color: "var(--text-primary)" }}>
+                  ⚙️ Editar Rebalanceo ({editingRebalanceModal.rebalance_date})
+                </h3>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Modifica tickers y asigna acciones sustitutas recomendadas por Warren AI
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRebalanceModal(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "1.2rem",
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Formulario para agregar / reemplazar tickers */}
+            <div
+              style={{
+                background: isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)",
+                border: isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+                ➕ Agregar Acción o Sustituta
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Ticker real (ej: ENB)"
+                  value={editNewTickerInput}
+                  onChange={(e) => setEditNewTickerInput(e.target.value.toUpperCase().trim())}
+                  style={{
+                    flex: 1,
+                    minWidth: 120,
+                    background: isLight ? "#ffffff" : "var(--bg-card)",
+                    border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                    color: "var(--text-primary)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: "0.82rem",
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Sustituye a (ej: ET - opcional)"
+                  value={editNewSubInput}
+                  onChange={(e) => setEditNewSubInput(e.target.value.toUpperCase().trim())}
+                  style={{
+                    flex: 1,
+                    minWidth: 140,
+                    background: isLight ? "#ffffff" : "var(--bg-card)",
+                    border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                    color: "var(--text-primary)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: "0.82rem",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editNewTickerInput) {
+                      toast.error("Ingresa el ticker a agregar");
+                      return;
+                    }
+                    if (!editTickersList.includes(editNewTickerInput)) {
+                      setEditTickersList([...editTickersList, editNewTickerInput]);
+                    }
+                    if (editNewSubInput) {
+                      setEditSubsMap({
+                        ...editSubsMap,
+                        [editNewTickerInput]: editNewSubInput,
+                      });
+                    }
+                    setEditNewTickerInput("");
+                    setEditNewSubInput("");
+                  }}
+                  style={{
+                    background: "var(--accent-primary)",
+                    border: "none",
+                    color: "#000",
+                    fontWeight: 700,
+                    fontSize: "0.78rem",
+                    borderRadius: 6,
+                    padding: "7px 14px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Agregar
+                </button>
+              </div>
+            </div>
+
+            {/* Lista actual de tickers asignados */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Acciones en este rebalanceo ({editTickersList.length})
+                </span>
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                  Total slots: {numSlots}
+                </span>
+              </div>
+
+              {editTickersList.length === 0 ? (
+                <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem" }}>
+                  No hay acciones en este rebalanceo.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {editTickersList.map((t) => {
+                    const currentSub = editSubsMap[t] || "";
+                    return (
+                      <div
+                        key={t}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "8px 12px",
+                          borderRadius: 6,
+                          background: isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)",
+                          border: currentSub
+                            ? "1px solid rgba(245, 158, 11, 0.4)"
+                            : isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className="mono" style={{ fontWeight: 800, fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                            {t}
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sustituye a:</span>
+                            <input
+                              type="text"
+                              placeholder="Original (ej: ET)"
+                              value={currentSub}
+                              onChange={(e) => {
+                                const val = e.target.value.toUpperCase().trim();
+                                const copy = { ...editSubsMap };
+                                if (val) {
+                                  copy[t] = val;
+                                } else {
+                                  delete copy[t];
+                                }
+                                setEditSubsMap(copy);
+                              }}
+                              style={{
+                                width: 90,
+                                background: isLight ? "#ffffff" : "var(--bg-card)",
+                                border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                                color: currentSub ? (isLight ? "#b45309" : "#fbbf24") : "var(--text-primary)",
+                                borderRadius: 4,
+                                padding: "2px 6px",
+                                fontSize: "0.75rem",
+                                fontWeight: currentSub ? 700 : 400,
+                              }}
+                            />
+                            {currentSub && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const copy = { ...editSubsMap };
+                                  delete copy[t];
+                                  setEditSubsMap(copy);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--text-muted)",
+                                  cursor: "pointer",
+                                  fontSize: "0.7rem",
+                                  padding: "0 2px",
+                                }}
+                                title="Quitar sustituto"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditTickersList(editTickersList.filter((x) => x !== t));
+                            const copy = { ...editSubsMap };
+                            delete copy[t];
+                            setEditSubsMap(copy);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#ef4444",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                          }}
+                          title="Quitar acción"
+                        >
+                          🗑️ Quitar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Acciones del Modal */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--border)", paddingTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => setEditingRebalanceModal(null)}
+                style={{
+                  background: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)",
+                  border: isLight ? "1px solid rgba(0,0,0,0.1)" : "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.82rem",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingRebalanceEdit}
+                onClick={handleSaveRebalanceEdit}
+                style={{
+                  background: "var(--accent-primary)",
+                  border: "none",
+                  color: "#000",
+                  fontWeight: 700,
+                  padding: "8px 20px",
+                  borderRadius: 6,
+                  cursor: isSavingRebalanceEdit ? "not-allowed" : "pointer",
+                  fontSize: "0.82rem",
+                  opacity: isSavingRebalanceEdit ? 0.7 : 1,
+                }}
+              >
+                {isSavingRebalanceEdit ? "Guardando..." : "Guardar Cambios"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

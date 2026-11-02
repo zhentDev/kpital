@@ -13,9 +13,11 @@ from db.users_repo import get_user_by_id
 def add_rebalance(
     rebalance_date: date,
     cash_added: float,
-    tickers: list[str],
+    tickers: list,  # list of strings or list of dicts {"ticker": str, "substitute_for": Optional[str]}
     strategy_id: str = "historical",
     user_id: Optional[str] = None,
+    is_active: bool = True,
+    substitutes: Optional[dict] = None,  # optional map { ticker: substitute_for }
 ):
     with pg_session() as conn:
         with conn.cursor() as cur:
@@ -33,14 +35,43 @@ def add_rebalance(
                 cur.execute("DELETE FROM rebalances WHERE rebalance_date = %s AND strategy_id = %s", [rebalance_date, strategy_id])
 
             cur.execute(
-                "INSERT INTO rebalances (rebalance_date, cash_added, strategy_id, user_id) VALUES (%s, %s, %s, %s)",
-                [rebalance_date, cash_added, strategy_id, user_id],
+                "INSERT INTO rebalances (rebalance_date, cash_added, strategy_id, user_id, is_active) VALUES (%s, %s, %s, %s, %s)",
+                [rebalance_date, cash_added, strategy_id, user_id, is_active],
             )
-            for ticker in tickers:
+            subs_map = substitutes or {}
+            for item in tickers:
+                if isinstance(item, dict):
+                    t = item.get("ticker")
+                    sub = item.get("substitute_for") or item.get("substituteFor") or subs_map.get(t)
+                else:
+                    t = str(item).strip().upper()
+                    sub = subs_map.get(t)
+                if t:
+                    cur.execute(
+                        "INSERT INTO rebalance_tickers (rebalance_date, ticker, strategy_id, user_id, substitute_for) VALUES (%s, %s, %s, %s, %s)",
+                        [rebalance_date, t, strategy_id, user_id, sub],
+                    )
+
+
+def toggle_rebalance_active(
+    rebalance_date: date,
+    is_active: bool,
+    strategy_id: str = "historical",
+    user_id: Optional[str] = None,
+) -> bool:
+    with pg_session() as conn:
+        with conn.cursor() as cur:
+            if user_id:
                 cur.execute(
-                    "INSERT INTO rebalance_tickers (rebalance_date, ticker, strategy_id, user_id) VALUES (%s, %s, %s, %s)",
-                    [rebalance_date, ticker, strategy_id, user_id],
+                    "UPDATE rebalances SET is_active = %s WHERE rebalance_date = %s AND strategy_id = %s AND (user_id = %s OR user_id IS NULL OR user_id = %s)",
+                    [is_active, rebalance_date, strategy_id, user_id, OWNER_ID],
                 )
+            else:
+                cur.execute(
+                    "UPDATE rebalances SET is_active = %s WHERE rebalance_date = %s AND strategy_id = %s",
+                    [is_active, rebalance_date, strategy_id],
+                )
+            return cur.rowcount > 0
 
 
 def get_all_rebalances(strategy_id: str = "historical", user_id: Optional[str] = None) -> list[dict]:
@@ -48,32 +79,70 @@ def get_all_rebalances(strategy_id: str = "historical", user_id: Optional[str] =
         with conn.cursor() as cur:
             if user_id:
                 cur.execute("""
-                    SELECT r.rebalance_date, r.cash_added, ARRAY_AGG(t.ticker) as tickers
+                    SELECT 
+                        r.rebalance_date, 
+                        r.cash_added, 
+                        COALESCE(r.is_active, TRUE) as is_active,
+                        COALESCE(
+                            JSONB_AGG(
+                                JSONB_BUILD_OBJECT('ticker', t.ticker, 'substitute_for', t.substitute_for)
+                            ) FILTER (WHERE t.ticker IS NOT NULL),
+                            '[]'::jsonb
+                        ) as tickers_data
                     FROM rebalances r
                     LEFT JOIN rebalance_tickers t ON r.rebalance_date = t.rebalance_date AND r.strategy_id = t.strategy_id
                     WHERE r.strategy_id = %s AND (r.user_id = %s OR r.user_id IS NULL OR r.user_id = %s)
-                    GROUP BY r.rebalance_date, r.cash_added
+                    GROUP BY r.rebalance_date, r.cash_added, r.is_active
                     ORDER BY r.rebalance_date ASC
                 """, [strategy_id, user_id, OWNER_ID])
             else:
                 cur.execute("""
-                    SELECT r.rebalance_date, r.cash_added, ARRAY_AGG(t.ticker) as tickers
+                    SELECT 
+                        r.rebalance_date, 
+                        r.cash_added, 
+                        COALESCE(r.is_active, TRUE) as is_active,
+                        COALESCE(
+                            JSONB_AGG(
+                                JSONB_BUILD_OBJECT('ticker', t.ticker, 'substitute_for', t.substitute_for)
+                            ) FILTER (WHERE t.ticker IS NOT NULL),
+                            '[]'::jsonb
+                        ) as tickers_data
                     FROM rebalances r
                     LEFT JOIN rebalance_tickers t ON r.rebalance_date = t.rebalance_date AND r.strategy_id = t.strategy_id
                     WHERE r.strategy_id = %s AND (r.user_id IS NULL OR r.user_id = %s)
-                    GROUP BY r.rebalance_date, r.cash_added
+                    GROUP BY r.rebalance_date, r.cash_added, r.is_active
                     ORDER BY r.rebalance_date ASC
                 """, [strategy_id, OWNER_ID])
 
             rebalances = []
             for row in cur.fetchall():
-                clean_tickers = [t for t in (row[2] or []) if t is not None]
                 d_str = row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0])
+                raw_items = row[3] or []
+                clean_tickers = []
+                substitutes = {}
+                tickers_detail = []
+                for item in raw_items:
+                    t = item.get("ticker")
+                    if t and t not in clean_tickers:
+                        clean_tickers.append(t)
+                        sub = item.get("substitute_for")
+                        if sub:
+                            substitutes[t] = sub
+                        tickers_detail.append({
+                            "ticker": t,
+                            "substitute_for": sub,
+                            "substituteFor": sub,
+                        })
+
                 rebalances.append({
                     "date": d_str,
                     "rebalance_date": d_str,
                     "cash_added": float(row[1] or 0.0),
+                    "is_active": bool(row[2]),
+                    "isActive": bool(row[2]),
                     "tickers": clean_tickers,
+                    "substitutes": substitutes,
+                    "tickers_detail": tickers_detail,
                 })
             return rebalances
 

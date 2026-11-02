@@ -414,11 +414,25 @@ export async function directFetchRebalances(strategyId = "historical") {
   ]);
 
   const tickersByDate = {};
+  const substitutesByDate = {};
+  const detailByDate = {};
+
   (tickersRes.data || []).forEach((t) => {
     const d = t.rebalance_date;
     if (!tickersByDate[d]) tickersByDate[d] = [];
+    if (!substitutesByDate[d]) substitutesByDate[d] = {};
+    if (!detailByDate[d]) detailByDate[d] = [];
+
     if (t.ticker && !tickersByDate[d].includes(t.ticker)) {
       tickersByDate[d].push(t.ticker);
+      if (t.substitute_for) {
+        substitutesByDate[d][t.ticker] = t.substitute_for;
+      }
+      detailByDate[d].push({
+        ticker: t.ticker,
+        substitute_for: t.substitute_for || null,
+        substituteFor: t.substitute_for || null,
+      });
     }
   });
 
@@ -427,7 +441,11 @@ export async function directFetchRebalances(strategyId = "historical") {
     rebalance_date: r.rebalance_date,
     cash_added: r.cash_added || 0,
     strategy_id: r.strategy_id,
+    is_active: r.is_active ?? true,
+    isActive: r.is_active ?? true,
     tickers: tickersByDate[r.rebalance_date] || [],
+    substitutes: substitutesByDate[r.rebalance_date] || {},
+    tickers_detail: detailByDate[r.rebalance_date] || [],
   }));
 }
 

@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional
+from typing import Any, Optional, Union
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from services.auth import get_optional_current_user
@@ -7,6 +7,7 @@ from services.db import (
     add_rebalance,
     delete_custom_strategy,
     delete_rebalance,
+    toggle_rebalance_active,
     update_rebalance_date,
     get_all_rebalances,
     get_custom_strategies,
@@ -20,7 +21,15 @@ router = APIRouter()
 class RebalanceRequest(BaseModel):
     rebalance_date: date
     cash_added: float = 0.0
-    tickers: list[str]
+    tickers: list[Any]
+    strategy_id: Optional[str] = "historical"
+    is_active: Optional[bool] = True
+    substitutes: Optional[dict[str, str]] = None
+
+
+class ToggleRebalanceActiveRequest(BaseModel):
+    rebalance_date: date
+    is_active: bool
     strategy_id: Optional[str] = "historical"
 
 
@@ -73,8 +82,30 @@ def create_rebalance(req: RebalanceRequest, request: Request):
 
     user_id = _require_pro_user(request)
     strat_id = req.strategy_id or "historical"
-    add_rebalance(req.rebalance_date, req.cash_added, req.tickers, strategy_id=strat_id, user_id=user_id)
+    is_act = req.is_active if req.is_active is not None else True
+    add_rebalance(
+        req.rebalance_date,
+        req.cash_added,
+        req.tickers,
+        strategy_id=strat_id,
+        user_id=user_id,
+        is_active=is_act,
+        substitutes=req.substitutes,
+    )
     return {"status": "ok", "strategy_id": strat_id}
+
+
+@router.put("/rebalances/toggle")
+def toggle_rebalance(req: ToggleRebalanceActiveRequest, request: Request):
+    user_id = _require_pro_user(request)
+    strat_id = req.strategy_id or "historical"
+    success = toggle_rebalance_active(
+        req.rebalance_date,
+        is_active=req.is_active,
+        strategy_id=strat_id,
+        user_id=user_id,
+    )
+    return {"status": "ok", "is_active": req.is_active, "updated": success, "strategy_id": strat_id}
 
 
 @router.delete("/rebalances/{rebalance_date}")

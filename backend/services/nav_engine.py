@@ -33,6 +33,8 @@ def calculate_nav(
     prices_df = prices_df.clone() if hasattr(prices_df, "clone") else prices_df
 
     rebalances = get_all_rebalances(strategy_id=strategy_id, user_id=user_id)
+    # Only process active rebalances
+    rebalances = [r for r in rebalances if r.get("is_active", True) and r.get("isActive", True)]
     if not rebalances:
         return _empty_response(investment)
 

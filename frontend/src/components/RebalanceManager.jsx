@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { createRebalance, deleteRebalance, fetchRebalances, searchTicker } from "../api/client";
+import { createRebalance, deleteRebalance, fetchRebalances, searchTicker, toggleRebalanceActiveApi } from "../api/client";
 import { usePortfolioStore } from "../store/portfolioStore";
 import { toastConfirm } from "../utils/toastAlerts";
 import { DynamicDatePicker } from "./Common";
+import { useTheme } from "../context/ThemeContext";
 
 export default function RebalanceManager({ onRefresh }) {
+  const { theme } = useTheme();
+  const isLight = theme === "light";
   const { settingsByMode, mode, setInvestment } = usePortfolioStore();
   const currentSettings = settingsByMode?.[mode] || settingsByMode?.historical || {
     tickers: [],
@@ -163,6 +166,68 @@ export default function RebalanceManager({ onRefresh }) {
       onRefresh?.();
     } catch (e) {
       toast.error("Error eliminando: " + e.message);
+    }
+  };
+
+  // Toggle Activo / Inactivo en RebalanceManager
+  const handleToggleActive = async (targetDate, currentActive) => {
+    const newStatus = !currentActive;
+    try {
+      await toggleRebalanceActiveApi({
+        rebalance_date: targetDate,
+        is_active: newStatus,
+        strategy_id: "historical",
+      });
+      await loadRebalances();
+      onRefresh?.();
+      toast.success(
+        newStatus
+          ? `Rebalanceo ${targetDate} activado`
+          : `Rebalanceo ${targetDate} desactivado`
+      );
+    } catch (e) {
+      toast.error("Error al cambiar estado: " + e.message);
+    }
+  };
+
+  // Modal de edición rápida para RebalanceManager
+  const [editingReb, setEditingReb] = useState(null);
+  const [editList, setEditList] = useState([]);
+  const [editSubs, setEditSubs] = useState({});
+  const [editNewTicker, setEditNewTicker] = useState("");
+  const [editNewSub, setEditNewSub] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const handleOpenEdit = (r) => {
+    setEditingReb(r);
+    setEditList([...(r.tickers || [])]);
+    setEditSubs({ ...(r.substitutes || {}) });
+    setEditNewTicker("");
+    setEditNewSub("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingReb) return;
+    setSavingEdit(true);
+    const targetDate = editingReb.date;
+    const isAct = editingReb.isActive ?? editingReb.is_active ?? true;
+    try {
+      await createRebalance({
+        rebalance_date: targetDate,
+        cash_added: editingReb.cash_added || 0,
+        tickers: editList,
+        strategy_id: "historical",
+        is_active: isAct,
+        substitutes: editSubs,
+      });
+      await loadRebalances();
+      onRefresh?.();
+      toast.success(`Rebalanceo del ${targetDate} modificado con éxito`);
+      setEditingReb(null);
+    } catch (e) {
+      toast.error(e.message || "Error al actualizar rebalanceo");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -339,6 +404,8 @@ export default function RebalanceManager({ onRefresh }) {
             >
               {rebalances.map((r, idx) => {
                 const isLatest = idx === rebalances.length - 1;
+                const isAct = r.isActive ?? r.is_active ?? true;
+                const subs = r.substitutes || {};
                 return (
                   <div
                     key={r.date}
@@ -351,10 +418,12 @@ export default function RebalanceManager({ onRefresh }) {
                       justifyContent: "space-between",
                       alignItems: "center",
                       gap: 10,
+                      opacity: isAct ? 1 : 0.65,
+                      transition: "all 0.2s ease",
                     }}
                   >
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <strong
                           className="mono"
                           style={{
@@ -375,44 +444,101 @@ export default function RebalanceManager({ onRefresh }) {
                               fontWeight: 700,
                             }}
                           >
-                            ACTIVO
+                            VIGENTE
                           </span>
                         )}
+                        {/* Toggle Activo / Inactivo */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleActive(r.date, isAct)}
+                          style={{
+                            fontSize: "0.65rem",
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            border: isAct
+                              ? "1px solid rgba(16, 185, 129, 0.4)"
+                              : isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid rgba(255, 255, 255, 0.15)",
+                            background: isAct
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.05)",
+                            color: isAct ? "#10b981" : "var(--text-muted)",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                          title={isAct ? "Desactivar de simulación" : "Activar en simulación"}
+                        >
+                          <span>{isAct ? "●" : "○"}</span>
+                          {isAct ? "ACTIVO" : "INACTIVO"}
+                        </button>
                       </div>
+
                       <div
                         style={{
                           marginTop: "6px",
                           fontSize: "0.75rem",
                           color: "var(--text-secondary)",
                           display: "flex",
-                          gap: 4,
+                          gap: 6,
                           flexWrap: "wrap",
+                          alignItems: "center",
                         }}
                       >
-                        {r.tickers.map((t) => (
-                          <span
-                            key={t}
-                            className="mono"
-                            style={{
-                              background: "rgba(255,255,255,0.06)",
-                              padding: "1px 5px",
-                              borderRadius: 3,
-                              fontSize: "0.7rem",
-                            }}
-                          >
-                            {t}
-                          </span>
-                        ))}
+                        {r.tickers.map((t) => {
+                          const sub = subs[t];
+                          return (
+                            <span
+                              key={t}
+                              className="mono"
+                              style={{
+                                background: sub
+                                  ? isLight ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.18)"
+                                  : isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
+                                border: sub
+                                  ? "1px solid rgba(245, 158, 11, 0.4)"
+                                  : "none",
+                                color: sub ? (isLight ? "#b45309" : "#fbbf24") : "inherit",
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                fontSize: "0.7rem",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                              title={sub ? `Acción sustituta de ${sub}` : undefined}
+                            >
+                              <strong>{t}</strong>
+                              {sub && (
+                                <span style={{ fontSize: "0.62rem", color: isLight ? "#92400e" : "#fef08a", fontWeight: 700 }}>
+                                  🔄 {sub}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => handleDelete(r.date)}
-                      style={{ fontSize: "0.72rem", padding: "4px 8px", whiteSpace: "nowrap" }}
-                      title="Eliminar este grupo de rebalanceo completo"
-                    >
-                      🗑️ Eliminar Grupo
-                    </button>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleOpenEdit(r)}
+                        style={{ fontSize: "0.72rem", padding: "4px 8px", whiteSpace: "nowrap" }}
+                        title="Editar tickers y acciones sustitutas"
+                      >
+                        ⚙️ Editar
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleDelete(r.date)}
+                        style={{ fontSize: "0.72rem", padding: "4px 8px", whiteSpace: "nowrap" }}
+                        title="Eliminar este grupo de rebalanceo completo"
+                      >
+                        🗑️ Eliminar
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -753,6 +879,288 @@ export default function RebalanceManager({ onRefresh }) {
         >
           Guardar Rebalanceo ({date})
         </button>
+        </div>
+      )}
+
+      {/* MODAL DE EDICIÓN EN REBALANCE MANAGER */}
+      {editingReb && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingReb(null);
+          }}
+        >
+          <div
+            style={{
+              background: isLight ? "#ffffff" : "var(--bg-surface)",
+              border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+              borderRadius: 12,
+              width: "100%",
+              maxWidth: 580,
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: 24,
+              boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.1rem", color: "var(--text-primary)" }}>
+                  ⚙️ Editar Rebalanceo ({editingReb.date})
+                </h3>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Modifica las posiciones y especifica si alguna es sustituta
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingReb(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "1.2rem",
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Formulario rápido para agregar */}
+            <div
+              style={{
+                background: isLight ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)",
+                border: isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+                ➕ Agregar Posición
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Ticker real (ej: ENB)"
+                  value={editNewTicker}
+                  onChange={(e) => setEditNewTicker(e.target.value.toUpperCase().trim())}
+                  style={{
+                    flex: 1,
+                    minWidth: 120,
+                    background: isLight ? "#ffffff" : "var(--bg-card)",
+                    border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                    color: "var(--text-primary)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: "0.82rem",
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Sustituye a (ej: ET - opcional)"
+                  value={editNewSub}
+                  onChange={(e) => setEditNewSub(e.target.value.toUpperCase().trim())}
+                  style={{
+                    flex: 1,
+                    minWidth: 140,
+                    background: isLight ? "#ffffff" : "var(--bg-card)",
+                    border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                    color: "var(--text-primary)",
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    fontSize: "0.82rem",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editNewTicker) return;
+                    if (!editList.includes(editNewTicker)) {
+                      setEditList([...editList, editNewTicker]);
+                    }
+                    if (editNewSub) {
+                      setEditSubs({ ...editSubs, [editNewTicker]: editNewSub });
+                    }
+                    setEditNewTicker("");
+                    setEditNewSub("");
+                  }}
+                  style={{
+                    background: "var(--accent-primary)",
+                    border: "none",
+                    color: "#000",
+                    fontWeight: 700,
+                    fontSize: "0.78rem",
+                    borderRadius: 6,
+                    padding: "7px 14px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Agregar
+                </button>
+              </div>
+            </div>
+
+            {/* Lista actual */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Posiciones asignadas ({editList.length})
+                </span>
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                  Máximo: {numSlots}
+                </span>
+              </div>
+
+              {editList.length === 0 ? (
+                <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem" }}>
+                  No hay tickers en este rebalanceo.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {editList.map((t) => {
+                    const currentSub = editSubs[t] || "";
+                    return (
+                      <div
+                        key={t}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "8px 12px",
+                          borderRadius: 6,
+                          background: isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)",
+                          border: currentSub
+                            ? "1px solid rgba(245, 158, 11, 0.4)"
+                            : isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className="mono" style={{ fontWeight: 800, fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                            {t}
+                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sustituye a:</span>
+                            <input
+                              type="text"
+                              placeholder="Original"
+                              value={currentSub}
+                              onChange={(e) => {
+                                const val = e.target.value.toUpperCase().trim();
+                                const copy = { ...editSubs };
+                                if (val) copy[t] = val;
+                                else delete copy[t];
+                                setEditSubs(copy);
+                              }}
+                              style={{
+                                width: 90,
+                                background: isLight ? "#ffffff" : "var(--bg-card)",
+                                border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
+                                color: currentSub ? (isLight ? "#b45309" : "#fbbf24") : "var(--text-primary)",
+                                borderRadius: 4,
+                                padding: "2px 6px",
+                                fontSize: "0.75rem",
+                                fontWeight: currentSub ? 700 : 400,
+                              }}
+                            />
+                            {currentSub && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const copy = { ...editSubs };
+                                  delete copy[t];
+                                  setEditSubs(copy);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--text-muted)",
+                                  cursor: "pointer",
+                                  fontSize: "0.7rem",
+                                  padding: "0 2px",
+                                }}
+                                title="Quitar sustituto"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditList(editList.filter((x) => x !== t));
+                            const copy = { ...editSubs };
+                            delete copy[t];
+                            setEditSubs(copy);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#ef4444",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                          }}
+                          title="Quitar acción"
+                        >
+                          🗑️ Quitar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Botones de acción */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid var(--border)", paddingTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => setEditingReb(null)}
+                style={{
+                  background: isLight ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)",
+                  border: isLight ? "1px solid rgba(0,0,0,0.1)" : "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.82rem",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={handleSaveEdit}
+                style={{
+                  background: "var(--accent-primary)",
+                  border: "none",
+                  color: "#000",
+                  fontWeight: 700,
+                  padding: "8px 20px",
+                  borderRadius: 6,
+                  cursor: savingEdit ? "not-allowed" : "pointer",
+                  fontSize: "0.82rem",
+                  opacity: savingEdit ? 0.7 : 1,
+                }}
+              >
+                {savingEdit ? "Guardando..." : "Guardar Cambios"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

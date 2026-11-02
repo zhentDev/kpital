@@ -363,15 +363,31 @@ export async function fetchRebalances(strategyId = "historical", options = {}) {
 }
 
 /** POST /api/rebalances */
-export async function createRebalance({ rebalance_date, cash_added, tickers, strategy_id = "historical" }) {
+export async function createRebalance({ rebalance_date, cash_added, tickers, strategy_id = "historical", is_active = true, substitutes = {} }) {
   const res = await safeFetch(`${BASE}/rebalances`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rebalance_date, cash_added, tickers, strategy_id }),
+    body: JSON.stringify({ rebalance_date, cash_added, tickers, strategy_id, is_active, substitutes }),
   });
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.detail || "Error al registrar rebalanceo");
+  }
+  invalidateApiCache("/nav");
+  invalidateApiCache("/rebalances");
+  return res.json();
+}
+
+/** PUT /api/rebalances/toggle */
+export async function toggleRebalanceActiveApi({ rebalance_date, is_active, strategy_id = "historical" }) {
+  const res = await safeFetch(`${BASE}/rebalances/toggle`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rebalance_date, is_active, strategy_id }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || "Error al cambiar estado del rebalanceo");
   }
   invalidateApiCache("/nav");
   invalidateApiCache("/rebalances");
