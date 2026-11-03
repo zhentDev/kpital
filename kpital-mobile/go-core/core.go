@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -256,7 +257,11 @@ func FetchMobilePockets(bank, txType string) string {
 	currentCfg := appConfig
 	cfgLock.RUnlock()
 
-	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-pockets?bank=%s&tx_type=%s", currentCfg.ApiUrl, bank, txType)
+	params := url.Values{}
+	params.Set("bank", bank)
+	params.Set("tx_type", txType)
+
+	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-pockets?%s", currentCfg.ApiUrl, params.Encode())
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return `{"success":false,"pockets":[]}`
