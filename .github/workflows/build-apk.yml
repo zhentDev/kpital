@@ -29,19 +29,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Configure Android SDK & NDK Environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          # Localizar el NDK preinstalado en el runner de GitHub
-          NDK_PATH=$(ls -d $ANDROID_SDK_ROOT/ndk/* 2>/dev/null | tail -n 1)
-          if [ -z "$NDK_PATH" ]; then
-            echo "Instalando NDK via sdkmanager..."
-            $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125"
-            NDK_PATH="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
-          fi
-          echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
-          echo "$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: '26.1.10909125'
+          add-to-path: true
 
       - name: Install gomobile & Build Go Android Library (.aar)
         run: |
@@ -54,6 +47,9 @@ jobs:
           # Compilar el binario nativo AAR con gomobile
           gomobile bind -v -target=android -androidapi=26 -o ../android/app/libs/core.aar .
           ls -la ../android/app/libs/
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
