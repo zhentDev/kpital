@@ -36,6 +36,7 @@ jobs:
 
       - name: Install gomobile & Build Go Android Library (.aar)
         run: |
+          sudo apt-get update && sudo apt-get install -y build-essential clang
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           export PATH="$(go env GOPATH)/bin:$PATH"
@@ -47,12 +48,13 @@ jobs:
           
           cd kpital-mobile/go-core
           echo "Current directory: $(pwd)"
-          go version
-          go env
           
-          # Compilar el paquete actual
-          gomobile bind -v -target=android -androidapi=26 -o "$OUTPUT_AAR" .
+          # Compilar el binario AAR con CGO habilitado y clang
+          CGO_ENABLED=1 gomobile bind -v -target=android -androidapi=26 -o "$OUTPUT_AAR" .
           ls -la "$OUTPUT_AAR"
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
