@@ -239,12 +239,12 @@ export async function fetchNAV({
     params.set("selected_tickers", selectedTickers.join(","));
   }
 
-  const staticFile = strategyId === "historical" || !strategyId ? `nav_${period}.json` : null;
+  // NAV static JSONs no longer exist since full migration to Supabase/PostgreSQL SSOT.
+  // Instead of throwing 404 for nav_*.json when backend is cold-starting, we gracefully return null or retry.
   let data;
   try {
-    data = await fetchWithFallback(`/nav?${params}`, staticFile, { timeoutMs: 15000 });
+    data = await fetchWithFallback(`/nav?${params}`, null, { timeoutMs: 25000 });
   } catch (err) {
-    // If backend is unreachable and it's a custom strategy, try returning null rather than hard crashing
     console.warn(`fetchNAV could not fetch data for strategy ${strategyId}:`, err);
     return null;
   }
@@ -1107,6 +1107,7 @@ export async function checkDebtRemindersApi() {
 // ── AUTH API ENDPOINTS ─────────────────────────────────────────────────────────
 
 export async function loginApi(email, password) {
+  // If Render is sleeping or takes long, try login with a tight timeout of 3s, then fall back immediately to direct Supabase
   try {
     const res = await safeFetch(
       `${BASE}/auth/login`,
@@ -1114,21 +1115,22 @@ export async function loginApi(email, password) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        timeoutMs: 3000,
       },
-      1,
-      1000,
+      0, // 0 retries on login to prevent hanging
+      500,
     );
     if (res && res.ok) {
       return await res.json();
     }
     if (res && !res.ok) {
       const data = await res.json().catch(() => ({}));
-      if (data.detail && !data.detail.toLowerCase().includes("origin")) {
+      if (data.detail && !data.detail.toLowerCase().includes("origin") && res.status !== 502 && res.status !== 503) {
         throw new Error(data.detail);
       }
     }
   } catch (err) {
-    if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("origin") && !err.message.includes("Servidor")) {
+    if (err.message && !err.message.includes("Failed to fetch") && !err.message.includes("origin") && !err.message.includes("Servidor") && !err.message.includes("aborted")) {
       throw err;
     }
   }

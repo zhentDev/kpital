@@ -136,11 +136,7 @@ export const useAuthStore = create((set, get) => ({
       purgeFinancialLocalStorage();
       set({ token: res.token, user: res.user, isAuthModalOpen: false });
       toast.success(`¡Bienvenido de nuevo, ${res.user.name || res.user.email}!`, { icon: "👋" });
-      if (typeof window !== "undefined") {
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
-      }
+      
       return true;
     } catch (err) {
       toast.error(err.message || "Error al iniciar sesión");
@@ -166,11 +162,7 @@ export const useAuthStore = create((set, get) => ({
       } else {
         toast.success(`¡Cuenta creada con éxito! Bienvenido, ${res.user.name}`, { icon: "🚀" });
       }
-      if (typeof window !== "undefined") {
-        setTimeout(() => {
-          window.location.reload();
-        }, 600);
-      }
+      
       return true;
     } catch (err) {
       toast.error(err.message || "Error al registrarse");

@@ -43,7 +43,7 @@ jobs:
           export PATH="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:$(go env GOPATH)/bin:$PATH"
           
           gomobile version
-          gomobile init -ndk "$ANDROID_NDK_HOME"
+          gomobile init
 
           mkdir -p kpital-mobile/android/app/libs
           OUTPUT_AAR="$(pwd)/kpital-mobile/android/app/libs/core.aar"
