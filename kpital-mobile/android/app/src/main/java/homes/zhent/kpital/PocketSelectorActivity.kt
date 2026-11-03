@@ -1,19 +1,22 @@
 package homes.zhent.kpital
 
 import android.app.Activity
-import android.app.AlertDialog
-import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
-import android.widget.Toast
+import android.view.Gravity
+import android.view.View
+import android.widget.*
 import core.Core
 import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
  * PocketSelectorActivity:
- * Diálogo interactivo rápido (estilo MacroDroid / Prompt de selección) que aparece
- * inmediatamente cuando se intercepta una notificación de compra o débito bancario.
+ * Interfaz interactiva nativa para seleccionar la cajita o cuenta bancaria.
+ * Construye botones táctiles dinámicos elegantes (estilo dark theme Kpital).
  */
 class PocketSelectorActivity : Activity() {
 
@@ -36,10 +39,61 @@ class PocketSelectorActivity : Activity() {
 
         val formattedAmount = String.format("%,.0f", amount)
 
-        // Cargar cajitas y cuentas disponibles en segundo plano vía Go Core
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#090d16"))
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 50, 40, 50)
+        }
+        scroll.addView(container)
+
+        // Encabezado
+        val titleView = TextView(this).apply {
+            text = "💳 $desc"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+        }
+        container.addView(titleView)
+
+        val amountView = TextView(this).apply {
+            text = "$$formattedAmount COP"
+            textSize = 24f
+            setTextColor(Color.parseColor("#00e5ff"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 10, 0, 10)
+        }
+        container.addView(amountView)
+
+        val promptView = TextView(this).apply {
+            text = "¿De qué cajita o cuenta sale este dinero en $bank?"
+            textSize = 14f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 0, 0, 30)
+        }
+        container.addView(promptView)
+
+        val loadingView = TextView(this).apply {
+            text = "Cargando tus cajitas y saldos..."
+            textSize = 14f
+            setTextColor(Color.parseColor("#64748b"))
+        }
+        container.addView(loadingView)
+
+        val optionsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        container.addView(optionsLayout)
+
+        setContentView(scroll)
+
+        // Cargar cajitas vía Go Core en hilo secundario
         thread {
             try {
                 val pocketsJsonStr = Core.fetchMobilePockets(bank, txType)
+                Log.d("PocketSelector", "Respuesta Go Core: $pocketsJsonStr")
                 val json = JSONObject(pocketsJsonStr)
                 val pocketsArray = json.optJSONArray("pockets")
                 val namesArray = json.optJSONArray("pocket_names")
@@ -47,89 +101,137 @@ class PocketSelectorActivity : Activity() {
                 val displayOptions = mutableListOf<String>()
                 val internalNames = mutableListOf<String>()
 
-                if (pocketsArray != null && namesArray != null) {
+                if (pocketsArray != null && namesArray != null && pocketsArray.length() > 0) {
                     for (i in 0 until pocketsArray.length()) {
                         displayOptions.add(pocketsArray.getString(i))
                         internalNames.add(namesArray.getString(i))
                     }
                 } else {
-                    displayOptions.add("⭐ Cuenta Principal ($formattedAmount)")
+                    displayOptions.add("⭐ Cuenta Principal")
                     internalNames.add("Principal")
-                    displayOptions.add("❌ Cancelar")
-                    internalNames.add("Cancelar")
                 }
 
                 runOnUiThread {
-                    showSelectionDialog(bank, desc, formattedAmount, displayOptions, internalNames, amount, txType, rawText)
+                    loadingView.visibility = View.GONE
+                    populateOptionButtons(
+                        container = optionsLayout,
+                        bank = bank,
+                        desc = desc,
+                        amount = amount,
+                        txType = txType,
+                        rawText = rawText,
+                        displayOptions = displayOptions,
+                        internalNames = internalNames
+                    )
                 }
             } catch (e: Exception) {
-                Log.e("PocketSelector", "Error fetching pockets: ${e.message}", e)
+                Log.e("PocketSelector", "Error: ${e.message}", e)
                 runOnUiThread {
-                    Toast.makeText(this@PocketSelectorActivity, "Error conectando con Kpital", Toast.LENGTH_SHORT).show()
-                    finish()
+                    loadingView.text = "Error obteniendo cajitas: ${e.message}"
                 }
             }
         }
     }
 
-    private fun showSelectionDialog(
+    private fun populateOptionButtons(
+        container: LinearLayout,
         bank: String,
         desc: String,
-        formattedAmount: String,
-        displayOptions: List<String>,
-        internalNames: List<String>,
         amount: Double,
         txType: String,
-        rawText: String
+        rawText: String,
+        displayOptions: List<String>,
+        internalNames: List<String>
     ) {
-        val title = "💳 Gasto en $desc ($$formattedAmount)"
-        val message = "¿De qué cajita o cuenta sale este dinero en $bank?"
+        for (i in displayOptions.indices) {
+            val label = displayOptions[i]
+            val internalName = internalNames.getOrNull(i) ?: label
+            val isCancel = internalName.contains("Cancelar", ignoreCase = true) || internalName.contains("Ignorar", ignoreCase = true)
 
-        val builder = AlertDialog.Builder(this)
-        builder.setTitle(title)
-        builder.setMessage(message)
+            val btn = Button(this).apply {
+                text = label
+                textSize = 14f
+                isAllCaps = false
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                setPadding(35, 30, 35, 30)
 
-        builder.setItems(displayOptions.toTypedArray()) { _, which ->
-            val selectedName = internalNames.getOrNull(which) ?: "Principal"
-
-            if (selectedName.contains("Cancelar", ignoreCase = true) || selectedName.contains("Ignorar", ignoreCase = true)) {
-                Toast.makeText(this, "Operación cancelada", Toast.LENGTH_SHORT).show()
-                finish()
-                return@setItems
-            }
-
-            // Despachar transacción a Kpital vía Go Core
-            thread {
-                try {
-                    val respJson = Core.sendTransactionToBackend(bank, selectedName, desc, txType, amount, rawText)
-                    val result = JSONObject(respJson)
-                    val success = result.optBoolean("success", false)
-                    val msg = result.optString("message", "Movimiento registrado")
-
-                    runOnUiThread {
-                        if (success) {
-                            Toast.makeText(this@PocketSelectorActivity, "✅ $msg", Toast.LENGTH_LONG).show()
-                        } else {
-                            Toast.makeText(this@PocketSelectorActivity, "⚠️ $msg", Toast.LENGTH_LONG).show()
-                        }
-                        finish()
+                val bg = GradientDrawable().apply {
+                    cornerRadius = 20f
+                    if (isCancel) {
+                        setColor(Color.parseColor("#1e1b2e"))
+                        setStroke(2, Color.parseColor("#ef4444"))
+                    } else if (label.startsWith("⭐")) {
+                        setColor(Color.parseColor("#082f49"))
+                        setStroke(2, Color.parseColor("#00e5ff"))
+                    } else {
+                        setColor(Color.parseColor("#0f172a"))
+                        setStroke(2, Color.parseColor("#334155"))
                     }
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        Toast.makeText(this@PocketSelectorActivity, "Error al registrar: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+                background = bg
+
+                setTextColor(if (isCancel) Color.parseColor("#f87171") else Color.WHITE)
+
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 10, 0, 15)
+                }
+                layoutParams = params
+
+                setOnClickListener {
+                    if (isCancel) {
+                        Toast.makeText(this@PocketSelectorActivity, "Gasto descartado", Toast.LENGTH_SHORT).show()
                         finish()
+                        return@setOnClickListener
+                    }
+
+                    isEnabled = false
+                    text = "Registrando en Kpital..."
+
+                    thread {
+                        try {
+                            val respStr = Core.sendTransactionToBackend(bank, internalName, desc, txType, amount, rawText)
+                            val result = JSONObject(respStr)
+                            val success = result.optBoolean("success", false)
+                            val msg = result.optString("message", "Movimiento registrado con éxito")
+
+                            runOnUiThread {
+                                if (success) {
+                                    Toast.makeText(this@PocketSelectorActivity, "✅ $msg", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(this@PocketSelectorActivity, "⚠️ $msg", Toast.LENGTH_LONG).show()
+                                }
+                                finish()
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                Toast.makeText(this@PocketSelectorActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                finish()
+                            }
+                        }
                     }
                 }
             }
+            container.addView(btn)
         }
 
-        builder.setNegativeButton("Descartar") { dialog, _ ->
-            dialog.dismiss()
-            finish()
+        // Botón fijo inferior de cerrar
+        val closeBtn = Button(this).apply {
+            text = "✕ Cerrar sin registrar"
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748b"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { finish() }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 20, 0, 10)
+            }
+            layoutParams = params
         }
-
-        builder.setCancelable(false)
-        val dialog = builder.create()
-        dialog.show()
+        container.addView(closeBtn)
     }
 }
