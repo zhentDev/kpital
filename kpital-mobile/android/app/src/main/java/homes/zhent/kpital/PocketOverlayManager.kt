@@ -99,7 +99,7 @@ object PocketOverlayManager {
                 cardLayout.addView(titleView)
 
                 // 2. Monto (o Input si vino en 0)
-                lateinit var amountInput: EditText
+                var amountInput: EditText? = null
                 if (initialAmount > 0) {
                     val amountView = TextView(appContext).apply {
                         val formatted = String.format("%,.0f", initialAmount)
@@ -119,7 +119,7 @@ object PocketOverlayManager {
                     }
                     cardLayout.addView(manualLabel)
 
-                    amountInput = EditText(appContext).apply {
+                    val input = EditText(appContext).apply {
                         hint = "Ej: 1000"
                         setHintTextColor(Color.parseColor("#475569"))
                         setTextColor(Color.WHITE)
@@ -132,7 +132,8 @@ object PocketOverlayManager {
                         }
                         setPadding(30, 20, 30, 20)
                     }
-                    cardLayout.addView(amountInput)
+                    amountInput = input
+                    cardLayout.addView(input)
                 }
 
                 // 3. Subtítulo cajitas
@@ -232,7 +233,7 @@ object PocketOverlayManager {
                                     if (initialAmount > 0) {
                                         initialAmount
                                     } else {
-                                        amountInput.text.toString().trim().toDoubleOrNull() ?: 0.0
+                                        amountInput?.text?.toString()?.trim()?.toDoubleOrNull() ?: 0.0
                                     }
                                 }
                             )
