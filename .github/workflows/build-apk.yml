@@ -43,11 +43,16 @@ jobs:
           gomobile init
 
           mkdir -p kpital-mobile/android/app/libs
-          cd kpital-mobile/go-core
+          OUTPUT_AAR="$(pwd)/kpital-mobile/android/app/libs/core.aar"
           
-          # Compilar el binario nativo AAR con gomobile
-          gomobile bind -v -target=android -androidapi=26 -o ../android/app/libs/core.aar .
-          ls -la ../android/app/libs/
+          cd kpital-mobile/go-core
+          echo "Current directory: $(pwd)"
+          go version
+          go env
+          
+          # Compilar el paquete actual
+          gomobile bind -v -target=android -androidapi=26 -o "$OUTPUT_AAR" .
+          ls -la "$OUTPUT_AAR"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
