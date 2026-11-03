@@ -37,7 +37,8 @@ class KpitalNotificationListener : NotificationListenerService() {
             "com.rpay.rappi",
             "com.bancofalabella.bancofalabella",
             "com.lulobank",
-            "com.cajasocial"
+            "com.cajasocial",
+            "com.google.android.apps.walletnfcrel"
         )
     }
 
@@ -64,31 +65,26 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
-        handleNotificationEvent(sbn, eventType = "POSTED")
-    }
-
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        super.onNotificationRemoved(sbn)
-        // Habilitado temporalmente para pruebas cuando el usuario borra/descarta la notificación
-        handleNotificationEvent(sbn, eventType = "REMOVED")
-    }
-
-    private fun handleNotificationEvent(sbn: StatusBarNotification?, eventType: String) {
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: ""
         // Ignorar nuestras propias notificaciones para evitar bucles
         if (packageName == applicationContext.packageName) return
 
-        val extras = sbn.notification?.extras ?: return
+        // 1. FILTRADO ESTRICTO DE ORIGEN:
+        // Solo procesar si viene de una aplicación bancaria autorizada
+        val isFromBankApp = MONITORED_PACKAGES.any { packageName.contains(it, ignoreCase = true) }
+        if (!isFromBankApp) return
 
+        val extras = sbn.notification?.extras ?: return
         val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val postTime = sbn.postTime
 
         if (title.isBlank() && text.isBlank()) return
 
-        val isFromBankApp = MONITORED_PACKAGES.any { packageName.contains(it, ignoreCase = true) }
+        // 2. FILTRADO DE CONTENIDO FINANCIERO:
+        // Dentro de la app bancaria, asegurarse de que no sea publicidad, login u otros avisos
         val hasFinancialKeywords = title.contains("$") || text.contains("$") ||
                 title.contains("compra", ignoreCase = true) || text.contains("compra", ignoreCase = true) ||
                 title.contains("envia", ignoreCase = true) || text.contains("envia", ignoreCase = true) ||
@@ -97,11 +93,12 @@ class KpitalNotificationListener : NotificationListenerService() {
                 title.contains("pagaste", ignoreCase = true) || text.contains("pagaste", ignoreCase = true) ||
                 title.contains("pago", ignoreCase = true) || text.contains("pago", ignoreCase = true) ||
                 title.contains("recibiste", ignoreCase = true) || text.contains("recibiste", ignoreCase = true) ||
+                title.contains("te transfirieron", ignoreCase = true) || text.contains("te transfirieron", ignoreCase = true) ||
                 title.contains("plata", ignoreCase = true) || text.contains("plata", ignoreCase = true)
 
-        if (!isFromBankApp && !hasFinancialKeywords) return
+        if (!hasFinancialKeywords) return
 
-        Log.d(TAG, "[$eventType] Notificación bancaria detectada: $packageName -> $title: $text")
+        Log.d(TAG, "[POSTED] Notificación bancaria genuina detectada: $packageName -> $title: $text")
 
         // 1. Intentar parseo con el motor en Go
         var bank = "Banco"
