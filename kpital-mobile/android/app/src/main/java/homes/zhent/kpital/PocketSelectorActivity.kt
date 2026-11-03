@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -16,7 +17,8 @@ import kotlin.concurrent.thread
 /**
  * PocketSelectorActivity:
  * Interfaz interactiva nativa para seleccionar la cajita o cuenta bancaria.
- * Construye botones táctiles dinámicos elegantes (estilo dark theme Kpital).
+ * Si el monto no vino en la notificación push (ej. Nequi), muestra un campo editable
+ * para que el usuario escriba o ajuste el valor en 1 segundo antes de elegir la cajita.
  */
 class PocketSelectorActivity : Activity() {
 
@@ -28,16 +30,16 @@ class PocketSelectorActivity : Activity() {
         const val EXTRA_RAW_TEXT = "extra_raw_text"
     }
 
+    private var currentAmount: Double = 0.0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val bank = intent.getStringExtra(EXTRA_BANK) ?: "Banco"
-        val amount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
-        val desc = intent.getStringExtra(EXTRA_DESC) ?: "Compra"
+        currentAmount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
+        val desc = intent.getStringExtra(EXTRA_DESC) ?: "Movimiento"
         val txType = intent.getStringExtra(EXTRA_TX_TYPE) ?: "debit"
         val rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
-
-        val formattedAmount = String.format("%,.0f", amount)
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#090d16"))
@@ -58,25 +60,53 @@ class PocketSelectorActivity : Activity() {
         }
         container.addView(titleView)
 
-        val amountView = TextView(this).apply {
-            text = "$$formattedAmount COP"
-            textSize = 24f
-            setTextColor(Color.parseColor("#00e5ff"))
-            setTypeface(null, Typeface.BOLD)
-            setPadding(0, 10, 0, 10)
+        // Si el monto ya venía en la push (> 0), mostrarlo grande.
+        // Si no venía (== 0), mostrar un campo de texto para que el usuario lo ingrese.
+        lateinit var amountInput: EditText
+
+        if (currentAmount > 0) {
+            val amountView = TextView(this).apply {
+                val formatted = String.format("%,.0f", currentAmount)
+                text = "$$formatted COP"
+                textSize = 24f
+                setTextColor(Color.parseColor("#00e5ff"))
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 10, 0, 10)
+            }
+            container.addView(amountView)
+        } else {
+            val amountPrompt = TextView(this).apply {
+                text = "Ingresa el valor del movimiento:"
+                textSize = 14f
+                setTextColor(Color.parseColor("#00e5ff"))
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, 15, 0, 5)
+            }
+            container.addView(amountPrompt)
+
+            amountInput = EditText(this).apply {
+                hint = "Ej: 1000"
+                setHintTextColor(Color.parseColor("#64748b"))
+                setTextColor(Color.WHITE)
+                textSize = 22f
+                setTypeface(null, Typeface.BOLD)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setBackgroundColor(Color.parseColor("#0f172a"))
+                setPadding(30, 20, 30, 20)
+            }
+            container.addView(amountInput)
         }
-        container.addView(amountView)
 
         val promptView = TextView(this).apply {
             text = "¿De qué cajita o cuenta sale este dinero en $bank?"
             textSize = 14f
             setTextColor(Color.parseColor("#94a3b8"))
-            setPadding(0, 0, 0, 30)
+            setPadding(0, 15, 0, 25)
         }
         container.addView(promptView)
 
         val loadingView = TextView(this).apply {
-            text = "Cargando tus cajitas y saldos..."
+            text = "Cargando tus cajitas y cuentas..."
             textSize = 14f
             setTextColor(Color.parseColor("#64748b"))
         }
@@ -117,11 +147,18 @@ class PocketSelectorActivity : Activity() {
                         container = optionsLayout,
                         bank = bank,
                         desc = desc,
-                        amount = amount,
                         txType = txType,
                         rawText = rawText,
                         displayOptions = displayOptions,
-                        internalNames = internalNames
+                        internalNames = internalNames,
+                        getFinalAmount = {
+                            if (currentAmount > 0) {
+                                currentAmount
+                            } else {
+                                val entered = amountInput.text.toString().trim()
+                                entered.toDoubleOrNull() ?: 0.0
+                            }
+                        }
                     )
                 }
             } catch (e: Exception) {
@@ -137,11 +174,11 @@ class PocketSelectorActivity : Activity() {
         container: LinearLayout,
         bank: String,
         desc: String,
-        amount: Double,
         txType: String,
         rawText: String,
         displayOptions: List<String>,
-        internalNames: List<String>
+        internalNames: List<String>,
+        getFinalAmount: () -> Double
     ) {
         for (i in displayOptions.indices) {
             val label = displayOptions[i]
@@ -187,12 +224,18 @@ class PocketSelectorActivity : Activity() {
                         return@setOnClickListener
                     }
 
+                    val finalAmount = getFinalAmount()
+                    if (finalAmount <= 0) {
+                        Toast.makeText(this@PocketSelectorActivity, "Por favor ingresa un monto válido", Toast.LENGTH_SHORT).show()
+                        return@setOnClickListener
+                    }
+
                     isEnabled = false
                     text = "Registrando en Kpital..."
 
                     thread {
                         try {
-                            val respStr = Core.sendTransactionToBackend(bank, internalName, desc, txType, amount, rawText)
+                            val respStr = Core.sendTransactionToBackend(bank, internalName, desc, txType, finalAmount, rawText)
                             val result = JSONObject(respStr)
                             val success = result.optBoolean("success", false)
                             val msg = result.optString("message", "Movimiento registrado con éxito")
