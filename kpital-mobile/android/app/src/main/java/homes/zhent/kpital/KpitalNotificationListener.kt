@@ -1,23 +1,33 @@
 package homes.zhent.kpital
 
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import core.Core
 import org.json.JSONObject
 
 /**
  * KpitalNotificationListener:
  * Servicio nativo ultra-ligero que intercepta notificaciones de bancos colombianos.
- * Si la notificación es de un banco conocido pero no trae el monto explícito (ej. Nequi "Envío exitoso"),
- * igual despierta el selector interactivo permitiendo al usuario ingresar el valor en 1 segundo.
+ * Si la app tiene permiso de sobreponerse en pantalla (SYSTEM_ALERT_WINDOW),
+ * levanta PocketSelectorActivity directamente al instante.
+ * Adicionalmente, emite un Heads-Up Notification prioritario con FullScreenIntent
+ * para garantizar que la pantalla despierte o aparezca el banner interactivo.
  */
 class KpitalNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val TAG = "KpitalMobile"
+        private const val CHANNEL_ID = "kpital_urgent_alerts"
         private val MONITORED_PACKAGES = setOf(
             "co.com.bancolombia",
             "com.bancolombia.personas",
@@ -31,11 +41,35 @@ class KpitalNotificationListener : NotificationListenerService() {
         )
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Alertas de Movimientos Bancarios"
+            val descriptionText = "Muestra de inmediato el selector de cajitas al recibir compras o transferencias"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+                enableVibration(true)
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: ""
+        // Ignorar nuestras propias notificaciones para evitar bucles
+        if (packageName == applicationContext.packageName) return
+
         val extras = sbn.notification?.extras ?: return
 
         val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
@@ -76,7 +110,7 @@ class KpitalNotificationListener : NotificationListenerService() {
                 description = obj.optString("description", description)
                 txType = obj.optString("txType", "debit")
             } else {
-                // Fallback heurístico si Go no encontró monto en el texto (ej. Nequi sin monto en push)
+                // Heurística de fallback cuando no viene el monto en el texto (ej. Nequi "Envío exitoso")
                 if (packageName.contains("nequi", ignoreCase = true) || title.contains("nequi", ignoreCase = true)) {
                     bank = "Nequi Colombia"
                 } else if (packageName.contains("bancolombia", ignoreCase = true)) {
@@ -91,15 +125,59 @@ class KpitalNotificationListener : NotificationListenerService() {
             Log.e(TAG, "Error procesando con Go Core: ${e.message}", e)
         }
 
-        // 2. Si es de banco, SIEMPRE abrir el selector (aunque amount sea 0, para que el usuario pueda escribirlo)
-        val intent = Intent(this, PocketSelectorActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // 2. Preparar el Intent para PocketSelectorActivity
+        val targetIntent = Intent(this, PocketSelectorActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(PocketSelectorActivity.EXTRA_BANK, bank)
             putExtra(PocketSelectorActivity.EXTRA_AMOUNT, amount)
             putExtra(PocketSelectorActivity.EXTRA_DESC, description)
             putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, txType)
             putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, "$title - $text")
         }
-        startActivity(intent)
+
+        val requestCode = System.currentTimeMillis().toInt()
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            requestCode,
+            targetIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        )
+
+        // 3. Mecanismo A: Si tiene permiso SYSTEM_ALERT_WINDOW (Mostrar sobre otras apps),
+        // lanzar directamente la actividad para que aparezca al frente de una vez.
+        var openedDirectly = false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
+            try {
+                startActivity(targetIntent)
+                openedDirectly = true
+                Log.d(TAG, "Ventana abierta directamente sobre la app activa vía SYSTEM_ALERT_WINDOW")
+            } catch (e: Throwable) {
+                Log.w(TAG, "No se pudo abrir startActivity directo: ${e.message}")
+            }
+        }
+
+        // 4. Mecanismo B: Lanzar Heads-up Notification con FullScreenIntent de máxima prioridad
+        val amountStr = if (amount > 0) String.format("$%,.0f COP", amount) else "Monto por definir"
+        val notifBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("⚡ Registrar en Kpital: $bank")
+            .setContentText("$amountStr - $description")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true) // Despierta pantalla o sale banner arriba
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = (System.currentTimeMillis() % 10000).toInt()
+        notificationManager.notify(notificationId, notifBuilder.build())
+        Log.d(TAG, "Heads-up / Full-Screen notification disparada (ID: $notificationId, openedDirectly=$openedDirectly)")
     }
 }

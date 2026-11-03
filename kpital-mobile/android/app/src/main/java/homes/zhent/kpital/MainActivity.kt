@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
@@ -22,6 +24,7 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: SharedPreferences
     private lateinit var statusTextView: TextView
+    private lateinit var overlayStatusTextView: TextView
     private lateinit var userSessionLayout: LinearLayout
     private lateinit var loginFormLayout: LinearLayout
     private lateinit var welcomeUserTextView: TextView
@@ -78,10 +81,9 @@ class MainActivity : Activity() {
             setTypeface(null, Typeface.BOLD)
         }
         rootLayout.addView(statusTextView)
-        updatePermissionStatus()
 
         val permButton = Button(this).apply {
-            text = "⚙️ Permisos de Notificaciones"
+            text = "1. Permiso de Lectura de Notificaciones"
             setBackgroundColor(Color.parseColor("#1e293b"))
             setTextColor(Color.WHITE)
             setOnClickListener {
@@ -89,6 +91,43 @@ class MainActivity : Activity() {
             }
         }
         rootLayout.addView(permButton)
+
+        // Estado del Permiso de Ventana Flotante / Mostrar sobre otras apps
+        overlayStatusTextView = TextView(this).apply {
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 20, 0, 0)
+        }
+        rootLayout.addView(overlayStatusTextView)
+
+        val overlayPermButton = Button(this).apply {
+            text = "2. Permitir Ventana Emergente Automática"
+            setBackgroundColor(Color.parseColor("#0284c7"))
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
+                } else {
+                    Toast.makeText(this@MainActivity, "Permiso no requerido en tu versión de Android", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        rootLayout.addView(overlayPermButton)
+
+        val overlayHelpView = TextView(this).apply {
+            text = "💡 Este permiso permite que cuando Nequi o Nu te envíen una notificación, Kpital se abra automáticamente en tu pantalla para elegir la cajita al instante.\n"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 10, 0, 0)
+        }
+        rootLayout.addView(overlayHelpView)
+
+        updatePermissionStatus()
 
         // Separador
         val separator = View(this).apply {
@@ -268,9 +307,17 @@ class MainActivity : Activity() {
     }
 
     private fun updatePermissionStatus() {
-        val enabled = isNotificationServiceEnabled()
-        statusTextView.text = if (enabled) "● Estado: Servicio ACTIVO y escuchando" else "○ Estado: Permiso de Notificaciones PENDIENTE"
-        statusTextView.setTextColor(if (enabled) Color.parseColor("#10b981") else Color.parseColor("#f59e0b"))
+        val notifEnabled = isNotificationServiceEnabled()
+        statusTextView.text = if (notifEnabled) "● Lectura de Notificaciones: ACTIVO" else "○ Lectura de Notificaciones: PENDIENTE"
+        statusTextView.setTextColor(if (notifEnabled) Color.parseColor("#10b981") else Color.parseColor("#f59e0b"))
+
+        val overlayEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+        overlayStatusTextView.text = if (overlayEnabled) "● Ventana Emergente Automática: ACTIVO" else "○ Ventana Emergente Automática: PENDIENTE"
+        overlayStatusTextView.setTextColor(if (overlayEnabled) Color.parseColor("#10b981") else Color.parseColor("#f59e0b"))
     }
 
     private fun isNotificationServiceEnabled(): Boolean {

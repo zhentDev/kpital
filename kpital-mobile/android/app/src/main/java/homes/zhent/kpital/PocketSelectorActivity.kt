@@ -35,6 +35,20 @@ class PocketSelectorActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Asegurar que la pantalla se encienda y se muestre incluso sobre el bloqueo
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
+
         val bank = intent.getStringExtra(EXTRA_BANK) ?: "Banco"
         currentAmount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
         val desc = intent.getStringExtra(EXTRA_DESC) ?: "Movimiento"
