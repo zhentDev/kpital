@@ -24,6 +24,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".PocketSelectorActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog" />
+
         <!-- Servicio Oficial de Android para capturar push bancarias en background -->
         <service
             android:name=".KpitalNotificationListener"

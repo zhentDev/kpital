@@ -143,21 +143,184 @@ func ProcessNotificationJSON(packageName, title, text string, timestampMs int64)
 	return string(bytes)
 }
 
-// syncTransactionToBackend sends the parsed notification payload to Kpital.
-func syncTransactionToBackend(cfg Config, raw models.RawNotification, parsed *models.ParsedTransaction) error {
-	endpoint := fmt.Sprintf("%s/api/webhooks/mobile/notification", cfg.ApiUrl)
+// ParseNotificationJSON parses the push notification text without immediately sending it,
+// allowing Android to display the interactive pocket picker dialog to the user.
+func ParseNotificationJSON(packageName, title, text string, timestampMs int64) string {
+	res := &ProcessResult{
+		Success:  false,
+		Currency: "COP",
+	}
+
+	if title == "" && text == "" {
+		res.ErrorMessage = "Empty notification title and text"
+		bytes, _ := json.Marshal(res)
+		return string(bytes)
+	}
+
+	rawTime := time.Now()
+	if timestampMs > 0 {
+		rawTime = time.UnixMilli(timestampMs)
+	}
+
+	rawNotif := models.RawNotification{
+		PackageName: packageName,
+		Title:       title,
+		Text:        text,
+		Timestamp:   rawTime,
+	}
+
+	parsedTx, err := parserEngine.Parse(rawNotif)
+	if err != nil {
+		res.ErrorMessage = fmt.Sprintf("Parser error: %v", err)
+		bytes, _ := json.Marshal(res)
+		return string(bytes)
+	}
+
+	if parsedTx == nil {
+		res.ErrorMessage = "Notification does not match supported bank transaction patterns"
+		bytes, _ := json.Marshal(res)
+		return string(bytes)
+	}
+
+	res.Success = true
+	res.Parsed = true
+	res.Bank = parsedTx.Bank
+	res.Amount = parsedTx.Amount
+	res.Currency = parsedTx.Currency
+	res.Description = parsedTx.Description
+	res.Account = parsedTx.Account
+	res.TxType = string(parsedTx.Type)
+
+	if strings.Contains(parsedTx.Account, "*") {
+		parts := strings.Split(parsedTx.Account, "*")
+		if len(parts) > 1 {
+			res.CardLast4 = parts[len(parts)-1]
+		}
+	}
+
+	bytes, _ := json.Marshal(res)
+	return string(bytes)
+}
+
+// SendTransactionToBackend dispatches the user-confirmed transaction and selected pocket to Kpital.
+func SendTransactionToBackend(bank, account, description, txType string, amount float64, rawText string) string {
+	cfgLock.RLock()
+	currentCfg := appConfig
+	cfgLock.RUnlock()
+
+	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-transaction", currentCfg.ApiUrl)
 
 	payload := map[string]interface{}{
-		"app_name":     parsed.Bank,
-		"package_name": raw.PackageName,
-		"title":        raw.Title,
-		"body":         raw.Text,
-		"timestamp":    raw.Timestamp.Format(time.RFC3339),
-		"amount":       parsed.Amount,
-		"description":  parsed.Description,
-		"account":      parsed.Account,
-		"tx_type":      parsed.Type,
-		"source":       "kpital_mobile_native",
+		"entity":      bank,
+		"account":     account,
+		"amount":      amount,
+		"description": description,
+		"type":        txType,
+		"raw_text":    rawText,
+	}
+
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if currentCfg.WebhookSecret != "" {
+		req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
+	} else {
+		// Default secure mobile token
+		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
+	}
+	if currentCfg.UserToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return string(bodyBytes)
+}
+
+// FetchMobilePockets calls /api/webhooks/mobile-pockets to retrieve available pockets for a bank.
+func FetchMobilePockets(bank, txType string) string {
+	cfgLock.RLock()
+	currentCfg := appConfig
+	cfgLock.RUnlock()
+
+	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-pockets?bank=%s&tx_type=%s", currentCfg.ApiUrl, bank, txType)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return `{"success":false,"pockets":[]}`
+	}
+
+	if currentCfg.WebhookSecret != "" {
+		req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
+	} else {
+		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
+	}
+	if currentCfg.UserToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return `{"success":false,"pockets":[]}`
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return string(bodyBytes)
+}
+
+// LoginToKpital authenticates the user directly against the Kpital API and returns token & profile.
+func LoginToKpital(email, password string) string {
+	cfgLock.RLock()
+	apiUrl := appConfig.ApiUrl
+	cfgLock.RUnlock()
+
+	endpoint := fmt.Sprintf("%s/api/auth/login", apiUrl)
+	payload := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+
+	jsonBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return string(bodyBytes)
+}
+
+// syncTransactionToBackend sends the parsed notification payload to Kpital.
+func syncTransactionToBackend(cfg Config, raw models.RawNotification, parsed *models.ParsedTransaction) error {
+	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-transaction", cfg.ApiUrl)
+
+	payload := map[string]interface{}{
+		"entity":      parsed.Bank,
+		"account":     parsed.Account,
+		"amount":      parsed.Amount,
+		"description": parsed.Description,
+		"type":        string(parsed.Type),
+		"raw_text":    raw.Text,
 	}
 
 	jsonBytes, err := json.Marshal(payload)
@@ -173,6 +336,8 @@ func syncTransactionToBackend(cfg Config, raw models.RawNotification, parsed *mo
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.WebhookSecret != "" {
 		req.Header.Set("X-Webhook-Secret", cfg.WebhookSecret)
+	} else {
+		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
 	}
 	if cfg.UserToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.UserToken))
