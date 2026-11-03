@@ -36,22 +36,24 @@ jobs:
 
       - name: Install gomobile & Build Go Android Library (.aar)
         run: |
-          sudo apt-get update && sudo apt-get install -y build-essential clang
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
-          export PATH="$(go env GOPATH)/bin:$PATH"
+          
+          # Agregar herramientas NDK Clang al PATH
+          export PATH="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:$(go env GOPATH)/bin:$PATH"
+          
           gomobile version
-          gomobile init
+          gomobile init -ndk "$ANDROID_NDK_HOME"
 
           mkdir -p kpital-mobile/android/app/libs
           OUTPUT_AAR="$(pwd)/kpital-mobile/android/app/libs/core.aar"
           
           cd kpital-mobile/go-core
-          echo "Current directory: $(pwd)"
+          echo "Building core.aar with NDK at $ANDROID_NDK_HOME..."
           
-          # Compilar el binario AAR con CGO habilitado y clang
-          CGO_ENABLED=1 gomobile bind -v -target=android -androidapi=26 -o "$OUTPUT_AAR" .
-          ls -la "$OUTPUT_AAR"
+          # Compilar el binario nativo AAR con gomobile
+          gomobile bind -v -target=android/arm64 -androidapi=26 -o "$OUTPUT_AAR" .
+          ls -lh "$OUTPUT_AAR"
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
