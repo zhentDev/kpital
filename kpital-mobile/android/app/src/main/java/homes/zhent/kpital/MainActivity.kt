@@ -9,6 +9,7 @@ import android.text.TextUtils
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import core.Core
 
 class MainActivity : Activity() {
 
