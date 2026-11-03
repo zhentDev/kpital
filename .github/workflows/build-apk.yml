@@ -29,15 +29,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: '26.1.10909125'
-          add-to-path: true
-
       - name: Install gomobile & Build Go Android Library (.aar)
         run: |
+          # Ubuntu runner already has NDK preinstalled in ANDROID_NDK_HOME or ANDROID_NDK_LATEST_HOME
+          export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
+          echo "Using Android NDK: $ANDROID_NDK_HOME"
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           gomobile init
@@ -47,9 +43,6 @@ jobs:
           # Compilar el binario nativo AAR con gomobile
           gomobile bind -v -target=android -androidapi=26 -o ../android/app/libs/core.aar .
           ls -la ../android/app/libs/
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
