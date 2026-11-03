@@ -158,26 +158,6 @@ class MainActivity : Activity() {
         }
         userSessionLayout.addView(syncInfoTextView)
 
-        // Botón de prueba: Simular compra bancaria para probar el selector de cajitas
-        val testNotificationButton = Button(this).apply {
-            text = "🧪 Probar Notificación de Banco (Simular $45.000 Nu)"
-            setBackgroundColor(Color.parseColor("#0284c7"))
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-            setOnClickListener {
-                val intent = Intent(this@MainActivity, PocketSelectorActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    putExtra(PocketSelectorActivity.EXTRA_BANK, "Nu Colombia")
-                    putExtra(PocketSelectorActivity.EXTRA_AMOUNT, 45000.0)
-                    putExtra(PocketSelectorActivity.EXTRA_DESC, "Prueba Éxito Calle 80")
-                    putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, "debit")
-                    putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, "Compra con tu Tarjeta Nu por $45.000 en Éxito Calle 80")
-                }
-                startActivity(intent)
-            }
-        }
-        userSessionLayout.addView(testNotificationButton)
-
         val spacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 20)
         }

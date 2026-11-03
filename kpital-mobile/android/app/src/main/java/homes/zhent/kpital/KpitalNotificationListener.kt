@@ -64,6 +64,16 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
+        handleNotificationEvent(sbn, eventType = "POSTED")
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        // Habilitado temporalmente para pruebas cuando el usuario borra/descarta la notificación
+        handleNotificationEvent(sbn, eventType = "REMOVED")
+    }
+
+    private fun handleNotificationEvent(sbn: StatusBarNotification?, eventType: String) {
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: ""
@@ -91,7 +101,7 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         if (!isFromBankApp && !hasFinancialKeywords) return
 
-        Log.d(TAG, "Notificación bancaria detectada: $packageName -> $title: $text")
+        Log.d(TAG, "[$eventType] Notificación bancaria detectada: $packageName -> $title: $text")
 
         // 1. Intentar parseo con el motor en Go
         var bank = "Banco"
@@ -125,7 +135,29 @@ class KpitalNotificationListener : NotificationListenerService() {
             Log.e(TAG, "Error procesando con Go Core: ${e.message}", e)
         }
 
-        // 2. Preparar el Intent para PocketSelectorActivity
+        // 2. DISPARADOR PRINCIPAL: Overlay Flotante Directo (WindowManager)
+        // Es exactamente el método que usa MacroDroid y burbujas: salta sin importar qué app esté abierta.
+        val canOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(this)
+        } else {
+            true
+        }
+
+        if (canOverlay) {
+            Log.d(TAG, "Mostrando PocketOverlayManager (burbuja/cuadro flotante)...")
+            PocketOverlayManager.show(
+                context = this,
+                bank = bank,
+                initialAmount = amount,
+                desc = description,
+                txType = txType,
+                rawText = "$title - $text"
+            )
+        } else {
+            Log.w(TAG, "No tiene permiso canDrawOverlays para mostrar la burbuja flotante")
+        }
+
+        // 3. Respaldo adicional: Heads-up Notification con FullScreenIntent
         val targetIntent = Intent(this, PocketSelectorActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -149,20 +181,6 @@ class KpitalNotificationListener : NotificationListenerService() {
             }
         )
 
-        // 3. Mecanismo A: Si tiene permiso SYSTEM_ALERT_WINDOW (Mostrar sobre otras apps),
-        // lanzar directamente la actividad para que aparezca al frente de una vez.
-        var openedDirectly = false
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)) {
-            try {
-                startActivity(targetIntent)
-                openedDirectly = true
-                Log.d(TAG, "Ventana abierta directamente sobre la app activa vía SYSTEM_ALERT_WINDOW")
-            } catch (e: Throwable) {
-                Log.w(TAG, "No se pudo abrir startActivity directo: ${e.message}")
-            }
-        }
-
-        // 4. Mecanismo B: Lanzar Heads-up Notification con FullScreenIntent de máxima prioridad
         val amountStr = if (amount > 0) String.format("$%,.0f COP", amount) else "Monto por definir"
         val notifBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -172,12 +190,11 @@ class KpitalNotificationListener : NotificationListenerService() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true) // Despierta pantalla o sale banner arriba
+            .setFullScreenIntent(pendingIntent, true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notificationId = (System.currentTimeMillis() % 10000).toInt()
         notificationManager.notify(notificationId, notifBuilder.build())
-        Log.d(TAG, "Heads-up / Full-Screen notification disparada (ID: $notificationId, openedDirectly=$openedDirectly)")
     }
 }
