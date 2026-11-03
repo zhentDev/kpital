@@ -31,7 +31,10 @@ jobs:
 
       - name: Install Stable NDK r25b and Build Go Android Library (.aar)
         run: |
-          echo "y" | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653"
+          # Aceptar licencias e instalar NDK 25.2.9519653
+          yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1 || true
+          yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" >/dev/null 2>&1
+          
           export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT}/ndk/25.2.9519653"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
           export PATH="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin:$(go env GOPATH)/bin:$PATH"
@@ -45,7 +48,7 @@ jobs:
           cd kpital-mobile/go-core
           
           # Compilar el binario nativo AAR con gomobile sobre NDK 25 LTS
-          gomobile bind -v -target=android -androidapi=21 -o ../android/app/libs/core.aar .
+          gomobile bind -v -target=android -androidapi=21 -o ../android/app/libs/core.aar kpital.mobile/core
           ls -la ../android/app/libs/
 
       - name: Setup Gradle
