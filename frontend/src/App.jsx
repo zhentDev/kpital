@@ -134,12 +134,12 @@ export default function App() {
     mode === "historical" || mode === "live" || (customStrategies || []).some((s) => s.id === mode);
   const isPurchaseMode = (purchasePortfolios || []).some((p) => p.id === mode);
 
-  // Always ensure default initial mode is cash_flow (Flujo de Caja)
+  // Ensure initial mode is set if empty
   const hasCheckedInitialMode = useRef(false);
   useEffect(() => {
     if (isInitialized && !hasCheckedInitialMode.current) {
       hasCheckedInitialMode.current = true;
-      if (!mode || mode === "historical") {
+      if (!mode) {
         setMode("cash_flow");
       }
     }

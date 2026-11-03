@@ -43,6 +43,18 @@ const DEFAULT_TICKERS = [
   "ARM",
 ];
 
+const ACTIVE_VIEW_STORAGE_KEY = "kpital_active_view_mode";
+
+function getInitialViewMode() {
+  if (typeof window === "undefined") return "cash_flow";
+  try {
+    const saved = localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+    return saved || "cash_flow";
+  } catch {
+    return "cash_flow";
+  }
+}
+
 export const usePortfolioStore = create((set, get) => ({
   // ── State ────────────────────────────────────────
   settingsByMode: {
@@ -65,7 +77,7 @@ export const usePortfolioStore = create((set, get) => ({
       numSlots: 20,
     },
   },
-  mode: "cash_flow", // Default tab: Flujo de Caja ('cash_flow') | 'historical' | 'live' | etc
+  mode: getInitialViewMode(), // Preserves user's current view across page reloads
   period: "3M",
   visibleSeries: {
     nav: true,
@@ -616,6 +628,11 @@ export const usePortfolioStore = create((set, get) => ({
 
   setMode: (mode) =>
     set((state) => {
+      if (typeof window !== "undefined" && mode) {
+        try {
+          localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, mode);
+        } catch {}
+      }
       const targetMode = mode in state.settingsByMode ? mode : "historical";
       const currentPeriod = state.settingsByMode[targetMode]?.period || "1Y";
       return { mode, period: currentPeriod };
