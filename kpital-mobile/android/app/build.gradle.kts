@@ -11,8 +11,8 @@ android {
         applicationId = "homes.zhent.kpital"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (System.currentTimeMillis() / 1000).toInt()
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
