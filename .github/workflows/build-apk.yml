@@ -65,8 +65,8 @@ jobs:
         run: |
           cd kpital-mobile/android
           chmod +x gradlew || true
-          # Ejecutar build del APK de lanzamiento/debug
-          gradle assembleRelease --stacktrace || gradle assembleDebug --stacktrace
+          # Ejecutar build del APK con info completa de errores
+          gradle assembleRelease --info --stacktrace || gradle assembleDebug --info --stacktrace
 
       - name: Find and Organize Generated APK
         run: |
