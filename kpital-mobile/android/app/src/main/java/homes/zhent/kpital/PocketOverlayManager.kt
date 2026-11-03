@@ -200,18 +200,18 @@ object PocketOverlayManager {
                 // Cargar cajitas en segundo plano
                 thread {
                     try {
-                        val pocketsJsonStr = Core.fetchMobilePockets(bank)
+                        val pocketsJsonStr = Core.fetchMobilePockets(bank, txType)
                         val obj = JSONObject(pocketsJsonStr)
                         val pocketsArray = obj.optJSONArray("pockets")
-                        val namesArray = obj.optJSONArray("internal_names")
+                        val namesArray = obj.optJSONArray("pocket_names")
 
                         val displayOptions = mutableListOf<String>()
                         val internalNames = mutableListOf<String>()
 
-                        if (pocketsArray != null && pocketsArray.length() > 0) {
+                        if (pocketsArray != null && namesArray != null && pocketsArray.length() > 0) {
                             for (i in 0 until pocketsArray.length()) {
                                 displayOptions.add(pocketsArray.getString(i))
-                                internalNames.add(namesArray?.optString(i) ?: pocketsArray.getString(i))
+                                internalNames.add(namesArray.getString(i))
                             }
                         } else {
                             displayOptions.add("⭐ Cuenta Principal")
@@ -307,19 +307,23 @@ object PocketOverlayManager {
 
                     thread {
                         try {
-                            val ok = Core.sendTransactionToBackend(
+                            val respStr = Core.sendTransactionToBackend(
                                 bank,
-                                finalAmount,
+                                internalName,
                                 desc,
                                 txType,
-                                rawText,
-                                internalName
+                                finalAmount,
+                                rawText
                             )
+                            val result = JSONObject(respStr)
+                            val success = result.optBoolean("success", false)
+                            val msg = result.optString("message", "Movimiento registrado con éxito")
+
                             mainHandler.post {
-                                if (ok) {
-                                    Toast.makeText(appContext, "✅ Registrado en '$label'", Toast.LENGTH_LONG).show()
+                                if (success) {
+                                    Toast.makeText(appContext, "✅ $msg", Toast.LENGTH_LONG).show()
                                 } else {
-                                    Toast.makeText(appContext, "⚠️ Guardado localmente para sincronizar", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(appContext, "⚠️ $msg", Toast.LENGTH_LONG).show()
                                 }
                                 dismiss()
                             }
