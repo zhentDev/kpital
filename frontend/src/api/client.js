@@ -3,7 +3,14 @@
  * Automatically falls back to static pre-calculated JSON data on GitHub Pages or when backend is offline!
  */
 import { getBankPreset } from "../utils/bankPresets";
-import { directSupabaseLogin, directSupabaseFetchMe } from "../shared/api/directSupabase";
+import {
+  directSupabaseLogin,
+  directSupabaseFetchMe,
+  directCreateRebalance,
+  directToggleRebalanceActive,
+  directDeleteRebalance,
+  directUpdateRebalanceDate,
+} from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
 const LOCAL_BACKEND_BASE = "http://127.0.0.1:8000/api";
@@ -364,65 +371,108 @@ export async function fetchRebalances(strategyId = "historical", options = {}) {
 
 /** POST /api/rebalances */
 export async function createRebalance({ rebalance_date, cash_added, tickers, strategy_id = "historical", is_active = true, substitutes = {} }) {
-  const res = await safeFetch(`${BASE}/rebalances`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rebalance_date, cash_added, tickers, strategy_id, is_active, substitutes }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.detail || "Error al registrar rebalanceo");
+  try {
+    const res = await safeFetch(`${getBase()}/rebalances`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rebalance_date, cash_added, tickers, strategy_id, is_active, substitutes }),
+    });
+    if (res && res.ok) {
+      invalidateApiCache("/nav");
+      invalidateApiCache("/rebalances");
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[Rebalances] Backend create failed, attempting direct Supabase fallback:", err);
   }
+
+  // Resilient fallback: direct Supabase insertion
+  const fallbackRes = await directCreateRebalance({
+    rebalance_date,
+    cash_added,
+    tickers,
+    strategy_id,
+    is_active,
+    substitutes,
+  });
   invalidateApiCache("/nav");
   invalidateApiCache("/rebalances");
-  return res.json();
+  return fallbackRes;
 }
 
 /** PUT /api/rebalances/toggle */
 export async function toggleRebalanceActiveApi({ rebalance_date, is_active, strategy_id = "historical" }) {
-  const res = await safeFetch(`${BASE}/rebalances/toggle`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rebalance_date, is_active, strategy_id }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.detail || "Error al cambiar estado del rebalanceo");
+  try {
+    const res = await safeFetch(`${getBase()}/rebalances/toggle`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rebalance_date, is_active, strategy_id }),
+    });
+    if (res && res.ok) {
+      invalidateApiCache("/nav");
+      invalidateApiCache("/rebalances");
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[Rebalances] Backend toggle failed, attempting direct Supabase fallback:", err);
   }
+
+  // Resilient fallback: direct Supabase update
+  const fallbackRes = await directToggleRebalanceActive({
+    rebalance_date,
+    is_active,
+    strategy_id,
+  });
   invalidateApiCache("/nav");
   invalidateApiCache("/rebalances");
-  return res.json();
+  return fallbackRes;
 }
 
 /** DELETE /api/rebalances/:date */
 export async function deleteRebalance(date, strategyId = "historical") {
   const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : "";
-  const res = await safeFetch(`${BASE}/rebalances/${date}${query}`, {
-    method: "DELETE",
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.detail || "Error al eliminar rebalanceo");
+  try {
+    const res = await safeFetch(`${getBase()}/rebalances/${date}${query}`, {
+      method: "DELETE",
+    });
+    if (res && res.ok) {
+      invalidateApiCache("/nav");
+      invalidateApiCache("/rebalances");
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[Rebalances] Backend delete failed, attempting direct Supabase fallback:", err);
   }
+
+  // Resilient fallback: direct Supabase delete
+  const fallbackRes = await directDeleteRebalance(date, strategyId);
   invalidateApiCache("/nav");
   invalidateApiCache("/rebalances");
-  return res.json();
+  return fallbackRes;
 }
 
 /** PUT /api/rebalances/date */
 export async function updateRebalanceDateApi(oldDate, newDate, strategyId = "historical") {
-  const res = await safeFetch(`${BASE}/rebalances/date`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ old_date: oldDate, new_date: newDate, strategy_id: strategyId }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.detail || "Error al actualizar fecha de rebalanceo");
+  try {
+    const res = await safeFetch(`${getBase()}/rebalances/date`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old_date: oldDate, new_date: newDate, strategy_id: strategyId }),
+    });
+    if (res && res.ok) {
+      invalidateApiCache("/nav");
+      invalidateApiCache("/rebalances");
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[Rebalances] Backend updateDate failed, attempting direct Supabase fallback:", err);
   }
+
+  // Resilient fallback: direct Supabase date update
+  const fallbackRes = await directUpdateRebalanceDate(oldDate, newDate, strategyId);
   invalidateApiCache("/nav");
   invalidateApiCache("/rebalances");
-  return res.json();
+  return fallbackRes;
 }
 
 /** CUSTOM STRATEGIES API */

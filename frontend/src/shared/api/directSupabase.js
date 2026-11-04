@@ -449,6 +449,124 @@ export async function directFetchRebalances(strategyId = "historical") {
   }));
 }
 
+export async function directCreateRebalance({
+  rebalance_date,
+  cash_added = 0,
+  tickers = [],
+  strategy_id = "historical",
+  is_active = true,
+  substitutes = {},
+}) {
+  const uid = OWNER_USER_ID;
+  // 1. Delete previous rebalance and tickers for this date & strategy
+  await supabase
+    .from("rebalance_tickers")
+    .delete()
+    .eq("rebalance_date", rebalance_date)
+    .eq("strategy_id", strategy_id);
+
+  await supabase
+    .from("rebalances")
+    .delete()
+    .eq("rebalance_date", rebalance_date)
+    .eq("strategy_id", strategy_id);
+
+  // 2. Insert into rebalances
+  const { error: rebErr } = await supabase
+    .from("rebalances")
+    .insert({
+      rebalance_date,
+      cash_added: Number(cash_added) || 0,
+      strategy_id,
+      user_id: uid,
+      is_active: Boolean(is_active),
+    });
+
+  if (rebErr) throw rebErr;
+
+  // 3. Insert into rebalance_tickers
+  const subsMap = substitutes || {};
+  const rows = (tickers || []).map((item) => {
+    let t, sub;
+    if (typeof item === "object" && item !== null) {
+      t = item.ticker;
+      sub = item.substitute_for || item.substituteFor || subsMap[t] || null;
+    } else {
+      t = String(item).trim().toUpperCase();
+      sub = subsMap[t] || null;
+    }
+    return {
+      rebalance_date,
+      ticker: t,
+      strategy_id,
+      user_id: uid,
+      substitute_for: sub,
+    };
+  });
+
+  if (rows.length > 0) {
+    const { error: tickErr } = await supabase
+      .from("rebalance_tickers")
+      .insert(rows);
+    if (tickErr) throw tickErr;
+  }
+
+  return { status: "ok", strategy_id };
+}
+
+export async function directToggleRebalanceActive({
+  rebalance_date,
+  is_active,
+  strategy_id = "historical",
+}) {
+  const { error } = await supabase
+    .from("rebalances")
+    .update({ is_active: Boolean(is_active) })
+    .eq("rebalance_date", rebalance_date)
+    .eq("strategy_id", strategy_id);
+
+  if (error) throw error;
+  return { status: "ok" };
+}
+
+export async function directDeleteRebalance(date, strategyId = "historical") {
+  await supabase
+    .from("rebalance_tickers")
+    .delete()
+    .eq("rebalance_date", date)
+    .eq("strategy_id", strategyId);
+
+  const { error } = await supabase
+    .from("rebalances")
+    .delete()
+    .eq("rebalance_date", date)
+    .eq("strategy_id", strategyId);
+
+  if (error) throw error;
+  return { status: "ok" };
+}
+
+export async function directUpdateRebalanceDate(oldDate, newDate, strategyId = "historical") {
+  // Update in rebalances
+  const { error: rErr } = await supabase
+    .from("rebalances")
+    .update({ rebalance_date: newDate })
+    .eq("rebalance_date", oldDate)
+    .eq("strategy_id", strategyId);
+
+  if (rErr) throw rErr;
+
+  // Update in rebalance_tickers
+  const { error: tErr } = await supabase
+    .from("rebalance_tickers")
+    .update({ rebalance_date: newDate })
+    .eq("rebalance_date", oldDate)
+    .eq("strategy_id", strategyId);
+
+  if (tErr) throw tErr;
+  return { status: "ok" };
+}
+
 export async function directFetchStockAlerts(scope = null, targetId = null) {
   let query = supabase.from("rv_stock_alerts").select("*").eq("user_id", OWNER_USER_ID);
   if (scope) query = query.eq("scope", scope);

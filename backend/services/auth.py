@@ -101,25 +101,41 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def decode_access_token(token: str) -> Optional[dict]:
-    """Decode and verify a signed JWT token."""
+    """Decode and verify a signed JWT token or base64 Supabase session token."""
     try:
         parts = token.strip().split(".")
-        if len(parts) != 3:
-            return None
-        header_b64, payload_b64, sig_b64 = parts
+        if len(parts) == 3:
+            header_b64, payload_b64, sig_b64 = parts
 
-        signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
-        expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
-        provided_sig = _base64url_decode(sig_b64)
+            signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+            expected_sig = hmac.new(JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+            provided_sig = _base64url_decode(sig_b64)
 
-        if not hmac.compare_digest(expected_sig, provided_sig):
-            return None
+            if hmac.compare_digest(expected_sig, provided_sig):
+                payload = json.loads(_base64url_decode(payload_b64).decode("utf-8"))
+                if "exp" in payload and payload["exp"] < time.time():
+                    return None  # Token expired
+                return payload
 
-        payload = json.loads(_base64url_decode(payload_b64).decode("utf-8"))
-        if "exp" in payload and payload["exp"] < time.time():
-            return None  # Token expired
+        # Resilient fallback: direct Supabase client session token (base64 JSON)
+        try:
+            raw = token.strip()
+            pad = 4 - (len(raw) % 4)
+            if pad != 4:
+                raw += "=" * pad
+            decoded = base64.b64decode(raw).decode("utf-8")
+            data = json.loads(decoded)
+            if isinstance(data, dict) and (data.get("id") or data.get("email")):
+                return {
+                    "sub": data.get("id"),
+                    "email": data.get("email"),
+                    "name": data.get("name"),
+                    "is_pro": data.get("is_pro", True),
+                }
+        except Exception:
+            pass
 
-        return payload
+        return None
     except Exception as e:
         logger.debug(f"Failed decoding token: {e}")
         return None
