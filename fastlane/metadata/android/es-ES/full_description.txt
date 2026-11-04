@@ -1,0 +1,8 @@
+Kpital Mobile es una aplicación complementaria y de código abierto para Kpital diseñada para registrar de forma instantánea y automática tus movimientos financieros en Colombia.
+
+Características principales:
+• Detección automática en segundo plano de notificaciones de bancos como Nequi, Nu Colombia, Bancolombia, RappiPay, Daviplata, Falabella y más.
+• Diálogo interactivo flotante en pantalla para asignar el movimiento a tus cajitas, bolsillos o cuentas con un solo toque.
+• Motor central de alta velocidad desarrollado en Go nativo para un consumo mínimo de batería y memoria.
+• Privacidad total: Tus credenciales bancarias nunca se solicitan ni se almacenan; únicamente procesa las alertas que llegan a tu dispositivo.
+• Sincronización en tiempo real con tu panel de control de Kpital.

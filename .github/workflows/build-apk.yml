@@ -81,20 +81,29 @@ jobs:
           path: output-apk/kpital-mobile.apk
           retention-days: 14
 
+      - name: Extract App Version
+        id: get_version
+        run: |
+          VERSION_NAME=$(grep 'versionName =' kpital-mobile/android/app/build.gradle.kts | head -n1 | cut -d'"' -f2)
+          echo "version=v$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "Detected version: v$VERSION_NAME"
+
       - name: Create or Update GitHub Release with APK
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: mobile-v1.0.0
-          name: "Kpital Mobile Engine v1.0.0"
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: "Kpital Mobile ${{ steps.get_version.outputs.version }}"
           body: |
             ### 📱 Kpital Mobile (Android APK)
-            - **Motor nativo en Go** para intercepción y parseo de notificaciones bancarias (Nu, Rappi, Bancolombia).
-            - Funciona en segundo plano con `NotificationListenerService`.
-            - Sincronización automática de movimientos hacia tu servidor Kpital.
+            - **Versión:** ${{ steps.get_version.outputs.version }}
+            - **Motor nativo en Go** para intercepción y parseo de notificaciones bancarias (Nequi, Nu Colombia, Bancolombia, RappiPay, Daviplata, Falabella).
+            - Diálogo flotante interactivo en pantalla (`WindowManager overlay`) para selección táctil de cajitas/bolsillos.
+            - Firma digital unificada y permanente para actualizaciones sin desinstalar.
+            - Compatible con repositorios de F-Droid / IzzyOnDroid.
             
             **Instalación:**
-            Descarga el archivo `kpital-mobile.apk` adjunto directamente a tu teléfono Android e instálalo permitiendo la instalación desde esta fuente.
+            Descarga el archivo `kpital-mobile.apk` en tu dispositivo Android e instálalo.
           files: output-apk/kpital-mobile.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,8 @@
+Kpital Mobile is a companion, open-source Android application for Kpital designed to instantly and automatically track and categorize financial transactions in Colombia.
+
+Key Features:
+• Automatic background detection of banking notifications (Nequi, Nu Colombia, Bancolombia, RappiPay, Daviplata, Falabella, and more).
+• Intuitive on-screen floating overlay to assign transactions to your pockets or accounts in a single tap.
+• Ultra-fast native Go core engine optimized for minimal battery and memory consumption.
+• Complete privacy: Banking credentials are never requested or stored; only device push notifications are processed locally.
+• Real-time synchronization with your Kpital dashboard.
