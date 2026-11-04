@@ -848,38 +848,20 @@ export default function HoldingsTable({
 
                       return (
                         <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                          <span
-                            className="mono"
-                            style={{
-                              fontSize: "0.8rem",
-                              fontWeight: 700,
-                              color: isUp1d ? "#10b981" : "#f43f5e",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                            }}
-                          >
-                            <span>{isUp1d ? "+" : ""}{chg1d.toFixed(2)}%</span>
-                          </span>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span
-                              style={{ fontSize: "0.68rem", color: "var(--text-muted)", cursor: "help" }}
-                              className="mono"
-                              title={`Impacto hoy en tu posición: ${chgUsd1dHolding >= 0 ? "+" : ""}$${chgUsd1dHolding.toFixed(2)} USD (${shares > 0 ? `${shares.toFixed(4)} acc × ${chgUsd1dPerShare >= 0 ? "+" : ""}$${chgUsd1dPerShare.toFixed(2)}/acc` : "1 acc"})`}
-                            >
-                              {chgUsd1dHolding >= 0 ? "+" : ""}${chgUsd1dHolding.toFixed(2)}
-                            </span>
+                          {/* Línea 1: Porcentaje y Anuncio (Salto/Caída/Brusco) al lado */}
+                          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 5 }}>
                             {isExtreme ? (
                               <span
                                 title="Movimiento brusco extraordinario (±6%)"
                                 style={{
                                   fontSize: "0.6rem",
-                                  padding: "1px 4px",
+                                  padding: "1px 5px",
                                   borderRadius: 4,
                                   background: isUp1d ? "rgba(16, 185, 129, 0.2)" : "rgba(244, 63, 94, 0.2)",
-                                  color: isUp1d ? "#34d399" : "#fb7185",
+                                  color: isUp1d ? (isLight ? "#047857" : "#34d399") : (isLight ? "#be123c" : "#fb7185"),
                                   fontWeight: 800,
                                   border: `1px solid ${isUp1d ? "rgba(16, 185, 129, 0.4)" : "rgba(244, 63, 94, 0.4)"}`,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 ⚡ BRUSCO
@@ -889,17 +871,45 @@ export default function HoldingsTable({
                                 title="Movimiento relevante en la sesión (±3%)"
                                 style={{
                                   fontSize: "0.6rem",
-                                  padding: "1px 4px",
+                                  padding: "1px 5px",
                                   borderRadius: 4,
                                   background: isUp1d ? "rgba(16, 185, 129, 0.12)" : "rgba(244, 63, 94, 0.12)",
-                                  color: isUp1d ? "#10b981" : "#f43f5e",
+                                  color: isUp1d ? (isLight ? "#059669" : "#10b981") : (isLight ? "#e11d48" : "#f43f5e"),
                                   fontWeight: 700,
+                                  border: `1px solid ${isUp1d ? "rgba(16, 185, 129, 0.3)" : "rgba(244, 63, 94, 0.3)"}`,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {isUp1d ? "🚀 SALTO" : "🔻 CAÍDA"}
                               </span>
                             ) : null}
+                            <span
+                              className="mono"
+                              style={{
+                                fontSize: "0.8rem",
+                                fontWeight: 700,
+                                color: isUp1d ? (isLight ? "#059669" : "#10b981") : (isLight ? "#e11d48" : "#f43f5e"),
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {isUp1d ? "+" : ""}{chg1d.toFixed(2)}%
+                            </span>
                           </div>
+
+                          {/* Línea 2: Valor en dólares siempre abajo por sí solo, perfectamente alineado */}
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              color: "var(--text-muted)",
+                              cursor: "help",
+                              whiteSpace: "nowrap",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                            className="mono"
+                            title={`Impacto hoy en tu posición: ${chgUsd1dHolding >= 0 ? "+$" : "-$"}${Math.abs(chgUsd1dHolding).toFixed(2)} USD (${shares > 0 ? `${shares.toFixed(4)} acc × ${chgUsd1dPerShare >= 0 ? "+$" : "-$"}${Math.abs(chgUsd1dPerShare).toFixed(2)}/acc` : "1 acc"})`}
+                          >
+                            {chgUsd1dHolding >= 0 ? "+$" : "-$"}{Math.abs(chgUsd1dHolding).toFixed(2)}
+                          </span>
                         </div>
                       );
                     })() : (
