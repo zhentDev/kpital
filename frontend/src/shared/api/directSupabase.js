@@ -190,49 +190,61 @@ export async function directFetchCashFlow() {
     ...(m.extra_json || {}),
   }));
 
-  // Hydrate cards
-  const creditCards = (cardsRes.data || []).map((c) => ({
-    id: c.id,
-    name: c.name,
-    brand: c.brand,
-    totalLimit: c.total_limit,
-    usedLimit: c.used_limit,
-    cutoffDay: c.cutoff_day,
-    dueDay: c.due_day,
-    ...(c.extra_json || {}),
-  }));
+  // Hydrate cards: database columns take strict precedence over extra_json cache
+  const creditCards = (cardsRes.data || []).map((c) => {
+    const extra = c.extra_json || {};
+    return {
+      ...extra,
+      id: c.id,
+      name: c.name || extra.name,
+      brand: c.brand || extra.brand || extra.cardType,
+      cardType: c.brand || extra.cardType || "Gold / Platinum",
+      totalLimit: Number(c.total_limit != null ? c.total_limit : (extra.totalLimit || 0)),
+      usedLimit: Number(c.used_limit != null ? c.used_limit : (extra.usedLimit || 0)),
+      closingDay: Number(c.cutoff_day != null ? c.cutoff_day : (extra.closingDay || extra.cutoffDay || 15)),
+      cutoffDay: Number(c.cutoff_day != null ? c.cutoff_day : (extra.cutoffDay || 15)),
+      paymentDay: Number(c.due_day != null ? c.due_day : (extra.paymentDay || extra.dueDay || 2)),
+      dueDay: Number(c.due_day != null ? c.due_day : (extra.dueDay || 2)),
+    };
+  });
 
   // Hydrate credit purchases
-  const creditPurchases = (purchasesRes.data || []).map((cp) => ({
-    id: cp.id,
-    cardId: cp.card_id,
-    movementId: cp.movement_id,
-    description: cp.description,
-    totalAmount: cp.total_amount,
-    installmentsCount: cp.installments_count,
-    monthlyInstallment: cp.monthly_installment,
-    startPeriod: cp.start_period,
-    date: cp.date,
-    ...(cp.extra_json || {}),
-  }));
+  const creditPurchases = (purchasesRes.data || []).map((cp) => {
+    const extra = cp.extra_json || {};
+    return {
+      ...extra,
+      id: cp.id,
+      cardId: cp.card_id || extra.cardId,
+      movementId: cp.movement_id || extra.movementId,
+      description: cp.description || extra.description,
+      totalAmount: Number(cp.total_amount != null ? cp.total_amount : (extra.totalAmount || 0)),
+      installmentsCount: Number(cp.installments_count != null ? cp.installments_count : (extra.installmentsCount || 1)),
+      monthlyInstallment: Number(cp.monthly_installment != null ? cp.monthly_installment : (extra.monthlyInstallment || 0)),
+      startPeriod: cp.start_period || extra.startPeriod,
+      date: cp.date || extra.date,
+    };
+  });
 
-  // Hydrate debts
-  const debts = (debtsRes.data || []).map((d) => ({
-    id: d.id,
-    originMovementId: d.origin_movement_id,
-    debtType: d.debt_type,
-    concept: d.concept,
-    debtor: d.debtor,
-    creditor: d.creditor,
-    totalAmount: d.total_amount,
-    remainingAmount: d.remaining_amount,
-    myShare: d.my_share,
-    status: d.status,
-    participants: d.participants_json || [],
-    paymentsLog: d.payments_log_json || [],
-    notes: d.notes,
-    ...(d.extra_json || {}),
-  }));
+  // Hydrate debts: database columns take strict precedence over extra_json cache
+  const debts = (debtsRes.data || []).map((d) => {
+    const extra = d.extra_json || {};
+    return {
+      ...extra,
+      id: d.id,
+      originMovementId: d.origin_movement_id || extra.originMovementId,
+      debtType: d.debt_type || extra.debtType,
+      concept: d.concept || extra.concept,
+      debtor: d.debtor || extra.debtor,
+      creditor: d.creditor || extra.creditor,
+      totalAmount: Number(d.total_amount != null ? d.total_amount : (extra.totalAmount || 0)),
+      remainingAmount: Number(d.remaining_amount != null ? d.remaining_amount : (extra.remainingAmount || 0)),
+      myShare: Number(d.my_share != null ? d.my_share : (extra.myShare || 0)),
+      status: d.status || extra.status,
+      participants: Array.isArray(d.participants_json) ? d.participants_json : (extra.participants || []),
+      paymentsLog: Array.isArray(d.payments_log_json) ? d.payments_log_json : (extra.paymentsLog || []),
+      notes: d.notes != null ? d.notes : extra.notes,
+    };
+  });
 
   return {
     startPeriod,
@@ -448,6 +460,204 @@ export async function directDeleteCreditPurchase(purchaseId) {
   } catch (err) {
     console.warn("[directDeleteCreditPurchase] Error deleting purchase directly:", err);
   }
+}
+
+export async function directSaveCashFlow(payload = {}) {
+  const uid = OWNER_USER_ID;
+  const {
+    startPeriod,
+    activePeriod,
+    currency,
+    allocationModel,
+    customRatios,
+    emergencyFundTargetMonths,
+    defaultFundingAccountId,
+    payrollAccount,
+    creditCards,
+    creditPurchases,
+    deletedCreditPurchaseIds,
+    creditCardPayments,
+    deletedCreditCardPaymentIds,
+    expensesLog,
+    deletedExpenseIds,
+    debts,
+    deletedDebtIds,
+  } = payload;
+
+  const promises = [];
+
+  // 1. Credit Cards
+  if (Array.isArray(creditCards) && creditCards.length > 0) {
+    const cardRows = creditCards.map((c) => ({
+      id: c.id,
+      user_id: uid,
+      name: c.name || "",
+      brand: c.cardType || c.brand || "",
+      total_limit: Number(c.totalLimit) || 0,
+      used_limit: Number(c.usedLimit) || 0,
+      cutoff_day: Number(c.closingDay ?? c.cutoffDay ?? 15),
+      due_day: Number(c.paymentDay ?? c.dueDay ?? 2),
+      extra_json: c,
+      updated_at: new Date().toISOString(),
+    }));
+    promises.push(supabase.from("cf_credit_cards").upsert(cardRows));
+  }
+
+  // 2. Debts (delete + upsert)
+  if (Array.isArray(deletedDebtIds) && deletedDebtIds.length > 0) {
+    promises.push(supabase.from("cf_debts").delete().eq("user_id", uid).in("id", deletedDebtIds));
+  }
+  if (Array.isArray(debts) && debts.length > 0) {
+    const delDebtSet = new Set(deletedDebtIds || []);
+    const validDebts = debts.filter((d) => d && d.id && !delDebtSet.has(d.id));
+    if (validDebts.length > 0) {
+      const debtRows = validDebts.map((d) => ({
+        id: d.id,
+        user_id: uid,
+        origin_movement_id: d.originMovementId || null,
+        debt_type: d.debtType || "payable",
+        concept: d.concept || "",
+        debtor: d.debtor || "",
+        creditor: d.creditor || "",
+        total_amount: Number(d.totalAmount || 0),
+        remaining_amount: Number(d.remainingAmount || 0),
+        my_share: Number(d.myShare || 0),
+        status: d.status || "pending",
+        participants_json: d.participants || [],
+        payments_log_json: d.paymentsLog || [],
+        notes: d.notes || "",
+        extra_json: d,
+        created_at: d.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      promises.push(supabase.from("cf_debts").upsert(debtRows));
+    }
+  }
+
+  // 3. Credit Purchases (delete + upsert)
+  if (Array.isArray(deletedCreditPurchaseIds) && deletedCreditPurchaseIds.length > 0) {
+    promises.push(supabase.from("cf_credit_purchases").delete().eq("user_id", uid).in("id", deletedCreditPurchaseIds));
+  }
+  if (Array.isArray(creditPurchases) && creditPurchases.length > 0) {
+    const delCpSet = new Set(deletedCreditPurchaseIds || []);
+    const validPurchases = creditPurchases.filter((p) => p && p.id && !delCpSet.has(p.id));
+    if (validPurchases.length > 0) {
+      const cpRows = validPurchases.map((p) => ({
+        id: p.id,
+        user_id: uid,
+        card_id: p.cardId,
+        movement_id: p.movementId || null,
+        description: p.description || "",
+        total_amount: Number(p.totalAmount ?? p.amount ?? 0),
+        installments_count: Number(p.installmentsCount || 1),
+        monthly_installment: Number(p.monthlyInstallment || 0),
+        start_period: p.startPeriod || activePeriod || "2026-11",
+        date: p.date || new Date().toISOString().split("T")[0],
+        extra_json: p,
+        created_at: p.createdAt || new Date().toISOString(),
+      }));
+      promises.push(supabase.from("cf_credit_purchases").upsert(cpRows));
+    }
+  }
+
+  // 4. Credit Payments (delete + upsert)
+  if (Array.isArray(deletedCreditCardPaymentIds) && deletedCreditCardPaymentIds.length > 0) {
+    promises.push(supabase.from("cf_credit_payments").delete().eq("user_id", uid).in("id", deletedCreditCardPaymentIds));
+  }
+  if (Array.isArray(creditCardPayments) && creditCardPayments.length > 0) {
+    const delPaySet = new Set(deletedCreditCardPaymentIds || []);
+    const validPayments = creditCardPayments.filter((p) => p && p.id && !delPaySet.has(p.id));
+    if (validPayments.length > 0) {
+      const payRows = validPayments.map((p) => ({
+        id: p.id,
+        user_id: uid,
+        card_id: p.cardId,
+        card_name: p.cardName || "",
+        period: p.period || activePeriod || "2026-11",
+        amount: Number(p.amount) || 0,
+        date: p.date || new Date().toISOString().split("T")[0],
+        time: p.time || null,
+        source_type: p.sourceType || "payroll",
+        source_account_id: p.sourceAccountId || null,
+        source_account_name: p.sourceAccountName || null,
+        budget_deductions_json: p.budgetDeductions || [],
+        notes: p.notes || "",
+        extra_json: p,
+        created_at: p.createdAt || new Date().toISOString(),
+      }));
+      promises.push(supabase.from("cf_credit_payments").upsert(payRows));
+    }
+  }
+
+  // 5. Movements / Expenses (delete + upsert)
+  if (Array.isArray(deletedExpenseIds) && deletedExpenseIds.length > 0) {
+    promises.push(supabase.from("cf_movements").delete().eq("user_id", uid).in("id", deletedExpenseIds));
+  }
+  if (Array.isArray(expensesLog) && expensesLog.length > 0) {
+    const delExpSet = new Set(deletedExpenseIds || []);
+    const validMovements = expensesLog.filter((m) => m && m.id && !delExpSet.has(m.id));
+    if (validMovements.length > 0) {
+      const movRows = validMovements.map((m) => ({
+        id: m.id,
+        user_id: uid,
+        period: m.period || activePeriod || "2026-11",
+        date: m.date,
+        time: m.time || null,
+        type: m.type || "debit",
+        amount: Number(m.amount) || 0,
+        currency: m.currency || "COP",
+        description: m.description || "",
+        budget_item_id: m.budgetItemId || null,
+        budget_item_name: m.budgetItemName || null,
+        budget_item_type: m.budgetItemType || null,
+        sub_item_id: m.subItemId || null,
+        sub_item_name: m.subItemName || null,
+        payment_source_json: m.paymentSource || {},
+        destination_account_id: m.destinationAccountId || null,
+        destination_account_name: m.destinationAccountName || null,
+        is_split_child: Boolean(m.isSplitChild),
+        split_parent_id: m.splitParentId || null,
+        credit_card_payment_id: m.creditCardPaymentId || null,
+        card_id: m.cardId || null,
+        debt_id: m.debtId || null,
+        is_loan: Boolean(m.isLoan),
+        is_shared_expense: Boolean(m.isSharedExpense || m.isSplit),
+        participants_json: m.participants || [],
+        is_explicit_sankey_income: Boolean(m.isExplicitBudgetIncome || m.isExplicitSankeyIncome),
+        extra_json: m,
+        created_at: m.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      for (let i = 0; i < movRows.length; i += 50) {
+        promises.push(supabase.from("cf_movements").upsert(movRows.slice(i, i + 50)));
+      }
+    }
+  }
+
+  // 6. Base Periods Config (ratios, emergencyFundTargetMonths, currency, payrollAccount, defaultFundingAccountId)
+  if (customRatios || emergencyFundTargetMonths != null || payrollAccount || defaultFundingAccountId) {
+    const configRow = {
+      period: "base",
+      user_id: uid,
+      active_period: activePeriod || "2026-11",
+      start_period: startPeriod || "2026-11",
+      currency: currency || "COP",
+      allocation_model: allocationModel || "custom",
+      needs_ratio: customRatios?.needs ?? 40.0,
+      wants_ratio: customRatios?.wants ?? 20.0,
+      savings_ratio: customRatios?.savings ?? 40.0,
+      emergency_fund_target_months: emergencyFundTargetMonths ?? 6,
+      extra_json: {
+        defaultFundingAccountId,
+        payrollAccount,
+      },
+      updated_at: new Date().toISOString(),
+    };
+    promises.push(supabase.from("cf_periods_config").upsert([configRow]));
+  }
+
+  await Promise.all(promises);
+  return { success: true, timestamp: new Date().toISOString(), directSupabase: true };
 }
 
 // ── 4. Direct Purchases & Portfolios Fetch from Supabase ──────────────────────

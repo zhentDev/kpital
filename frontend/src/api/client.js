@@ -15,6 +15,7 @@ import {
   directFetchFixedIncome,
   directFetchCashFlow,
   directDeleteCreditPurchase,
+  directSaveCashFlow,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -1091,14 +1092,27 @@ export async function fetchCashFlowData(options = {}) {
 }
 
 export async function syncCashFlowStateApi(payload) {
-  const res = await safeFetch(`${getBase()}/cash-flow/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    timeoutMs: 22000,
-  }, 3, 1500);
-  if (!res.ok) throw new Error("Error al sincronizar el estado de Flujo de Caja");
-  return res.json();
+  // 1. Direct to Supabase PostgreSQL (SSOT) - instantaneous persistence
+  try {
+    await directSaveCashFlow(payload);
+  } catch (err) {
+    console.warn("[CashFlow] Direct Supabase save error:", err);
+  }
+
+  // 2. Background sync to Render backend
+  try {
+    const res = await safeFetch(`${getBase()}/cash-flow/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      timeoutMs: 15000,
+    }, 2, 1000);
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn("[CashFlow] Render backend sync notice:", err);
+  }
+
+  return { success: true, directSupabase: true };
 }
 
 export async function createInflowApi(item) {

@@ -30,7 +30,7 @@ import { getCurrentPeriod } from "../utils/periodUtils";
 import { sortMovementsByDateTimeDesc } from "../utils/cashFlowFormatters";
 import { useFixedIncomeStore } from "./fixedIncomeStore";
 import { isMainOwnerUser, getCurrentUserEmail, useAuthStore } from "./authStore";
-import { directDeleteCreditPurchase } from "../shared/api/directSupabase";
+import { directDeleteCreditPurchase, directSaveCashFlow } from "../shared/api/directSupabase";
 
 let syncDebounceTimer = null;
 
@@ -1052,6 +1052,10 @@ export const useCashFlowStore = create(
       // ── Credit Cards CRUD ────────────────────────────
       addCreditCard: (card) => {
         set((state) => ({ creditCards: [...state.creditCards, card] }));
+        const nextCards = get().creditCards;
+        directSaveCashFlow({ creditCards: nextCards }).catch((err) =>
+          console.warn("[addCreditCard] direct save error:", err)
+        );
         get().syncStateWithBackend();
         toast.success(`Tarjeta ${card.name} registrada con éxito`, { icon: "💳" });
       },
@@ -1060,6 +1064,10 @@ export const useCashFlowStore = create(
         set((state) => ({
           creditCards: state.creditCards.map((c) => (c.id === id ? { ...c, ...updates } : c)),
         }));
+        const nextCards = get().creditCards;
+        directSaveCashFlow({ creditCards: nextCards }).catch((err) =>
+          console.warn("[updateCreditCard] direct save error:", err)
+        );
         get().syncStateWithBackend();
       },
 
@@ -1068,6 +1076,10 @@ export const useCashFlowStore = create(
           creditCards: state.creditCards.filter((c) => c.id !== id),
           creditPurchases: state.creditPurchases.filter((p) => p.cardId !== id),
         }));
+        const nextCards = get().creditCards;
+        directSaveCashFlow({ creditCards: nextCards }).catch((err) =>
+          console.warn("[deleteCreditCard] direct save error:", err)
+        );
         get().syncStateWithBackend();
         toast.success("Tarjeta eliminada", { icon: "🗑️" });
       },
