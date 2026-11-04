@@ -2,7 +2,7 @@ name: Keep Render Backend Alive
 
 on:
   schedule:
-    # Runs every 10 minutes from minute 0 to 50
+    # Runs every 10 minutes (subject to GitHub Actions scheduler availability)
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
@@ -13,11 +13,18 @@ jobs:
     steps:
       - name: Ping Render Backend Health Endpoint
         run: |
-          echo "Pinging https://titanes-portfolio-backend.onrender.com/health..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://titanes-portfolio-backend.onrender.com/health" || echo "failed")
-          echo "Response code: $STATUS"
+          echo "Pinging https://titanes-portfolio-backend.onrender.com/..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 35 "https://titanes-portfolio-backend.onrender.com/" || echo "failed")
+          echo "Response code root: $STATUS"
+          
+          # Also ping webhooks health with authorization header
+          STATUS_WH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 35 \
+            -H "X-Webhook-Secret: titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2" \
+            "https://titanes-portfolio-backend.onrender.com/api/webhooks/health" || echo "failed")
+          echo "Response code webhooks health: $STATUS_WH"
+          
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
             echo "Render backend is awake and healthy!"
           else
-            echo "Keep-alive ping sent (Status: $STATUS). Waking up container."
+            echo "Keep-alive ping sent (Status: $STATUS). Container is waking up."
           fi

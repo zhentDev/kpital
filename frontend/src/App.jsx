@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast, { Toaster } from "react-hot-toast";
-import { fetchColInflationHistory, fetchFxHistory, fetchNAV, fetchLiveQuotes, evaluateStockAlerts } from "./api/client";
+import { fetchColInflationHistory, fetchFxHistory, fetchNAV, fetchLiveQuotes, evaluateStockAlerts, getBase } from "./api/client";
 import CorrelationHeatmap from "./components/CorrelationHeatmap";
 import CreateStrategyModal from "./components/CreateStrategyModal";
 import DynamicStrategyView from "./components/DynamicStrategyView";
@@ -237,6 +237,20 @@ export default function App() {
     return () => {
       window.removeEventListener("refreshPortfolioCharts", handleGlobalChartRefresh);
     };
+  }, []);
+
+  // Heartbeat activo para mantener despierto el backend en la nube mientras la app esté abierta
+  useEffect(() => {
+    const keepAlive = () => {
+      try {
+        const base = getBase();
+        const rootUrl = base.endsWith("/api") ? base.slice(0, -4) : base;
+        fetch(`${rootUrl}/`, { method: "GET", mode: "no-cors" }).catch(() => {});
+      } catch {}
+    };
+    keepAlive();
+    const id = setInterval(keepAlive, 5 * 60 * 1000); // Cada 5 minutos
+    return () => clearInterval(id);
   }, []);
 
   const [liveQuotesMap, setLiveQuotesMap] = useState({});
