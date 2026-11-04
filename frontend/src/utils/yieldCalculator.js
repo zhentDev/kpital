@@ -229,19 +229,23 @@ export function calculateAccountYield(account, transactions = [], historicalRate
     const d = t.date || new Date().toISOString().slice(0, 10);
     const amt = Math.abs(Number(t.amount || 0));
     const descLower = (t.description || "").toLowerCase();
-    const isInterest =
-      t.isInterestPayout ||
-      descLower.includes("rendimiento") ||
-      descLower.includes("interés") ||
-      descLower.includes("interes");
-
     const isDebit =
-      !isInterest &&
-      (t.type === "debit" ||
-        descLower.includes("retiraste") ||
-        descLower.includes("retiro") ||
-        descLower.includes("invertiste") ||
-        Number(t.amount) < 0);
+      t.type === "debit" ||
+      Number(t.amount) < 0 ||
+      descLower.includes("retiro") ||
+      descLower.includes("retiraste") ||
+      descLower.includes("traslado a broker") ||
+      descLower.includes("salida") ||
+      descLower.includes("invertiste");
+
+    const isInterest =
+      !isDebit &&
+      (t.isInterestPayout ||
+        t.type === "interest" ||
+        descLower.includes("rendimiento") ||
+        descLower.includes("interés") ||
+        descLower.includes("interes") ||
+        descLower.includes("abono de intereses"));
 
     if (isInterest) {
       explicitInterestTotal += amt;
