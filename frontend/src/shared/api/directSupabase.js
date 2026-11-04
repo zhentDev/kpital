@@ -327,6 +327,108 @@ export async function directFetchFixedIncome() {
   };
 }
 
+export async function directSaveFixedIncome(state = {}) {
+  const { entities, accounts, cdts, transactions, deletedTxIds } = state;
+  const uid = OWNER_USER_ID;
+
+  // 1. Delete requested transactions
+  if (Array.isArray(deletedTxIds) && deletedTxIds.length > 0) {
+    try {
+      await supabase.from("fi_transactions").delete().in("id", deletedTxIds);
+    } catch (e) {
+      console.warn("[directSaveFixedIncome] Error deleting txs:", e);
+    }
+  }
+
+  // 2. Upsert entities
+  if (Array.isArray(entities) && entities.length > 0) {
+    const entRows = entities.map((e) => ({
+      id: e.id,
+      user_id: uid,
+      name: e.name,
+      country: e.country || "Colombia",
+      color: e.color || "#0284c7",
+      icon: e.icon || "bank",
+      extra_json: e,
+      updated_at: new Date().toISOString(),
+    }));
+    await supabase.from("fi_entities").upsert(entRows);
+  }
+
+  // 3. Upsert accounts
+  if (Array.isArray(accounts) && accounts.length > 0) {
+    const accRows = accounts.map((a) => ({
+      id: a.id,
+      user_id: uid,
+      entity_id: a.entityId || a.entity_id,
+      name: a.name,
+      type: a.type || "savings",
+      account_category: a.accountCategory || a.account_category || "savings",
+      sync_type: a.syncType || a.sync_type || "manual",
+      currency: a.currency || "COP",
+      balance: Number(a.balance) || 0,
+      interest_rate_ea: Number(a.interestRateEA ?? a.interest_rate_ea ?? 0),
+      is_tax_exempt_gmf: Boolean(a.isTaxExemptGMF ?? a.is_tax_exempt_gmf),
+      rate_history_json: a.rateHistory || a.rate_history_json || [],
+      extra_json: a,
+      updated_at: new Date().toISOString(),
+    }));
+    await supabase.from("fi_accounts").upsert(accRows);
+  }
+
+  // 4. Upsert cdts
+  if (Array.isArray(cdts) && cdts.length > 0) {
+    const cdtRows = cdts.map((c) => ({
+      id: c.id,
+      user_id: uid,
+      entity_id: c.entityId || c.entity_id,
+      name: c.name,
+      capital: Number(c.capital) || 0,
+      currency: c.currency || "COP",
+      interest_rate_ea: Number(c.interestRateEA ?? c.interest_rate_ea ?? 0),
+      term_days: Number(c.termDays ?? c.term_days ?? 90),
+      start_date: c.startDate || c.start_date || new Date().toISOString().split("T")[0],
+      maturity_date: c.maturityDate || c.maturity_date || new Date().toISOString().split("T")[0],
+      rete_fuente_pct: Number(c.reteFuentePct ?? c.rete_fuente_pct ?? 4),
+      is_auto_renew: Boolean(c.isAutoRenew ?? c.is_auto_renew),
+      status: c.status || "active",
+      extra_json: c,
+      updated_at: new Date().toISOString(),
+    }));
+    await supabase.from("fi_cdts").upsert(cdtRows);
+  }
+
+  // 5. Upsert transactions
+  if (Array.isArray(transactions) && transactions.length > 0) {
+    const delSet = new Set(deletedTxIds || []);
+    const validTxs = transactions.filter((t) => t && t.id && !delSet.has(t.id));
+    if (validTxs.length > 0) {
+      const txRows = validTxs.map((t) => ({
+        id: t.id,
+        user_id: uid,
+        account_id: t.accountId || t.account_id,
+        entity_id: t.entityId || t.entity_id || null,
+        date: t.date,
+        time: t.time || null,
+        type: t.type || "credit",
+        amount: Number(t.amount) || 0,
+        currency: t.currency || "COP",
+        description: t.description || "",
+        category: t.category || null,
+        source: t.source || "manual",
+        extra_json: t,
+        updated_at: new Date().toISOString(),
+      }));
+      for (let i = 0; i < txRows.length; i += 50) {
+        const chunk = txRows.slice(i, i + 50);
+        await supabase.from("fi_transactions").upsert(chunk);
+      }
+    }
+  }
+
+  return { success: true, timestamp: new Date().toISOString(), directSupabase: true };
+}
+
 // ── 4. Direct Purchases & Portfolios Fetch from Supabase ──────────────────────
 export async function directFetchPurchases() {
   const [portsRes, purchasesRes, salesRes] = await Promise.all([

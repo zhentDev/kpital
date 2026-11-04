@@ -11,6 +11,7 @@ import {
   directToggleRebalanceActive,
   directDeleteRebalance,
   directUpdateRebalanceDate,
+  directSaveFixedIncome,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -95,6 +96,14 @@ async function safeFetch(url, options = {}, retries = 3, delayMs = 1500) {
         (err.message && err.message.toLowerCase().includes("abort"))
       ) {
         throw err;
+      }
+
+      // AUTO-FAILOVER: If localhost is unreachable, switch to Render cloud backend immediately!
+      if (url.startsWith(LOCAL_BACKEND_BASE) || url.includes(LOCAL_BACKEND_BASE)) {
+        console.warn(`[API] Backend local no disponible (${err.message}). Cambiando automáticamente a Render Cloud...`);
+        ACTIVE_BASE = RENDER_BACKEND_BASE;
+        const cloudUrl = url.replace(LOCAL_BACKEND_BASE, RENDER_BACKEND_BASE);
+        return await safeFetch(cloudUrl, options, 3, delayMs);
       }
 
       if (i < retries) {
@@ -353,12 +362,12 @@ export async function fetchHistoricalPrice(ticker, date, time = null) {
 
 /** GET /api/tickers/search?q=... */
 export async function searchTicker(q) {
-  const res = await fetch(`${BASE}/tickers/search?q=${encodeURIComponent(q)}`);
+  const res = await fetch(`${getBase()}/tickers/search?q=${encodeURIComponent(q)}`);
   return res.json();
 }
 
 export async function searchTickersMultiple(q) {
-  const res = await fetch(`${BASE}/tickers/search_multiple?q=${encodeURIComponent(q)}`);
+  const res = await fetch(`${getBase()}/tickers/search_multiple?q=${encodeURIComponent(q)}`);
   return res.json();
 }
 
@@ -494,7 +503,7 @@ export async function fetchCustomStrategiesApi() {
 
 export async function saveCustomStrategyApi(strat) {
   try {
-    const res = await safeFetch(`${BASE}/custom-strategies`, {
+    const res = await safeFetch(`${getBase()}/custom-strategies`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(strat),
@@ -512,7 +521,7 @@ export async function saveCustomStrategyApi(strat) {
 
 export async function deleteCustomStrategyApi(strategyId) {
   try {
-    const res = await safeFetch(`${BASE}/custom-strategies/${strategyId}`, {
+    const res = await safeFetch(`${getBase()}/custom-strategies/${strategyId}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Error al eliminar estrategia en backend");
@@ -536,7 +545,7 @@ export async function fetchPurchasesData() {
 }
 
 export async function createPurchasePortfolio(id, name, isPlan = false) {
-  const res = await safeFetch(`${BASE}/purchases/portfolios`, {
+  const res = await safeFetch(`${getBase()}/purchases/portfolios`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, name, isPlan }),
@@ -546,7 +555,7 @@ export async function createPurchasePortfolio(id, name, isPlan = false) {
 }
 
 export async function renamePurchasePortfolioApi(id, newName) {
-  const res = await safeFetch(`${BASE}/purchases/portfolios/${id}/rename`, {
+  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/rename`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: newName }),
@@ -559,13 +568,13 @@ export async function renamePurchasePortfolioApi(id, newName) {
 }
 
 export async function deletePurchasePortfolioApi(id) {
-  const res = await safeFetch(`${BASE}/purchases/portfolios/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}`, { method: "DELETE" });
   invalidateApiCache("/purchases");
   return res.json();
 }
 
 export async function togglePortfolioPlanApi(id, isPlan, planConfig = null) {
-  const res = await safeFetch(`${BASE}/purchases/portfolios/${id}/plan`, {
+  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/plan`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isPlan, planConfig }),
@@ -581,7 +590,7 @@ export async function updatePortfolioSettingsApi(
   inflationRate,
   useAutoColInflation,
 ) {
-  const res = await safeFetch(`${BASE}/purchases/portfolios/${id}/settings`, {
+  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ assetCurrency, localCurrency, inflationRate, useAutoColInflation }),
@@ -593,7 +602,7 @@ export async function updatePortfolioSettingsApi(
 export async function fetchFxHistory(assetCurrency, localCurrency) {
   if (assetCurrency === localCurrency) return { current: 1.0, history: {} };
   const res = await safeFetch(
-    `${BASE}/purchases/fx?currency=${assetCurrency}-${localCurrency}`,
+    `${getBase()}/purchases/fx?currency=${assetCurrency}-${localCurrency}`,
     {},
     2,
     500,
@@ -603,7 +612,7 @@ export async function fetchFxHistory(assetCurrency, localCurrency) {
 }
 
 export async function fetchColInflationHistory() {
-  const res = await safeFetch(`${BASE}/purchases/inflation/colombia`, {}, 2, 500);
+  const res = await safeFetch(`${getBase()}/purchases/inflation/colombia`, {}, 2, 500);
   if (!res.ok) throw new Error("Error fetching inflation data");
   return res.json();
 }
@@ -642,7 +651,7 @@ export async function fetchStockAlerts(scope = null, targetId = null) {
     if (scope) params.set("scope", scope);
     if (targetId) params.set("target_id", targetId);
     const q = params.toString() ? `?${params.toString()}` : "";
-    const res = await safeFetch(`${BASE}/alerts${q}`, {}, 1, 1000);
+    const res = await safeFetch(`${getBase()}/alerts${q}`, {}, 1, 1000);
     if (res && res.ok) {
       const serverData = await res.json();
       if (Array.isArray(serverData)) {
@@ -675,7 +684,7 @@ export async function fetchStockAlerts(scope = null, targetId = null) {
           filteredLocal.forEach((la) => {
             const serverHasIt = serverData.some((sa) => sa.id === la.id || (sa.ticker === la.ticker && sa.scope === la.scope));
             if (!serverHasIt) {
-              safeFetch(`${BASE}/alerts`, {
+              safeFetch(`${getBase()}/alerts`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(la),
@@ -716,7 +725,7 @@ export async function saveStockAlert(alertData) {
 
   // 2. Sync to server in background
   try {
-    const res = await safeFetch(`${BASE}/alerts`, {
+    const res = await safeFetch(`${getBase()}/alerts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cleanAlert),
@@ -748,7 +757,7 @@ export async function deleteStockAlert(alertId) {
 
   // 2. Remove on server
   try {
-    const res = await safeFetch(`${BASE}/alerts/${alertId}`, {
+    const res = await safeFetch(`${getBase()}/alerts/${alertId}`, {
       method: "DELETE",
     });
     if (res && res.ok) {
@@ -762,7 +771,7 @@ export async function deleteStockAlert(alertId) {
 }
 
 export async function evaluateStockAlerts({ scope, targetId, positions }) {
-  const res = await safeFetch(`${BASE}/alerts/check`, {
+  const res = await safeFetch(`${getBase()}/alerts/check`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, target_id: targetId, positions }),
@@ -772,7 +781,7 @@ export async function evaluateStockAlerts({ scope, targetId, positions }) {
 }
 
 export async function testStockAlertEmail(email = null) {
-  const res = await safeFetch(`${BASE}/alerts/test-email`, {
+  const res = await safeFetch(`${getBase()}/alerts/test-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -785,7 +794,7 @@ export async function testStockAlertEmail(email = null) {
 }
 
 export async function testStockAlertTelegram() {
-  const res = await safeFetch(`${BASE}/alerts/test-telegram`, {
+  const res = await safeFetch(`${getBase()}/alerts/test-telegram`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -798,7 +807,7 @@ export async function testStockAlertTelegram() {
 
 
 export async function createPurchaseLot(lot) {
-  const res = await safeFetch(`${BASE}/purchases/lots`, {
+  const res = await safeFetch(`${getBase()}/purchases/lots`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(lot),
@@ -808,7 +817,7 @@ export async function createPurchaseLot(lot) {
 }
 
 export async function updatePurchaseLots(lots) {
-  const res = await safeFetch(`${BASE}/purchases/lots`, {
+  const res = await safeFetch(`${getBase()}/purchases/lots`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(lots),
@@ -819,13 +828,13 @@ export async function updatePurchaseLots(lots) {
 }
 
 export async function deletePurchaseLot(id) {
-  const res = await safeFetch(`${BASE}/purchases/lots/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/purchases/lots/${id}`, { method: "DELETE" });
   invalidateApiCache("/purchases");
   return res.json();
 }
 
 export async function createPurchaseSale(sale) {
-  const res = await safeFetch(`${BASE}/purchases/sales`, {
+  const res = await safeFetch(`${getBase()}/purchases/sales`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(sale),
@@ -835,13 +844,13 @@ export async function createPurchaseSale(sale) {
 }
 
 export async function deletePurchaseSale(id) {
-  const res = await safeFetch(`${BASE}/purchases/sales/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/purchases/sales/${id}`, { method: "DELETE" });
   invalidateApiCache("/purchases");
   return res.json();
 }
 
 export async function syncPurchasesMigration(purchasePortfolios, individualPurchases, purchaseSales = []) {
-  const res = await safeFetch(`${BASE}/purchases/sync`, {
+  const res = await safeFetch(`${getBase()}/purchases/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ purchasePortfolios, individualPurchases, purchaseSales }),
@@ -857,7 +866,7 @@ export async function fetchFixedIncomeData(options = {}) {
 }
 
 export async function createFixedIncomeEntity(entity) {
-  const res = await safeFetch(`${BASE}/fixed-income/entities`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/entities`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entity),
@@ -866,7 +875,7 @@ export async function createFixedIncomeEntity(entity) {
 }
 
 export async function updateFixedIncomeEntityApi(id, entity) {
-  const res = await safeFetch(`${BASE}/fixed-income/entities/${id}`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/entities/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entity),
@@ -875,12 +884,12 @@ export async function updateFixedIncomeEntityApi(id, entity) {
 }
 
 export async function deleteFixedIncomeEntityApi(id) {
-  const res = await safeFetch(`${BASE}/fixed-income/entities/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/fixed-income/entities/${id}`, { method: "DELETE" });
   return res.json();
 }
 
 export async function createFixedIncomeAccount(account) {
-  const res = await safeFetch(`${BASE}/fixed-income/accounts`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/accounts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(account),
@@ -889,7 +898,7 @@ export async function createFixedIncomeAccount(account) {
 }
 
 export async function updateFixedIncomeAccountApi(id, account) {
-  const res = await safeFetch(`${BASE}/fixed-income/accounts/${id}`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/accounts/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(account),
@@ -898,12 +907,12 @@ export async function updateFixedIncomeAccountApi(id, account) {
 }
 
 export async function deleteFixedIncomeAccountApi(id) {
-  const res = await safeFetch(`${BASE}/fixed-income/accounts/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/fixed-income/accounts/${id}`, { method: "DELETE" });
   return res.json();
 }
 
 export async function createFixedIncomeCDT(cdt) {
-  const res = await safeFetch(`${BASE}/fixed-income/cdts`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/cdts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cdt),
@@ -912,7 +921,7 @@ export async function createFixedIncomeCDT(cdt) {
 }
 
 export async function updateFixedIncomeCDTApi(id, cdt) {
-  const res = await safeFetch(`${BASE}/fixed-income/cdts/${id}`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/cdts/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cdt),
@@ -921,17 +930,22 @@ export async function updateFixedIncomeCDTApi(id, cdt) {
 }
 
 export async function deleteFixedIncomeCDTApi(id) {
-  const res = await safeFetch(`${BASE}/fixed-income/cdts/${id}`, { method: "DELETE" });
+  const res = await safeFetch(`${getBase()}/fixed-income/cdts/${id}`, { method: "DELETE" });
   return res.json();
 }
 
 export async function syncFixedIncomeStateApi(state) {
-  const res = await safeFetch(`${BASE}/fixed-income/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(state),
-  });
-  return res.json();
+  try {
+    const res = await safeFetch(`${getBase()}/fixed-income/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    if (res && res.ok) return await res.json();
+  } catch (err) {
+    console.warn("[FixedIncome] Error al sincronizar con backend, probando Supabase directo:", err);
+  }
+  return await directSaveFixedIncome(state);
 }
 
 export async function suggestFixedIncomeRate(
@@ -948,7 +962,7 @@ export async function suggestFixedIncomeRate(
   if (date) params.set("date", date);
 
   try {
-    const res = await safeFetch(`${BASE}/fixed-income/rates/suggest?${params}`);
+    const res = await safeFetch(`${getBase()}/fixed-income/rates/suggest?${params}`);
     if (res.ok) return await res.json();
   } catch (e) {
     // Fallback defaults below
@@ -971,7 +985,7 @@ export async function suggestFixedIncomeRate(
 
 export async function fetchHistoricalRates() {
   try {
-    const res = await safeFetch(`${BASE}/fixed-income/rates`);
+    const res = await safeFetch(`${getBase()}/fixed-income/rates`);
     if (res.ok) return await res.json();
   } catch (e) {
     try {
@@ -985,7 +999,7 @@ export async function fetchHistoricalRates() {
 }
 
 export async function calculateCompoundHistory(entityId, deposits, currentDate = null) {
-  const res = await safeFetch(`${BASE}/fixed-income/calculate-compound-history`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/calculate-compound-history`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entityId, deposits, currentDate }),
@@ -1005,7 +1019,7 @@ export async function uploadStatementApi(filesInput, password = "", startYear = 
   if (password) formData.append("password", password);
   if (startYear) formData.append("start_year", String(startYear));
 
-  const res = await safeFetch(`${BASE}/fixed-income/upload-statement`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/upload-statement`, {
     method: "POST",
     body: formData,
   });
@@ -1019,7 +1033,7 @@ export async function confirmStatementImportApi(
   cdts = [],
   transactions = [],
 ) {
-  const res = await safeFetch(`${BASE}/fixed-income/confirm-import`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/confirm-import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ entityId, accounts, cdts, transactions }),
@@ -1030,13 +1044,13 @@ export async function confirmStatementImportApi(
 
 export async function fetchRateTrackerAlerts(simulate = false) {
   const query = simulate ? "?simulate=true" : "";
-  const res = await safeFetch(`${BASE}/fixed-income/rates/tracker${query}`);
+  const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker${query}`);
   if (!res.ok) throw new Error("Error al obtener seguimiento de tasas");
   return res.json();
 }
 
 export async function applyUpdatedAccountRate({ accountId, newRate, effectiveDate }) {
-  const res = await safeFetch(`${BASE}/fixed-income/rates/tracker/apply`, {
+  const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ accountId, newRate, effectiveDate }),
@@ -1063,7 +1077,7 @@ export async function syncCashFlowStateApi(payload) {
 }
 
 export async function createInflowApi(item) {
-  const res = await safeFetch(`${BASE}/cash-flow/inflow`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/inflow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
@@ -1073,7 +1087,7 @@ export async function createInflowApi(item) {
 }
 
 export async function deleteInflowApi(id) {
-  const res = await safeFetch(`${BASE}/cash-flow/inflow/${id}`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/inflow/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Error al eliminar ingreso");
@@ -1081,7 +1095,7 @@ export async function deleteInflowApi(id) {
 }
 
 export async function createNeedExpenseApi(item) {
-  const res = await safeFetch(`${BASE}/cash-flow/need`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/need`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
@@ -1091,7 +1105,7 @@ export async function createNeedExpenseApi(item) {
 }
 
 export async function deleteNeedExpenseApi(id) {
-  const res = await safeFetch(`${BASE}/cash-flow/need/${id}`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/need/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Error al eliminar gasto esencial");
@@ -1099,7 +1113,7 @@ export async function deleteNeedExpenseApi(id) {
 }
 
 export async function createWantExpenseApi(item) {
-  const res = await safeFetch(`${BASE}/cash-flow/want`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/want`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
@@ -1109,7 +1123,7 @@ export async function createWantExpenseApi(item) {
 }
 
 export async function deleteWantExpenseApi(id) {
-  const res = await safeFetch(`${BASE}/cash-flow/want/${id}`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/want/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Error al eliminar gasto de estilo de vida");
@@ -1117,7 +1131,7 @@ export async function deleteWantExpenseApi(id) {
 }
 
 export async function createWealthItemApi(item) {
-  const res = await safeFetch(`${BASE}/cash-flow/wealth`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/wealth`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(item),
@@ -1127,7 +1141,7 @@ export async function createWealthItemApi(item) {
 }
 
 export async function deleteWealthItemApi(id) {
-  const res = await safeFetch(`${BASE}/cash-flow/wealth/${id}`, {
+  const res = await safeFetch(`${getBase()}/cash-flow/wealth/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("Error al eliminar asignación de ahorro/inversión");
@@ -1172,7 +1186,7 @@ export async function loginApi(email, password) {
   // If Render is sleeping or takes long, try login with a tight timeout of 3s, then fall back immediately to direct Supabase
   try {
     const res = await safeFetch(
-      `${BASE}/auth/login`,
+      `${getBase()}/auth/login`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1204,7 +1218,7 @@ export async function loginApi(email, password) {
 export async function registerApi(email, password, name) {
   try {
     const res = await safeFetch(
-      `${BASE}/auth/register`,
+      `${getBase()}/auth/register`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1224,7 +1238,7 @@ export async function registerApi(email, password, name) {
 export async function oauthLoginApi(idToken, profile = {}) {
   try {
     const res = await safeFetch(
-      `${BASE}/auth/oauth`,
+      `${getBase()}/auth/oauth`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1243,7 +1257,7 @@ export async function oauthLoginApi(idToken, profile = {}) {
 
 export async function fetchMeApi() {
   try {
-    const res = await safeFetch(`${BASE}/auth/me`);
+    const res = await safeFetch(`${getBase()}/auth/me`);
     if (res && res.ok) return await res.json();
   } catch {}
 
@@ -1259,7 +1273,7 @@ export async function generateWarrenPromptApi({
   useOllama = true,
   model = "qwen2.5-coder:14b",
 } = {}) {
-  const res = await safeFetch(`${BASE}/warren/prompt`, {
+  const res = await safeFetch(`${getBase()}/warren/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1274,7 +1288,7 @@ export async function generateWarrenPromptApi({
 }
 
 export async function fetchWarrenSummaryApi() {
-  const res = await safeFetch(`${BASE}/warren/summary`);
+  const res = await safeFetch(`${getBase()}/warren/summary`);
   if (!res || !res.ok) throw new Error("Error obteniendo resumen de inversiones");
   return res.json();
 }
