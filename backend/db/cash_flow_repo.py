@@ -496,7 +496,7 @@ def save_user_cash_flow_db(user_id: Optional[str], cf_data: dict[str, Any]) -> N
             # 5. Credit Purchases (delete explicitly deleted IDs & upsert current)
             if del_cp_ids:
                 cur.execute("DELETE FROM cf_credit_purchases WHERE user_id = %s AND id = ANY(%s)", [uid, list(del_cp_ids)])
-            cur.execute("DELETE FROM cf_credit_purchases WHERE user_id = %s AND description ILIKE '%BOLD%'", [uid])
+            cur.execute("DELETE FROM cf_credit_purchases WHERE user_id = %s AND description ILIKE %s", [uid, "%BOLD%"])
 
             for cp in cf_data.get("creditPurchases") or []:
                 if not isinstance(cp, dict) or not cp.get("id") or cp["id"] in del_cp_ids:

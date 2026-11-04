@@ -9,32 +9,38 @@ import { supabase, OWNER_USER_ID } from "./supabaseClient";
  * Matches Python's hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
  */
 async function verifyPasswordNative(plainPassword, saltStr, expectedHex) {
-  const enc = new TextEncoder();
-  const passwordKey = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(plainPassword),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"]
-  );
+  try {
+    if (typeof crypto === "undefined" || !crypto.subtle) return false;
+    const enc = new TextEncoder();
+    const passwordKey = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(plainPassword),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
 
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt: enc.encode(saltStr),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    passwordKey,
-    256 // 32 bytes * 8 bits
-  );
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: enc.encode(saltStr),
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      passwordKey,
+      256 // 32 bytes * 8 bits
+    );
 
-  const derivedArray = Array.from(new Uint8Array(derivedBits));
-  const derivedHex = derivedArray
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+    const derivedArray = Array.from(new Uint8Array(derivedBits));
+    const derivedHex = derivedArray
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
-  return derivedHex.toLowerCase() === expectedHex.toLowerCase();
+    return derivedHex.toLowerCase() === expectedHex.toLowerCase();
+  } catch (err) {
+    console.warn("[verifyPasswordNative] PBKDF2 check failed:", err);
+    return false;
+  }
 }
 
 // ── 1. Direct Authentication with Supabase ──────────────────────────────────
