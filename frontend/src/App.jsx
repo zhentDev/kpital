@@ -2947,23 +2947,92 @@ export default function App() {
             {/* ── Bottom grid ───────────────────────────── */}
             <div className="bottom-grid">
               {/* Holdings table */}
-              <div className="card fade-up" style={{ animationDelay: "100ms" }}>
+              <div
+                className="card fade-up"
+                style={{
+                  animationDelay: "100ms",
+                  position: "relative",
+                  overflow: "hidden",
+                }}
+              >
                 {navData?.holdings?.length > 0 || navData?.closed_holdings?.length > 0 ? (
-                  <HoldingsTable
-                    holdings={navData.holdings || []}
-                    closedHoldings={navData.closed_holdings || []}
-                    summary={navData.summary || {}}
-                    investment={investment}
-                    numSlots={numSlots}
-                    onToggleTicker={toggleTicker}
-                    unit={unit}
-                    onToggleUnit={toggleUnit}
-                    onOpenWasmLab={() => setShowWasmLabModal(true)}
-                    onOpenWarren={() => setShowWarrenModal(true)}
-                    onExportExcel={() => exportPortfolioExcel(mode, investment, numSlots)}
-                    onExportPyScript={() => exportPortfolioPyScript(navData, investment)}
-                    strategyId={mode}
-                  />
+                  <>
+                    <div
+                      style={{
+                        opacity: loading ? 0.38 : 1,
+                        filter: loading ? "blur(1.5px)" : "none",
+                        pointerEvents: loading ? "none" : "auto",
+                        transition: "opacity 0.25s ease, filter 0.25s ease",
+                      }}
+                    >
+                      <HoldingsTable
+                        holdings={navData.holdings || []}
+                        closedHoldings={navData.closed_holdings || []}
+                        summary={navData.summary || {}}
+                        investment={investment}
+                        numSlots={numSlots}
+                        onToggleTicker={toggleTicker}
+                        unit={unit}
+                        onToggleUnit={toggleUnit}
+                        onOpenWasmLab={() => setShowWasmLabModal(true)}
+                        onOpenWarren={() => setShowWarrenModal(true)}
+                        onExportExcel={() => exportPortfolioExcel(mode, investment, numSlots)}
+                        onExportPyScript={() => exportPortfolioPyScript(navData, investment)}
+                        strategyId={mode}
+                      />
+                    </div>
+                    {loading && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 12,
+                          background: isLight
+                            ? "rgba(255, 255, 255, 0.6)"
+                            : "rgba(10, 15, 29, 0.6)",
+                          backdropFilter: "blur(4px)",
+                          zIndex: 10,
+                          borderRadius: "var(--radius)",
+                          animation: "fadeIn 0.2s ease-out",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "10px 22px",
+                            borderRadius: "30px",
+                            background: isLight
+                              ? "rgba(255, 255, 255, 0.95)"
+                              : "rgba(17, 24, 41, 0.95)",
+                            border: `1px solid ${isLight ? "rgba(2, 132, 199, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
+                            boxShadow: isLight
+                              ? "0 8px 30px rgba(0, 0, 0, 0.08)"
+                              : "0 10px 40px rgba(0, 0, 0, 0.5)",
+                            color: isLight ? "#0284c7" : "#38bdf8",
+                            fontSize: "0.85rem",
+                            fontWeight: 700,
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: "inline-block",
+                              animation: "spin 0.8s linear infinite",
+                              fontSize: "1.1rem",
+                            }}
+                          >
+                            🔄
+                          </span>
+                          <span>Sincronizando posiciones & cotizaciones ({period})…</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : loading ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
                     <div className="spinner" />
