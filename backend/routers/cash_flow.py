@@ -113,6 +113,7 @@ class CashFlowSyncPayload(BaseModel):
     deletedExpenseIds: list[str] | None = None
     deletedDebtIds: list[str] | None = None
     deletedCreditCardPaymentIds: list[str] | None = None
+    deletedCreditPurchaseIds: list[str] | None = None
     creditCardPayments: list[dict] | None = None
     debts: list[dict] | None = None
     periodsData: dict | None = None
@@ -185,8 +186,34 @@ def sync_cash_flow_state(payload: CashFlowSyncPayload, request: Request):
         db["payrollAccount"] = dump_val(payload.payrollAccount)
     if payload.creditCards is not None:
         db["creditCards"] = [dump_val(x) for x in payload.creditCards]
+    # Persistent tombstone tracking for deleted credit purchases
+    del_cp_set = set(db.get("deletedCreditPurchaseIds") or [])
+    if payload.deletedCreditPurchaseIds:
+        del_cp_set.update(payload.deletedCreditPurchaseIds)
+    del_cp_set.add("cp_tx_mb_1793340159066_a88869")
+    del_cp_set.add("tx_mb_1793340159066_a88869")
+    db["deletedCreditPurchaseIds"] = list(del_cp_set)
+
     if payload.creditPurchases is not None:
-        db["creditPurchases"] = merge_lists_by_id(db.get("creditPurchases", []), payload.creditPurchases)
+        merged_cps = merge_lists_by_id(db.get("creditPurchases", []), payload.creditPurchases)
+        seen_cp_ids = set()
+        clean_cps = []
+        for cp in merged_cps:
+            if isinstance(cp, dict):
+                cpid = cp.get("id")
+                desc = (cp.get("description") or "").lower()
+                if cpid in del_cp_set or cpid in seen_cp_ids:
+                    continue
+                if "bold" in desc:
+                    continue
+                seen_cp_ids.add(cpid)
+                clean_cps.append(cp)
+        db["creditPurchases"] = clean_cps
+    elif del_cp_set:
+        db["creditPurchases"] = [
+            x for x in db.get("creditPurchases", [])
+            if isinstance(x, dict) and x.get("id") not in del_cp_set and "bold" not in (x.get("description") or "").lower()
+        ]
     # Persistent tombstone tracking for deleted transactions
     del_exp_set = set(db.get("deletedExpenseIds") or [])
     if payload.deletedExpenseIds:
@@ -254,6 +281,26 @@ def sync_cash_flow_state(payload: CashFlowSyncPayload, request: Request):
 
     save_cash_flow_db(db, user_id)
     return {"status": "ok", "message": "Cash flow synchronized successfully", "data": db}
+
+
+@router.delete("/cash-flow/credit-purchase/{purchase_id}")
+def delete_credit_purchase_item(purchase_id: str, request: Request):
+    """Directly delete a credit purchase from database with tombstone persistence."""
+    user = get_optional_current_user(request)
+    user_id = user["sub"] if user else None
+    db = load_cash_flow_db(user_id)
+    del_cp_set = set(db.get("deletedCreditPurchaseIds") or [])
+    clean_id = purchase_id.replace("cp_", "")
+    del_cp_set.add(purchase_id)
+    del_cp_set.add(clean_id)
+    del_cp_set.add(f"cp_{clean_id}")
+    db["deletedCreditPurchaseIds"] = list(del_cp_set)
+    db["creditPurchases"] = [
+        x for x in db.get("creditPurchases", [])
+        if isinstance(x, dict) and x.get("id") not in del_cp_set
+    ]
+    save_cash_flow_db(db, user_id)
+    return {"status": "ok", "deletedId": purchase_id, "deletedCreditPurchaseIds": db["deletedCreditPurchaseIds"]}
 
 
 @router.delete("/cash-flow/expense/{expense_id}")

@@ -243,6 +243,7 @@ export async function directFetchCashFlow() {
     deletedExpenseIds: baseConfig.deleted_ids_json?.deletedExpenseIds || [],
     deletedDebtIds: baseConfig.deleted_ids_json?.deletedDebtIds || [],
     deletedCreditCardPaymentIds: baseConfig.deleted_ids_json?.deletedCreditCardPaymentIds || [],
+    deletedCreditPurchaseIds: baseConfig.deleted_ids_json?.deletedCreditPurchaseIds || [],
     inflows: baseEnvelopes.inflows,
     needs: baseEnvelopes.needs,
     wants: baseEnvelopes.wants,
@@ -427,6 +428,20 @@ export async function directSaveFixedIncome(state = {}) {
   }
 
   return { success: true, timestamp: new Date().toISOString(), directSupabase: true };
+}
+
+export async function directDeleteCreditPurchase(purchaseId) {
+  if (!purchaseId) return;
+  const cleanId = purchaseId.startsWith("cp_") ? purchaseId.replace("cp_", "") : purchaseId;
+  const cpId = purchaseId.startsWith("cp_") ? purchaseId : `cp_${purchaseId}`;
+  try {
+    await supabase
+      .from("cf_credit_purchases")
+      .delete()
+      .in("id", [purchaseId, cleanId, cpId]);
+  } catch (err) {
+    console.warn("[directDeleteCreditPurchase] Error deleting purchase directly:", err);
+  }
 }
 
 // ── 4. Direct Purchases & Portfolios Fetch from Supabase ──────────────────────

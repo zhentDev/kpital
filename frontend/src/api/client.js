@@ -12,6 +12,9 @@ import {
   directDeleteRebalance,
   directUpdateRebalanceDate,
   directSaveFixedIncome,
+  directFetchFixedIncome,
+  directFetchCashFlow,
+  directDeleteCreditPurchase,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -862,6 +865,17 @@ export async function syncPurchasesMigration(purchasePortfolios, individualPurch
 /** ── FIXED INCOME & SAVINGS ACCOUNTS API ── */
 
 export async function fetchFixedIncomeData(options = {}) {
+  // 1. Live Supabase first (SSOT directly from DB)
+  try {
+    const directData = await directFetchFixedIncome();
+    if (directData && Array.isArray(directData.accounts) && directData.accounts.length > 0) {
+      return directData;
+    }
+  } catch (err) {
+    console.warn("[FixedIncome] Direct Supabase fetch fallback:", err);
+  }
+
+  // 2. Fallback to API / static
   return await fetchWithFallback("/fixed-income/data", "fixed_income.json", options);
 }
 
@@ -1062,6 +1076,17 @@ export async function applyUpdatedAccountRate({ accountId, newRate, effectiveDat
 // ── Cash Flow & Budget Allocation API ────────────────────────────
 
 export async function fetchCashFlowData(options = {}) {
+  // 1. Live Supabase first (SSOT directly from DB)
+  try {
+    const directData = await directFetchCashFlow();
+    if (directData && (Array.isArray(directData.expensesLog) || Array.isArray(directData.inflows))) {
+      return directData;
+    }
+  } catch (err) {
+    console.warn("[CashFlow] Direct Supabase fetch fallback:", err);
+  }
+
+  // 2. Fallback to API / static
   return await fetchWithFallback("/cash-flow", "cash_flow.json", options);
 }
 
@@ -1154,6 +1179,16 @@ export async function deleteExpenseApi(id) {
   });
   if (!res.ok) throw new Error("Error al eliminar gasto");
   return res.json();
+}
+
+export async function deleteCreditPurchaseApi(id) {
+  const res = await safeFetch(`${getBase()}/cash-flow/credit-purchase/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    console.warn(`[API] Could not delete credit purchase ${id} on backend`);
+  }
+  return res.json().catch(() => ({ ok: true }));
 }
 
 export async function deleteDebtApi(id) {

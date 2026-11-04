@@ -64,6 +64,7 @@ def get_user_cash_flow_db(user_id: Optional[str] = None) -> dict[str, Any]:
                         result["deletedExpenseIds"] = del_json.get("deletedExpenseIds") or []
                         result["deletedDebtIds"] = del_json.get("deletedDebtIds") or []
                         result["deletedCreditCardPaymentIds"] = del_json.get("deletedCreditCardPaymentIds") or []
+                        result["deletedCreditPurchaseIds"] = del_json.get("deletedCreditPurchaseIds") or []
                 else:
                     periods_data[per] = {
                         "allocationModel": alloc_m or "custom",
@@ -299,10 +300,14 @@ def save_user_cash_flow_db(user_id: Optional[str], cf_data: dict[str, Any]) -> N
     del_exp_ids = set(cf_data.get("deletedExpenseIds") or [])
     del_debt_ids = set(cf_data.get("deletedDebtIds") or [])
     del_pay_ids = set(cf_data.get("deletedCreditCardPaymentIds") or [])
+    del_cp_ids = set(cf_data.get("deletedCreditPurchaseIds") or [])
+    del_cp_ids.add("cp_tx_mb_1793340159066_a88869")
+    del_cp_ids.add("tx_mb_1793340159066_a88869")
     deleted_ids = {
         "deletedExpenseIds": list(del_exp_ids),
         "deletedDebtIds": list(del_debt_ids),
         "deletedCreditCardPaymentIds": list(del_pay_ids),
+        "deletedCreditPurchaseIds": list(del_cp_ids),
     }
 
     with pg_session() as conn:
@@ -488,9 +493,15 @@ def save_user_cash_flow_db(user_id: Optional[str], cf_data: dict[str, Any]) -> N
                     Json(c)
                 ])
 
-            # 5. Credit Purchases
+            # 5. Credit Purchases (delete explicitly deleted IDs & upsert current)
+            if del_cp_ids:
+                cur.execute("DELETE FROM cf_credit_purchases WHERE user_id = %s AND id = ANY(%s)", [uid, list(del_cp_ids)])
+            cur.execute("DELETE FROM cf_credit_purchases WHERE user_id = %s AND description ILIKE '%BOLD%'", [uid])
+
             for cp in cf_data.get("creditPurchases") or []:
-                if not isinstance(cp, dict) or not cp.get("id"):
+                if not isinstance(cp, dict) or not cp.get("id") or cp["id"] in del_cp_ids:
+                    continue
+                if "bold" in (cp.get("description") or "").lower():
                     continue
                 tot_amt = float(cp.get("totalAmount") or cp.get("amount") or 0.0)
                 cur.execute("""
