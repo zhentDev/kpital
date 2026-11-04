@@ -84,6 +84,16 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
+        handleNotificationEvent(sbn, "POSTED")
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        // Disparador temporal para pruebas: permite probar con notificaciones existentes al borrarlas/descartarlas
+        handleNotificationEvent(sbn, "REMOVED")
+    }
+
+    private fun handleNotificationEvent(sbn: StatusBarNotification?, eventType: String) {
         if (sbn == null) return
 
         val packageName = sbn.packageName ?: ""
@@ -150,7 +160,7 @@ class KpitalNotificationListener : NotificationListenerService() {
         }
 
         val textToProcess = latestMessage
-        Log.d(TAG, "[POSTED] Movimiento detectado ($packageName): $title -> $textToProcess")
+        Log.d(TAG, "[$eventType] Movimiento detectado ($packageName): $title -> $textToProcess")
 
         // 3. Procesar y extraer entidad, monto y concepto con el motor Go
         var bank = "Banco"
