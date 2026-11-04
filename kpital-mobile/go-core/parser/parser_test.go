@@ -62,6 +62,20 @@ func TestParserEngineRealWorldCases(t *testing.T) {
 			expectedDesc:    "ERL****** NAV******",
 		},
 		{
+			name: "Banco Caja Social - SMS approved payment",
+			notification: models.RawNotification{
+				AppName:     "Mensajes",
+				PackageName: "com.google.android.apps.messaging",
+				Title:       "87227",
+				Text:        "Su pago por $43.427,99 para CREDITOS DE CONSUMO quedo Aprobado. 11/03/2026 23:46. Banco Caja Social Tel Bta 601 542 6446 ? Nal 018000910038.",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedType:    models.TypeDebit,
+			expectedAmount:  43427.99,
+			expectedAccount: "Cuenta Nómina / Principal",
+			expectedDesc:    "Pago CREDITOS DE CONSUMO",
+		},
+		{
 			name: "Nu Colombia - Supermarket card purchase",
 			notification: models.RawNotification{
 				AppName: "Nubank",

@@ -151,8 +151,9 @@ func (e *Engine) DetectType(n models.RawNotification) models.TransactionType {
 
 // ExtractAmount parses the monetary amount, prioritizing Title if present (as in Nu).
 func (e *Engine) ExtractAmount(n models.RawNotification) (float64, error) {
-	// 1. Try Title first (Nu Colombia puts "Enviaste $33.500,00" in Title)
-	if n.Title != "" {
+	// 1. Try Title first (Nu Colombia puts "Enviaste $33.500,00" in Title).
+	// Only parse Title if it explicitly contains currency symbol '$' to avoid shortcodes (e.g. 87227) or phone numbers.
+	if n.Title != "" && (strings.Contains(n.Title, "$") || strings.Contains(strings.ToLower(n.Title), "cop")) {
 		if m := genericAmt.FindStringSubmatch(n.Title); len(m) > 1 {
 			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 {
 				return amt, nil
@@ -240,6 +241,16 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 			return "Transferencia recibida Daviplata"
 		}
 		return "Movimiento Daviplata"
+
+	case "Banco Caja Social":
+		rePayment := regexp.MustCompile(`(?i)para\s+([^.]+?)\s+(?:quedo|quedó|por|\.|$)`)
+		if m := rePayment.FindStringSubmatch(text); len(m) > 1 {
+			return "Pago " + strings.TrimSpace(m[1])
+		}
+		if m := bancoPurchaseRegex.FindStringSubmatch(text); len(m) > 1 {
+			return "Compra " + strings.TrimSpace(m[1])
+		}
+		return "Pago Banco Caja Social"
 	}
 
 	// Generic purchase / merchant matching
