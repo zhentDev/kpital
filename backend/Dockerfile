@@ -7,10 +7,10 @@ WORKDIR /app
 # Copy the project files
 COPY pyproject.toml .
 COPY main.py .
+COPY db/ db/
 COPY routers/ routers/
 COPY services/ services/
 COPY data/ data/
-COPY titanes.duckdb* .
 
 # Install the project and its dependencies using standard pip
 COPY requirements.txt .

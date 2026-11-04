@@ -6,6 +6,7 @@ import { getBankPreset } from "../utils/bankPresets";
 import {
   directSupabaseLogin,
   directSupabaseFetchMe,
+  directFetchRebalances,
   directCreateRebalance,
   directToggleRebalanceActive,
   directDeleteRebalance,
@@ -363,6 +364,17 @@ export async function searchTickersMultiple(q) {
 
 /** GET /api/rebalances */
 export async function fetchRebalances(strategyId = "historical", options = {}) {
+  // 1. Live Supabase first (SSOT directly from DB)
+  try {
+    const directData = await directFetchRebalances(strategyId);
+    if (Array.isArray(directData) && directData.length > 0) {
+      return directData;
+    }
+  } catch (err) {
+    console.warn("[Rebalances] Direct Supabase fetch fallback:", err);
+  }
+
+  // 2. Fallback to API / static
   const query = strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : "";
   const staticFile = (!strategyId || strategyId === "historical") ? "rebalances.json" : null;
   const res = await fetchWithFallback(`/rebalances${query}`, staticFile, options);
