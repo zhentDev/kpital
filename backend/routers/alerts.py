@@ -3,6 +3,7 @@ Stock Alerts Router.
 Handles CRUD and real-time evaluation for profit target / stop-loss sell notifications.
 """
 
+import os
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
@@ -47,6 +48,212 @@ def list_user_alerts(request: Request, scope: Optional[str] = None, target_id: O
     user = get_optional_current_user(request)
     user_id = user["sub"] if user else "usr_9487dd2209d2"
     return get_stock_alerts_db(user_id=user_id, scope=scope, target_id=target_id)
+
+
+@router.get("/live")
+def get_live_alerts_status(request: Request, scope: Optional[str] = None, target_id: Optional[str] = None):
+    """
+    Returns user stock/ETF alerts enriched with:
+    - Real-time market prices from Yahoo Finance.
+    - Resolved cost basis / entry prices from user portfolios & rebalances.
+    - Target prices, return percentages, and distance to target.
+    - Real-time status ('ACTIVE', 'NEAR', 'TRIGGERED', 'PAUSED').
+    - Dispatches notifications if an active alert triggers during evaluation.
+    """
+    user = get_optional_current_user(request)
+    user_id = user["sub"] if user else "usr_9487dd2209d2"
+    user_email = user.get("email") if user else None
+
+    alerts = get_stock_alerts_db(user_id=user_id, scope=scope, target_id=target_id)
+    if not alerts:
+        return {
+            "count": 0,
+            "active_count": 0,
+            "triggered_count": 0,
+            "near_count": 0,
+            "newly_triggered": [],
+            "alerts": []
+        }
+
+    # Fetch purchases to resolve lot-specific entry prices and consolidated WAP
+    purchases = []
+    try:
+        from db.connection import pg_session
+        with pg_session() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, ticker, purchase_price, shares, date FROM rv_purchases WHERE user_id = %s",
+                    [user_id]
+                )
+                p_cols = [desc[0] for desc in cur.description]
+                purchases = [dict(zip(p_cols, row)) for row in cur.fetchall()]
+    except Exception:
+        pass
+
+    lots_map = {str(p["id"]): p for p in purchases if p.get("id")}
+    wap_agg = {}
+    for p in purchases:
+        t = str(p.get("ticker") or "").upper().strip()
+        if t:
+            if t not in wap_agg:
+                wap_agg[t] = {"cost": 0.0, "shares": 0.0}
+            sh = float(p.get("shares") or 0.0)
+            wap_agg[t]["cost"] += float(p.get("purchase_price") or 0.0) * sh
+            wap_agg[t]["shares"] += sh
+    wap_map = {t: (v["cost"] / v["shares"]) if v["shares"] > 0 else 0.0 for t, v in wap_agg.items()}
+
+    # Unique clean tickers for market quote batching
+    clean_tickers = list(set([a.get("ticker", "").split("::")[0].strip().upper() for a in alerts if a.get("ticker")]))
+    raw_quotes = get_live_quotes(clean_tickers) if clean_tickers else []
+    live_quotes = {q["ticker"].upper(): q for q in raw_quotes}
+
+    enriched = []
+    newly_triggered = []
+
+    for alert in alerts:
+        raw_ticker = str(alert.get("ticker") or "").strip()
+        if not raw_ticker:
+            continue
+
+        clean_ticker = raw_ticker.split("::")[0].strip().upper()
+        lot_id = raw_ticker.split("::")[1].strip() if "::" in raw_ticker else None
+
+        # Resolve Entry Price (P0)
+        entry_price = 0.0
+        lot_label = None
+        if lot_id and lot_id in lots_map:
+            entry_price = float(lots_map[lot_id].get("purchase_price") or 0.0)
+            lot_label = f"Lote {lots_map[lot_id].get('date', '')}"
+        elif clean_ticker in wap_map and wap_map[clean_ticker] > 0:
+            entry_price = float(wap_map[clean_ticker])
+            lot_label = "Posición Consolidada (WAP)"
+        elif alert.get("last_checked_price"):
+            entry_price = float(alert.get("last_checked_price"))
+            lot_label = "Precio de Referencia"
+
+        # Resolve Current Market Price
+        quote = live_quotes.get(clean_ticker, {})
+        current_price = float(quote.get("price") or (entry_price if entry_price > 0 else 100.0))
+        if entry_price <= 0:
+            entry_price = current_price
+            lot_label = "Precio Inicial"
+
+        target_val = float(alert.get("target_value", 10.0))
+        alert_type = str(alert.get("alert_type") or "PROFIT_TARGET").upper()
+        is_active = bool(alert.get("is_active", True))
+        triggered_at = alert.get("triggered_at")
+
+        # Calculations
+        current_return_pct = round(((current_price - entry_price) / entry_price * 100.0), 2) if entry_price > 0 else 0.0
+        target_price = round(entry_price * (1.0 + (target_val / 100.0)), 2)
+
+        # Distance & trigger condition
+        is_condition_met = False
+        if alert_type == "PROFIT_TARGET":
+            distance_pct = round(target_val - current_return_pct, 2)
+            is_condition_met = (current_return_pct >= target_val)
+        else: # STOP_LOSS
+            distance_pct = round(current_return_pct - target_val, 2)
+            is_condition_met = (current_return_pct <= target_val)
+
+        is_triggered_now = False
+        if triggered_at:
+            status = "TRIGGERED"
+        elif not is_active:
+            status = "PAUSED"
+        elif is_condition_met:
+            status = "TRIGGERED"
+            try:
+                trigger_stock_alert_db(alert["id"], current_price)
+                triggered_at = True
+                is_triggered_now = True
+
+                recipient = alert.get("user_email") or user_email
+                if alert.get("notify_email") and recipient:
+                    send_sell_alert_email(
+                        to_email=recipient,
+                        ticker=clean_ticker,
+                        company_name=quote.get("name") or clean_ticker,
+                        alert_type=alert_type,
+                        target_value=target_val,
+                        current_return_pct=current_return_pct,
+                        current_price=current_price,
+                        entry_price=entry_price,
+                        scope_title=alert.get("scope", "Kpital")
+                    )
+                if alert.get("notify_telegram", True):
+                    is_owner = str(recipient).strip().lower() == OWNER_EMAIL or str(user_email).strip().lower() == OWNER_EMAIL
+                    if is_owner:
+                        send_sell_alert_telegram(
+                            ticker=clean_ticker,
+                            company_name=quote.get("name") or clean_ticker,
+                            alert_type=alert_type,
+                            target_value=target_val,
+                            current_return_pct=current_return_pct,
+                            current_price=current_price,
+                            entry_price=entry_price,
+                            scope_title=alert.get("scope", "Kpital")
+                        )
+            except Exception:
+                pass
+        elif 0 < distance_pct <= 1.5:
+            status = "NEAR"
+        else:
+            status = "ACTIVE"
+
+        item = {
+            "id": alert["id"],
+            "ticker": clean_ticker,
+            "raw_ticker": raw_ticker,
+            "company_name": quote.get("name") or clean_ticker,
+            "scope": alert.get("scope", "strategy"),
+            "target_id": alert.get("target_id", "historical"),
+            "lot_label": lot_label,
+            "alert_type": alert_type,
+            "target_value": target_val,
+            "entry_price": round(entry_price, 2),
+            "current_price": round(current_price, 2),
+            "target_price": round(target_price, 2),
+            "current_return_pct": current_return_pct,
+            "distance_pct": distance_pct,
+            "status": status,
+            "is_active": is_active,
+            "is_triggered_now": is_triggered_now,
+            "triggered_at": str(triggered_at) if triggered_at else None,
+            "change_24h": float(quote.get("change") or 0.0),
+            "change_pct_24h": float(quote.get("change_pct") or 0.0),
+        }
+
+        if is_triggered_now:
+            newly_triggered.append(item)
+
+        enriched.append(item)
+
+    # Sort: TRIGGERED first, then NEAR, then ACTIVE by distance
+    def alert_order(x):
+        st = x["status"]
+        if st == "TRIGGERED":
+            return (0, 0)
+        if st == "NEAR":
+            return (1, x["distance_pct"])
+        if st == "ACTIVE":
+            return (2, x["distance_pct"])
+        return (3, x["distance_pct"])
+
+    enriched.sort(key=alert_order)
+
+    active_cnt = sum(1 for a in enriched if a["status"] in ("ACTIVE", "NEAR"))
+    triggered_cnt = sum(1 for a in enriched if a["status"] == "TRIGGERED")
+    near_cnt = sum(1 for a in enriched if a["status"] == "NEAR")
+
+    return {
+        "count": len(enriched),
+        "active_count": active_cnt,
+        "triggered_count": triggered_cnt,
+        "near_count": near_cnt,
+        "newly_triggered": newly_triggered,
+        "alerts": enriched
+    }
 
 
 @router.post("")

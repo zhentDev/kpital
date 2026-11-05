@@ -33,7 +33,15 @@ class MainActivity : Activity() {
     private lateinit var loginFormLayout: LinearLayout
     private lateinit var welcomeUserTextView: TextView
 
-    // Contenedores del Historial de Movimientos
+    // Control de Pestañas Principales (Bancos vs Alertas de Bolsa)
+    private var activeMainTab: String = "BANK" // "BANK" o "ALERTS"
+    private lateinit var tabSelectorLayout: LinearLayout
+    private lateinit var btnTabBank: Button
+    private lateinit var btnTabAlerts: Button
+    private lateinit var sectionBankMovements: LinearLayout
+    private lateinit var sectionStockAlerts: LinearLayout
+
+    // Contenedores del Historial de Movimientos Bancarios
     private lateinit var historyContainer: LinearLayout
     private lateinit var filterContainer: LinearLayout
     private lateinit var emptyHistoryView: LinearLayout
@@ -41,6 +49,16 @@ class MainActivity : Activity() {
     private var pendingFilterBtn: Button? = null
     private var completedFilterBtn: Button? = null
     private var activeFilter: String = "ALL" // "ALL", "PENDING", "COMPLETED"
+
+    // Contenedores de la sección de Alertas de Bolsa
+    private lateinit var alertsCardsContainer: LinearLayout
+    private lateinit var emptyAlertsView: LinearLayout
+    private lateinit var alertsMetricActive: TextView
+    private lateinit var alertsMetricNear: TextView
+    private lateinit var alertsMetricTriggered: TextView
+    private lateinit var alertsLastUpdatedText: TextView
+    private lateinit var btnRefreshAlerts: Button
+    private lateinit var btnTestAlertNotification: Button
 
     private val dateFormat = SimpleDateFormat("d 'de' MMM, h:mm a", Locale("es", "CO"))
 
@@ -84,7 +102,7 @@ class MainActivity : Activity() {
         rootLayout.addView(titleView)
 
         val descView = TextView(this).apply {
-            text = "Motor nativo en Go para captura automática y categorización de gastos bancarios en Colombia.\n"
+            text = "Terminal nativa para captura de gastos bancarios y monitoreo de alertas de venta de bolsa en Colombia y Wall Street.\n"
             textSize = 13f
             setTextColor(Color.parseColor("#94a3b8"))
         }
@@ -161,7 +179,7 @@ class MainActivity : Activity() {
         userSessionLayout.addView(welcomeUserTextView)
 
         val syncInfoTextView = TextView(this).apply {
-            text = "\nTus gastos de Bancolombia, Nu y Rappi se vincularán directamente a tu cuenta y cajitas.\n"
+            text = "\nTus gastos de Bancolombia, Nu y Rappi se vinculan a tus cajitas, y tus alertas de venta de acciones/ETFs te notificarán aquí en vivo.\n"
             textSize = 13f
             setTextColor(Color.parseColor("#94a3b8"))
         }
@@ -264,6 +282,7 @@ class MainActivity : Activity() {
                                 loginFormLayout.visibility = View.GONE
                                 userSessionLayout.visibility = View.VISIBLE
                                 Toast.makeText(this@MainActivity, "¡Bienvenido, $userName!", Toast.LENGTH_SHORT).show()
+                                StockAlertManager.fetchLiveAlertsAsync(this@MainActivity)
                             } else {
                                 val detail = resp.optString("detail", "Credenciales incorrectas")
                                 Toast.makeText(this@MainActivity, detail, Toast.LENGTH_LONG).show()
@@ -285,24 +304,67 @@ class MainActivity : Activity() {
         // Separador 2
         rootLayout.addView(createSeparator())
 
-        // --- SECCIÓN 3: BANDEJA E HISTORIAL DE MOVIMIENTOS CAPTURADOS ---
+        // --- SELECTOR DE PESTAÑAS (GASTOS BANCARIOS vs ALERTAS DE BOLSA) ---
+        buildTabSelector(rootLayout)
+
+        // --- SECCIÓN: BANDEJA E HISTORIAL DE MOVIMIENTOS BANCARIOS ---
         buildHistorySection(rootLayout)
 
-        // Escuchar cambios en segundo plano (notificaciones nuevas o asignaciones completadas)
+        // --- SECCIÓN: ALERTAS ACTIVAS DE BOLSA Y ETFS ---
+        buildStockAlertsSection(rootLayout)
+
+        // Escuchar cambios de notificaciones bancarias en segundo plano
         MovementHistoryManager.setOnHistoryChangeListener {
             runOnUiThread {
                 refreshHistoryUI()
             }
         }
 
+        // Iniciar monitoreo continuo de alertas de bolsa (cada 5 min)
+        StockAlertManager.startPolling(this, intervalMinutes = 5)
+        StockAlertManager.setOnAlertsUpdatedListener { pollResult ->
+            runOnUiThread {
+                renderStockAlertsUI(pollResult)
+            }
+        }
+
+        // Revisar si la app fue abierta desde una notificación de alerta
+        handleOpenFromNotification(intent)
+
         setContentView(scroll)
         refreshHistoryUI()
+        switchMainTab(activeMainTab)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleOpenFromNotification(intent)
+    }
+
+    private fun handleOpenFromNotification(intent: Intent?) {
+        if (intent?.getStringExtra("OPEN_TAB") == "ALERTS") {
+            switchMainTab("ALERTS")
+            val ticker = intent.getStringExtra("ALERT_TICKER") ?: ""
+            if (ticker.isNotBlank()) {
+                Toast.makeText(this, "🎯 Alerta disparada para $ticker", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         updatePermissionStatus()
         refreshHistoryUI()
+        if (activeMainTab == "ALERTS") {
+            StockAlertManager.fetchLiveAlertsAsync(this) { res ->
+                if (res != null) renderStockAlertsUI(res)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        StockAlertManager.stopPolling()
     }
 
     private fun createSeparator(): View {
@@ -314,7 +376,95 @@ class MainActivity : Activity() {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // GESTIÓN DE PESTAÑAS PRINCIPALES
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private fun buildTabSelector(root: LinearLayout) {
+        tabSelectorLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 24)
+        }
+
+        btnTabBank = Button(this).apply {
+            text = "💳 Gastos y Bancos"
+            textSize = 13f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            val p = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(0, 0, 8, 0)
+            }
+            layoutParams = p
+            setOnClickListener {
+                switchMainTab("BANK")
+            }
+        }
+        tabSelectorLayout.addView(btnTabBank)
+
+        btnTabAlerts = Button(this).apply {
+            text = "📈 Alertas de Bolsa"
+            textSize = 13f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            val p = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(8, 0, 0, 0)
+            }
+            layoutParams = p
+            setOnClickListener {
+                switchMainTab("ALERTS")
+            }
+        }
+        tabSelectorLayout.addView(btnTabAlerts)
+
+        root.addView(tabSelectorLayout)
+    }
+
+    private fun switchMainTab(tab: String) {
+        activeMainTab = tab
+        val isBank = (tab == "BANK")
+
+        sectionBankMovements.visibility = if (isBank) View.VISIBLE else View.GONE
+        sectionStockAlerts.visibility = if (!isBank) View.VISIBLE else View.GONE
+
+        btnTabBank.background = getTabButtonDrawable(isBank)
+        btnTabBank.setTextColor(if (isBank) Color.WHITE else Color.parseColor("#94a3b8"))
+
+        btnTabAlerts.background = getTabButtonDrawable(!isBank)
+        btnTabAlerts.setTextColor(if (!isBank) Color.WHITE else Color.parseColor("#94a3b8"))
+
+        if (!isBank) {
+            val cached = StockAlertManager.latestResult
+            if (cached != null) {
+                renderStockAlertsUI(cached)
+            }
+            StockAlertManager.fetchLiveAlertsAsync(this) { res ->
+                if (res != null) renderStockAlertsUI(res)
+            }
+        }
+    }
+
+    private fun getTabButtonDrawable(isSelected: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = 18f
+            if (isSelected) {
+                setColor(Color.parseColor("#0284c7"))
+                setStroke(2, Color.parseColor("#38bdf8"))
+            } else {
+                setColor(Color.parseColor("#0e1526"))
+                setStroke(1, Color.parseColor("#1e293b"))
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PESTAÑA 1: BANDEJA E HISTORIAL DE MOVIMIENTOS BANCARIOS
+    // ─────────────────────────────────────────────────────────────────────────────
+
     private fun buildHistorySection(root: LinearLayout) {
+        sectionBankMovements = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
         val historyHeader = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -374,7 +524,7 @@ class MainActivity : Activity() {
         filterContainer.addView(completedFilterBtn)
         historyHeader.addView(filterContainer)
 
-        root.addView(historyHeader)
+        sectionBankMovements.addView(historyHeader)
 
         // Vista de Estado Vacío
         emptyHistoryView = LinearLayout(this).apply {
@@ -404,13 +554,13 @@ class MainActivity : Activity() {
             setPadding(0, 10, 0, 0)
         }
         emptyHistoryView.addView(emptyText)
-        root.addView(emptyHistoryView)
+        sectionBankMovements.addView(emptyHistoryView)
 
         // Contenedor dinámico de tarjetas de movimientos
         historyContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        root.addView(historyContainer)
+        sectionBankMovements.addView(historyContainer)
 
         // Botón inferior para limpiar completados
         val cleanCompletedBtn = Button(this).apply {
@@ -435,7 +585,9 @@ class MainActivity : Activity() {
                 Toast.makeText(this@MainActivity, "Movimientos completados eliminados del historial", Toast.LENGTH_SHORT).show()
             }
         }
-        root.addView(cleanCompletedBtn)
+        sectionBankMovements.addView(cleanCompletedBtn)
+
+        root.addView(sectionBankMovements)
     }
 
     private fun createFilterButton(label: String, filterKey: String): Button {
@@ -748,6 +900,395 @@ class MainActivity : Activity() {
         val green = Color.green(color)
         val blue = Color.blue(color)
         return Color.argb(alpha, red, green, blue)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PESTAÑA 2: ALERTAS DE VENTA DE BOLSA (ACCIONES & ETFS)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private fun buildStockAlertsSection(root: LinearLayout) {
+        sectionStockAlerts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val titleView = TextView(this).apply {
+            text = "📈 Alertas de Venta (Bolsa)"
+            textSize = 19f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerRow.addView(titleView)
+
+        // Botón Probar Alerta Sonora en Celular
+        btnTestAlertNotification = Button(this).apply {
+            text = "🧪 Probar"
+            textSize = 11f
+            setTextColor(Color.parseColor("#f43f5e"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#2a0f1d"))
+                setStroke(1, Color.parseColor("#f43f5e"))
+            }
+            setPadding(18, 10, 18, 10)
+            setOnClickListener {
+                StockAlertManager.sendTestAlertNotification(this@MainActivity)
+                Toast.makeText(this@MainActivity, "🚨 Alerta emitida con sonido y vibración en tu teléfono", Toast.LENGTH_SHORT).show()
+            }
+        }
+        headerRow.addView(btnTestAlertNotification)
+
+        // Botón Actualizar Cotizaciones
+        btnRefreshAlerts = Button(this).apply {
+            text = "🔄 Actualizar"
+            textSize = 11f
+            setTextColor(Color.parseColor("#38bdf8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0c2340"))
+                setStroke(1, Color.parseColor("#0284c7"))
+            }
+            setPadding(18, 10, 18, 10)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(8, 0, 0, 0)
+            }
+            layoutParams = p
+            setOnClickListener {
+                text = "⏳ ..."
+                isEnabled = false
+                StockAlertManager.fetchLiveAlertsAsync(this@MainActivity) { res ->
+                    isEnabled = true
+                    text = "🔄 Actualizar"
+                    if (res != null) {
+                        renderStockAlertsUI(res)
+                        Toast.makeText(this@MainActivity, "Cotizaciones actualizadas", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Error consultando cotizaciones", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        headerRow.addView(btnRefreshAlerts)
+        sectionStockAlerts.addView(headerRow)
+
+        val subDesc = TextView(this).apply {
+            text = "Monitoreo en vivo cada 5 min. Tu teléfono te notificará con alarma sonora en cuanto una acción o ETF alcance tu precio de Take Profit o Stop Loss."
+            textSize = 12f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 8, 0, 14)
+        }
+        sectionStockAlerts.addView(subDesc)
+
+        // Fila de Métricas (Activas, Cerca, Disparadas)
+        val metricsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 14)
+        }
+
+        alertsMetricActive = createMetricPill("🎯 Activas: --", "#0284c7")
+        alertsMetricNear = createMetricPill("⚡ Cerca: --", "#d97706")
+        alertsMetricTriggered = createMetricPill("🚨 Disparadas: --", "#10b981")
+
+        metricsRow.addView(alertsMetricActive)
+        metricsRow.addView(alertsMetricNear)
+        metricsRow.addView(alertsMetricTriggered)
+        sectionStockAlerts.addView(metricsRow)
+
+        alertsLastUpdatedText = TextView(this).apply {
+            text = "● Monitoreando en vivo cada 5 min"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 0, 0, 14)
+        }
+        sectionStockAlerts.addView(alertsLastUpdatedText)
+
+        // Estado Vacío
+        emptyAlertsView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(40, 50, 40, 50)
+            background = GradientDrawable().apply {
+                cornerRadius = 20f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(1, Color.parseColor("#1e293b"))
+            }
+            visibility = View.GONE
+        }
+
+        val emptyIcon = TextView(this).apply {
+            text = "📈"
+            textSize = 34f
+            gravity = Gravity.CENTER
+        }
+        emptyAlertsView.addView(emptyIcon)
+
+        val emptyText = TextView(this).apply {
+            text = "No tienes alertas de venta registradas.\nPuedes configurarlas desde la terminal Kpital en tus posiciones de bolsa y se sincronizarán aquí automáticamente."
+            textSize = 13f
+            setTextColor(Color.parseColor("#64748b"))
+            gravity = Gravity.CENTER
+            setPadding(0, 10, 0, 0)
+        }
+        emptyAlertsView.addView(emptyText)
+        sectionStockAlerts.addView(emptyAlertsView)
+
+        // Contenedor de Tarjetas de Alertas
+        alertsCardsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        sectionStockAlerts.addView(alertsCardsContainer)
+
+        root.addView(sectionStockAlerts)
+    }
+
+    private fun createMetricPill(label: String, strokeColor: String): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0e1526"))
+                setStroke(1, Color.parseColor(strokeColor))
+            }
+            setPadding(16, 10, 16, 10)
+            val p = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                setMargins(4, 0, 4, 0)
+            }
+            layoutParams = p
+            gravity = Gravity.CENTER
+        }
+    }
+
+    private fun renderStockAlertsUI(result: AlertsPollResult) {
+        if (!::alertsCardsContainer.isInitialized) return
+
+        alertsMetricActive.text = "🎯 Activas: ${result.activeCount}"
+        alertsMetricNear.text = "⚡ Cerca: ${result.nearCount}"
+        alertsMetricTriggered.text = "🚨 Disparadas: ${result.triggeredCount}"
+
+        val timeStr = dateFormat.format(Date(result.lastUpdatedMillis))
+        alertsLastUpdatedText.text = "● Monitoreando en vivo • Cotizaciones de: $timeStr"
+
+        alertsCardsContainer.removeAllViews()
+
+        if (result.alerts.isEmpty()) {
+            emptyAlertsView.visibility = View.VISIBLE
+        } else {
+            emptyAlertsView.visibility = View.GONE
+            for (alert in result.alerts) {
+                val card = createAlertCardView(alert)
+                alertsCardsContainer.addView(card)
+            }
+        }
+    }
+
+    private fun createAlertCardView(alert: EnrichedStockAlert): View {
+        val isTakeProfit = (alert.alertType == "PROFIT_TARGET")
+        val isTriggered = (alert.status == "TRIGGERED")
+        val isNear = (alert.status == "NEAR")
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(35, 30, 35, 30)
+            background = GradientDrawable().apply {
+                cornerRadius = 24f
+                setColor(Color.parseColor("#0c111e"))
+                val strokeColor = when {
+                    isTriggered -> Color.parseColor("#10b981") // Verde esmeralda si se ejecutó
+                    isNear -> Color.parseColor("#f59e0b") // Ámbar si está cerca
+                    else -> Color.parseColor("#1e293b")
+                }
+                setStroke(if (isTriggered || isNear) 2 else 1, strokeColor)
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 20)
+            }
+            layoutParams = params
+        }
+
+        // Fila 1: Ticker Pill + Nombre de Empresa + Badge Tipo de Alerta
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val tickerBadge = TextView(this).apply {
+            text = alert.ticker
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#00e5ff"))
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#082f49"))
+                setStroke(2, Color.parseColor("#00e5ff"))
+            }
+            setPadding(20, 6, 20, 6)
+        }
+        topRow.addView(tickerBadge)
+
+        val companyView = TextView(this).apply {
+            text = alert.companyName
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setPadding(16, 0, 10, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        topRow.addView(companyView)
+
+        val typePill = TextView(this).apply {
+            val prefix = if (alert.targetValue >= 0) "+" else ""
+            text = if (isTakeProfit) "🟢 $prefix${alert.targetValue}% TP" else "🔴 ${alert.targetValue}% SL"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isTakeProfit) Color.parseColor("#4ade80") else Color.parseColor("#f87171"))
+            background = GradientDrawable().apply {
+                cornerRadius = 10f
+                setColor(if (isTakeProfit) Color.parseColor("#062e16") else Color.parseColor("#2a0f1d"))
+                setStroke(1, if (isTakeProfit) Color.parseColor("#10b981") else Color.parseColor("#ef4444"))
+            }
+            setPadding(16, 6, 16, 6)
+        }
+        topRow.addView(typePill)
+        card.addView(topRow)
+
+        // Fila 2: Subtítulo / Lote y Estrategia
+        val subText = alert.lotLabel ?: "Posición Consolidada"
+        val subView = TextView(this).apply {
+            text = "$subText • ${alert.scope.replaceFirstChar { it.uppercase() }}"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 8, 0, 14)
+        }
+        card.addView(subView)
+
+        // Fila 3: Grilla de Precios (Precio Actual vs Entrada vs Meta de Venta)
+        val priceGrid = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(20, 16, 20, 16)
+            background = GradientDrawable().apply {
+                cornerRadius = 16f
+                setColor(Color.parseColor("#080c14"))
+            }
+        }
+
+        val curPriceFormatted = "$${String.format(Locale.US, "%.2f", alert.currentPrice)} USD"
+        val chgFormatted = "${if (alert.changePct24h >= 0) "+" else ""}${String.format(Locale.US, "%.2f", alert.changePct24h)}% (24h)"
+        val colActual = createPriceColumn("PRECIO ACTUAL", curPriceFormatted, if (alert.changePct24h >= 0) "#4ade80" else "#f87171", chgFormatted)
+
+        val entryPriceFormatted = "$${String.format(Locale.US, "%.2f", alert.entryPrice)} USD"
+        val colEntrada = createPriceColumn("PRECIO ENTRADA", entryPriceFormatted, "#94a3b8", "Costo P₀")
+
+        val targetPriceFormatted = "$${String.format(Locale.US, "%.2f", alert.targetPrice)} USD"
+        val colTarget = createPriceColumn("META VENTA", targetPriceFormatted, "#38bdf8", if (isTakeProfit) "Take Profit" else "Stop Loss")
+
+        priceGrid.addView(colActual)
+        priceGrid.addView(colEntrada)
+        priceGrid.addView(colTarget)
+        card.addView(priceGrid)
+
+        // Fila 4: Retorno actual + Distancia restante + Estado
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 14, 0, 0)
+        }
+
+        val retText = "${if (alert.currentReturnPct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", alert.currentReturnPct)}%"
+        val retView = TextView(this).apply {
+            text = "Retorno: $retText"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (alert.currentReturnPct >= 0) Color.parseColor("#4ade80") else Color.parseColor("#f87171"))
+        }
+        bottomRow.addView(retView)
+
+        val distView = TextView(this).apply {
+            text = if (isTriggered) {
+                " • 🎯 ¡Alcanzado!"
+            } else if (alert.distancePct <= 0) {
+                " • 🎯 Cumplido"
+            } else {
+                " • Faltan ${String.format(Locale.US, "%.2f", alert.distancePct)}%"
+            }
+            textSize = 12f
+            setTextColor(if (isTriggered || alert.distancePct <= 0) Color.parseColor("#10b981") else Color.parseColor("#94a3b8"))
+            setPadding(10, 0, 10, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        bottomRow.addView(distView)
+
+        val statusBadge = TextView(this).apply {
+            val (stText, stColor, stBg) = when (alert.status) {
+                "TRIGGERED" -> Triple("🚨 EJECUTADA", "#10b981", "#062e16")
+                "NEAR" -> Triple("⚡ CERCA", "#f59e0b", "#2a1e04")
+                "PAUSED" -> Triple("⚪ PAUSADA", "#64748b", "#1e293b")
+                else -> Triple("🟢 ACTIVA", "#0284c7", "#0c2340")
+            }
+            text = stText
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(stColor))
+            background = GradientDrawable().apply {
+                cornerRadius = 10f
+                setColor(Color.parseColor(stBg))
+                setStroke(1, Color.parseColor(stColor))
+            }
+            setPadding(18, 8, 18, 8)
+        }
+        bottomRow.addView(statusBadge)
+        card.addView(bottomRow)
+
+        return card
+    }
+
+    private fun createPriceColumn(title: String, value: String, valueColor: String, subtext: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = Gravity.CENTER_HORIZONTAL
+
+            val tView = TextView(this@MainActivity).apply {
+                text = title
+                textSize = 9f
+                setTextColor(Color.parseColor("#64748b"))
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+            }
+            addView(tView)
+
+            val vView = TextView(this@MainActivity).apply {
+                text = value
+                textSize = 13f
+                setTextColor(Color.parseColor(valueColor))
+                setTypeface(null, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(0, 2, 0, 2)
+            }
+            addView(vView)
+
+            val sView = TextView(this@MainActivity).apply {
+                text = subtext
+                textSize = 9f
+                setTextColor(Color.parseColor("#64748b"))
+                gravity = Gravity.CENTER
+            }
+            addView(sView)
+        }
     }
 
     private fun updatePermissionStatus() {
