@@ -1,6 +1,7 @@
 package homes.zhent.kpital
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -11,7 +12,9 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import core.Core
+import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
@@ -250,41 +253,16 @@ class PocketSelectorActivity : Activity() {
                         return@setOnClickListener
                     }
 
-                    isEnabled = false
-                    text = "Registrando en Kpital..."
-
-                    thread {
-                        try {
-                            val respStr = Core.sendTransactionToBackend(bank, internalName, desc, txType, finalAmount, rawText)
-                            val result = JSONObject(respStr)
-                            val success = result.optBoolean("success", false)
-                            val msg = result.optString("message", "Movimiento registrado con éxito")
-
-                            runOnUiThread {
-                                if (success) {
-                                    val mId = movementId
-                                    if (mId != null) {
-                                        MovementHistoryManager.updateMovementStatus(
-                                            context = this@PocketSelectorActivity,
-                                            id = mId,
-                                            newStatus = MovementHistoryManager.STATUS_COMPLETED,
-                                            pocketName = internalName,
-                                            newAmount = finalAmount
-                                        )
-                                    }
-                                    Toast.makeText(this@PocketSelectorActivity, "✅ $msg", Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(this@PocketSelectorActivity, "⚠️ $msg", Toast.LENGTH_LONG).show()
-                                }
-                                finish()
-                            }
-                        } catch (e: Exception) {
-                            runOnUiThread {
-                                Toast.makeText(this@PocketSelectorActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                                finish()
-                            }
-                        }
-                    }
+                    // Paso 2: Transición inmediata a Selección de Rubro Presupuestario
+                    showRubroSelectionStep(
+                        container = container,
+                        bank = bank,
+                        selectedAccount = internalName,
+                        desc = desc,
+                        txType = txType,
+                        finalAmount = finalAmount,
+                        rawText = rawText
+                    )
                 }
             }
             container.addView(btn)
@@ -306,5 +284,433 @@ class PocketSelectorActivity : Activity() {
             layoutParams = params
         }
         container.addView(closeBtn)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // PASO 2: ASIGNACIÓN DE RUBRO PRESUPUESTARIO CON HERENCIA DE LOS 3 PILARES
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private fun showRubroSelectionStep(
+        container: LinearLayout,
+        bank: String,
+        selectedAccount: String,
+        desc: String,
+        txType: String,
+        finalAmount: Double,
+        rawText: String
+    ) {
+        container.removeAllViews()
+
+        // 1. Cabecera Paso 2
+        val titleView = TextView(this).apply {
+            text = "🎯 ¿A qué rubro pertenece?"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+        }
+        container.addView(titleView)
+
+        // Badge de resumen de cuenta y monto
+        val summaryBadge = TextView(this).apply {
+            val formatted = String.format(Locale.US, "%,.0f", finalAmount)
+            text = "💳 $selectedAccount • $$formatted COP"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38bdf8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#082f49"))
+                setStroke(1, Color.parseColor("#0284c7"))
+            }
+            setPadding(18, 8, 18, 8)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 10, 0, 15)
+            }
+            layoutParams = p
+        }
+        container.addView(summaryBadge)
+
+        val promptView = TextView(this).apply {
+            text = "Selecciona el rubro presupuestario de Kpital:"
+            textSize = 13f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 0, 0, 15)
+        }
+        container.addView(promptView)
+
+        val loadingRubros = TextView(this).apply {
+            text = "Cargando tus rubros en vivo..."
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 10, 0, 15)
+        }
+        container.addView(loadingRubros)
+
+        val rubrosLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        container.addView(rubrosLayout)
+
+        // Cargar rubros dinámicamente desde el backend o fallback inteligente
+        thread {
+            var wealthList = mutableListOf<Triple<String, String, String>>() // id, name, icon
+            var needsList = mutableListOf<Triple<String, String, String>>()
+            var wantsList = mutableListOf<Triple<String, String, String>>()
+
+            try {
+                val respStr = Core.fetchMobileBudgetItems()
+                val json = JSONObject(respStr)
+                if (json.optBoolean("success", false)) {
+                    val wArr = json.optJSONArray("wealth") ?: JSONArray()
+                    for (i in 0 until wArr.length()) {
+                        val o = wArr.getJSONObject(i)
+                        wealthList.add(Triple(o.optString("id"), o.optString("name"), o.optString("icon", "🛡️")))
+                    }
+                    val nArr = json.optJSONArray("needs") ?: JSONArray()
+                    for (i in 0 until nArr.length()) {
+                        val o = nArr.getJSONObject(i)
+                        needsList.add(Triple(o.optString("id"), o.optString("name"), o.optString("icon", "💡")))
+                    }
+                    val waArr = json.optJSONArray("wants") ?: JSONArray()
+                    for (i in 0 until waArr.length()) {
+                        val o = waArr.getJSONObject(i)
+                        wantsList.add(Triple(o.optString("id"), o.optString("name"), o.optString("icon", "🍷")))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("PocketSelector", "Error fetch budget items: ${e.message}")
+            }
+
+            // Fallback canónico si no hay conexión o viene vacío
+            if (wealthList.isEmpty() && needsList.isEmpty() && wantsList.isEmpty()) {
+                wealthList = mutableListOf(
+                    Triple("wealth_emergency", "Fondo de Emergencia", "🛡️"),
+                    Triple("wealth_savings", "Ahorro Alto Rendimiento", "🏛️"),
+                    Triple("wealth_impresora", "Meta Impresora 3D", "🖨️"),
+                    Triple("wealth_portfolio", "Portafolio Renta Fija", "🚀"),
+                    Triple("wealth_viaje", "Meta Viaje / Europa", "✈️")
+                )
+                needsList = mutableListOf(
+                    Triple("need_utilities", "Servicios Públicos, Luz & Internet", "💡"),
+                    Triple("need_groceries", "Alimentación & Supermercado", "🛒"),
+                    Triple("need_health", "Salud, EPS & Tratamientos", "🎯"),
+                    Triple("need_rent", "Arriendo / Vivienda", "🏠"),
+                    Triple("need_debts", "Pago Tarjeta / Deuda", "💳")
+                )
+                wantsList = mutableListOf(
+                    Triple("want_restaurants", "Restaurantes, Salidas & Domicilios", "🍷"),
+                    Triple("want_shopping", "Compras & Ropa", "🛍️"),
+                    Triple("want_leisure", "Ocio & Entretenimiento", "🎮"),
+                    Triple("want_transport", "Transporte & Gasolina", "🚗")
+                )
+            }
+
+            runOnUiThread {
+                loadingRubros.visibility = View.GONE
+                renderRubroSections(
+                    rubrosLayout = rubrosLayout,
+                    wealthList = wealthList,
+                    needsList = needsList,
+                    wantsList = wantsList,
+                    onRubroSelected = { rId, rName, rPillar ->
+                        submitFinalTransaction(
+                            bank = bank,
+                            account = selectedAccount,
+                            desc = desc,
+                            txType = txType,
+                            finalAmount = finalAmount,
+                            rawText = rawText,
+                            budgetItemId = rId,
+                            budgetItemName = rName,
+                            budgetItemType = rPillar
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    private fun renderRubroSections(
+        rubrosLayout: LinearLayout,
+        wealthList: List<Triple<String, String, String>>,
+        needsList: List<Triple<String, String, String>>,
+        wantsList: List<Triple<String, String, String>>,
+        onRubroSelected: (String, String, String) -> Unit
+    ) {
+        // ── 1. RAMA PATRIMONIO & AHORRO (VERDES / ESMERALDA) ──
+        if (wealthList.isNotEmpty()) {
+            addPillarHeader(rubrosLayout, "🟢 Patrimonio & Ahorro", "#10b981", "#052e16")
+            for (w in wealthList) {
+                addRubroButton(rubrosLayout, w.second, w.third, "#10b981", "#052e16") {
+                    onRubroSelected(w.first, w.second, "wealth")
+                }
+            }
+        }
+
+        // ── 2. RAMA GASTOS FIJOS & NECESIDADES (AZULES / CELESTE) ──
+        if (needsList.isNotEmpty()) {
+            addPillarHeader(rubrosLayout, "🔵 Necesidades Básicas (Needs)", "#0ea5e9", "#082f49")
+            for (n in needsList) {
+                addRubroButton(rubrosLayout, n.second, n.third, "#0ea5e9", "#082f49") {
+                    onRubroSelected(n.first, n.second, "needs")
+                }
+            }
+        }
+
+        // ── 3. RAMA ESTILO DE VIDA & DESEOS (PÚRPURAS / FUCSIA) ──
+        if (wantsList.isNotEmpty()) {
+            addPillarHeader(rubrosLayout, "🟣 Estilo de Vida (Wants)", "#c084fc", "#2e1065")
+            for (wa in wantsList) {
+                addRubroButton(rubrosLayout, wa.second, wa.third, "#c084fc", "#2e1065") {
+                    onRubroSelected(wa.first, wa.second, "wants")
+                }
+            }
+        }
+
+        // Separador
+        val sep = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, 20, 0, 15)
+            }
+            setBackgroundColor(Color.parseColor("#1e293b"))
+        }
+        rubrosLayout.addView(sep)
+
+        // Botón ➕ Crear Nuevo Rubro...
+        val addCustomBtn = Button(this).apply {
+            text = "➕ Crear Nuevo Rubro..."
+            textSize = 13f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = 16f
+                setColor(Color.parseColor("#1e293b"))
+                setStroke(1, Color.parseColor("#00e5ff"))
+            }
+            setPadding(30, 24, 30, 24)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 8, 0, 12)
+            }
+            layoutParams = p
+            setOnClickListener {
+                showCreateRubroDialog(onRubroSelected)
+            }
+        }
+        rubrosLayout.addView(addCustomBtn)
+
+        // Botón ⚡ Omitir Rubro (Asignar luego)
+        val skipBtn = Button(this).apply {
+            text = "⚡ Omitir Rubro (Asignar más tarde)"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#94a3b8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0e1526"))
+                setStroke(1, Color.parseColor("#1e293b"))
+            }
+            setPadding(24, 18, 24, 18)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 4, 0, 10)
+            }
+            layoutParams = p
+            setOnClickListener {
+                onRubroSelected("", "", "")
+            }
+        }
+        rubrosLayout.addView(skipBtn)
+    }
+
+    private fun addPillarHeader(layout: LinearLayout, title: String, textColor: String, bgColor: String) {
+        val h = TextView(this).apply {
+            text = title
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(textColor))
+            background = GradientDrawable().apply {
+                cornerRadius = 10f
+                setColor(Color.parseColor(bgColor))
+                setStroke(1, Color.parseColor(textColor))
+            }
+            setPadding(18, 6, 18, 6)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 16, 0, 10)
+            }
+            layoutParams = p
+        }
+        layout.addView(h)
+    }
+
+    private fun addRubroButton(
+        layout: LinearLayout,
+        name: String,
+        icon: String,
+        accentColor: String,
+        bgColor: String,
+        onClick: () -> Unit
+    ) {
+        val btn = Button(this).apply {
+            text = "$icon $name"
+            textSize = 13f
+            isAllCaps = false
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = 16f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(1, Color.parseColor(accentColor))
+            }
+            setPadding(30, 22, 30, 22)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 6, 0, 6)
+            }
+            layoutParams = p
+            setOnClickListener {
+                isEnabled = false
+                onClick()
+            }
+        }
+        layout.addView(btn)
+    }
+
+    private fun showCreateRubroDialog(onRubroSelected: (String, String, String) -> Unit) {
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 30, 40, 20)
+        }
+
+        val namePrompt = TextView(this).apply {
+            text = "Nombre del nuevo rubro:"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 8)
+        }
+        dialogView.addView(namePrompt)
+
+        val inputName = EditText(this).apply {
+            hint = "Ej: Gimnasio, Veterinaria, Curso..."
+            setHintTextColor(Color.parseColor("#64748b"))
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setBackgroundColor(Color.parseColor("#0f172a"))
+            setPadding(20, 16, 20, 16)
+        }
+        dialogView.addView(inputName)
+
+        val pillarPrompt = TextView(this).apply {
+            text = "Selecciona el pilar principal:"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 16, 0, 8)
+        }
+        dialogView.addView(pillarPrompt)
+
+        val spinnerPillar = Spinner(this)
+        val pillars = arrayOf(
+            "🔵 Necesidades Básicas (Needs)",
+            "🟣 Estilo de Vida (Wants)",
+            "🟢 Patrimonio & Ahorro (Wealth)"
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, pillars)
+        spinnerPillar.adapter = adapter
+        dialogView.addView(spinnerPillar)
+
+        AlertDialog.Builder(this)
+            .setTitle("Crear Nuevo Rubro")
+            .setView(dialogView)
+            .setPositiveButton("Guardar y Asignar") { _, _ ->
+                val enteredName = inputName.text.toString().trim()
+                if (enteredName.isNotBlank()) {
+                    val selIdx = spinnerPillar.selectedItemPosition
+                    val pillarType = when (selIdx) {
+                        0 -> "needs"
+                        1 -> "wants"
+                        else -> "wealth"
+                    }
+                    val customId = "custom_${System.currentTimeMillis()}"
+                    onRubroSelected(customId, enteredName, pillarType)
+                } else {
+                    Toast.makeText(this, "Ingresa un nombre válido", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun submitFinalTransaction(
+        bank: String,
+        account: String,
+        desc: String,
+        txType: String,
+        finalAmount: Double,
+        rawText: String,
+        budgetItemId: String,
+        budgetItemName: String,
+        budgetItemType: String
+    ) {
+        Toast.makeText(this, "Registrando en Kpital...", Toast.LENGTH_SHORT).show()
+
+        thread {
+            try {
+                val respStr = Core.sendTransactionWithRubroToBackend(
+                    bank,
+                    account,
+                    desc,
+                    txType,
+                    finalAmount,
+                    rawText,
+                    budgetItemId,
+                    budgetItemName,
+                    budgetItemType
+                )
+                val result = JSONObject(respStr)
+                val success = result.optBoolean("success", false)
+                val msg = result.optString("message", "Movimiento registrado con éxito")
+
+                runOnUiThread {
+                    if (success) {
+                        val mId = movementId
+                        if (mId != null) {
+                            val pocketDisplay = if (budgetItemName.isNotBlank()) "$account ➔ $budgetItemName" else account
+                            MovementHistoryManager.updateMovementStatus(
+                                context = this@PocketSelectorActivity,
+                                id = mId,
+                                newStatus = MovementHistoryManager.STATUS_COMPLETED,
+                                pocketName = pocketDisplay,
+                                newAmount = finalAmount
+                            )
+                        }
+                        val finalMsg = if (budgetItemName.isNotBlank()) "✅ Asignado a $budgetItemName ($account)" else "✅ $msg"
+                        Toast.makeText(this@PocketSelectorActivity, finalMsg, Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this@PocketSelectorActivity, "⚠️ $msg", Toast.LENGTH_LONG).show()
+                    }
+                    finish()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this@PocketSelectorActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    finish()
+                }
+            }
+        }
     }
 }

@@ -203,8 +203,13 @@ func ParseNotificationJSON(packageName, title, text string, timestampMs int64) s
 	return string(bytes)
 }
 
-// SendTransactionToBackend dispatches the user-confirmed transaction and selected pocket to Kpital.
+// SendTransactionToBackend dispatches transaction and selected pocket to Kpital (legacy compatibility).
 func SendTransactionToBackend(bank, account, description, txType string, amount float64, rawText string) string {
+	return SendTransactionWithRubroToBackend(bank, account, description, txType, amount, rawText, "", "", "")
+}
+
+// SendTransactionWithRubroToBackend dispatches the user-confirmed transaction with both pocket and budget item (rubro).
+func SendTransactionWithRubroToBackend(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string) string {
 	cfgLock.RLock()
 	currentCfg := appConfig
 	cfgLock.RUnlock()
@@ -212,12 +217,15 @@ func SendTransactionToBackend(bank, account, description, txType string, amount 
 	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-transaction", currentCfg.ApiUrl)
 
 	payload := map[string]interface{}{
-		"entity":      bank,
-		"account":     account,
-		"amount":      amount,
-		"description": description,
-		"type":        txType,
-		"raw_text":    rawText,
+		"entity":           bank,
+		"account":          account,
+		"amount":           amount,
+		"description":      description,
+		"type":             txType,
+		"raw_text":         rawText,
+		"budget_item_id":   budgetItemId,
+		"budget_item_name": budgetItemName,
+		"budget_item_type": budgetItemType,
 	}
 
 	jsonBytes, err := json.Marshal(payload)
@@ -235,6 +243,38 @@ func SendTransactionToBackend(bank, account, description, txType string, amount 
 		req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
 	} else {
 		// Default secure mobile token
+		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
+	}
+	if currentCfg.UserToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return string(bodyBytes)
+}
+
+// FetchMobileBudgetItems retrieves all Cash Flow budget items (rubros) categorized by pillar.
+func FetchMobileBudgetItems() string {
+	cfgLock.RLock()
+	currentCfg := appConfig
+	cfgLock.RUnlock()
+
+	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-budget-items", currentCfg.ApiUrl)
+
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+	}
+
+	if currentCfg.WebhookSecret != "" {
+		req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
+	} else {
 		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
 	}
 	if currentCfg.UserToken != "" {

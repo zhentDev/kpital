@@ -140,6 +140,9 @@ class MobileTransactionPayload(BaseModel):
     time: str | None = Field(None, description="Transaction time in HH:MM or HH:MM:SS format")
     raw_text: str | None = Field(None, description="Raw notification body from Android for logging/audit")
     user_id: str | None = Field(None, description="Target user ID (defaults to OWNER_ID)")
+    budget_item_id: str | None = Field(None, description="Budget Item / Rubro ID (e.g. 'need_groceries', 'wealth_emergency')")
+    budget_item_name: str | None = Field(None, description="Budget Item / Rubro Name (e.g. 'Alimentación & Supermercado')")
+    budget_item_type: str | None = Field(None, description="Pillar Type: 'wealth', 'needs', 'wants'")
 
 
 # --- Resolution Helpers ---
@@ -410,6 +413,58 @@ def list_mobile_accounts(
         "total_entities": len(entities),
         "total_accounts": len(accounts),
         "entities": grouped,
+    }
+
+
+@router.get("/mobile-budget-items")
+def get_mobile_budget_items(
+    token: str | None = Query(None),
+    secret: str | None = Query(None),
+    x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
+    authorization: str | None = Header(None),
+    user_id: str | None = Query(None),
+):
+    """Returns available Cash Flow budget items (rubros) categorized by pillar (wealth, needs, wants)."""
+    verify_secret_auth(token, secret, x_webhook_secret, authorization)
+    effective_uid = user_id or OWNER_ID
+    cf = load_cash_flow_db(effective_uid)
+
+    wealth_items = cf.get("wealth", [])
+    needs_items = cf.get("needs", [])
+    wants_items = cf.get("wants", [])
+
+    return {
+        "success": True,
+        "wealth": [
+            {
+                "id": str(w.get("id")),
+                "name": str(w.get("name")),
+                "icon": w.get("icon") or "🛡️",
+                "pillar": "wealth",
+                "monthly": float(w.get("monthlyContribution", 0.0) or 0.0),
+            }
+            for w in wealth_items
+        ],
+        "needs": [
+            {
+                "id": str(n.get("id")),
+                "name": str(n.get("name")),
+                "icon": n.get("icon") or "💡",
+                "pillar": "needs",
+                "monthly": float(n.get("amount", 0.0) or 0.0),
+            }
+            for n in needs_items
+        ],
+        "wants": [
+            {
+                "id": str(w.get("id")),
+                "name": str(w.get("name")),
+                "icon": w.get("icon") or "🍷",
+                "pillar": "wants",
+                "monthly": float(w.get("amount", 0.0) or 0.0),
+            }
+            for w in wants_items
+        ],
     }
 
 
@@ -945,12 +1000,32 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
+            assigned_budget_id = payload.budget_item_id or None
+            assigned_budget_name = payload.budget_item_name or clean_desc
+            assigned_budget_type = payload.budget_item_type or "wants"
+
+            # Auto-registrar nuevo rubro en el pilar si no existía
+            if payload.budget_item_id and payload.budget_item_name and payload.budget_item_type in ["wealth", "needs", "wants"]:
+                target_pillar = payload.budget_item_type
+                existing_items = cf.get(target_pillar, [])
+                if not any(str(it.get("id")) == str(payload.budget_item_id) or it.get("name", "").lower() == payload.budget_item_name.lower() for it in existing_items):
+                    new_item = {
+                        "id": payload.budget_item_id,
+                        "name": payload.budget_item_name,
+                        "icon": "📁",
+                        "amount": amount_val if target_pillar != "wealth" else 0.0,
+                        "monthlyContribution": amount_val if target_pillar == "wealth" else 0.0,
+                    }
+                    existing_items.append(new_item)
+                    cf[target_pillar] = existing_items
+                    logger.info(f"[Webhook] Auto-creado nuevo rubro '{payload.budget_item_name}' en pilar {target_pillar}")
+
             cf_tx = {
                 "id": f"cf_{tx_id}",
                 "period": active_period,
-                "budgetItemId": None,
-                "budgetItemName": clean_desc,
-                "budgetItemType": "wants",
+                "budgetItemId": assigned_budget_id,
+                "budgetItemName": assigned_budget_name,
+                "budgetItemType": assigned_budget_type,
                 "description": clean_desc,
                 "amount": amount_val,
                 "currency": "COP",
@@ -988,12 +1063,32 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
+            assigned_budget_id = payload.budget_item_id or None
+            assigned_budget_name = payload.budget_item_name or clean_desc
+            assigned_budget_type = payload.budget_item_type or ("needs" if tx_type == "debit" else "income")
+
+            # Auto-registrar nuevo rubro en el pilar si no existía
+            if payload.budget_item_id and payload.budget_item_name and payload.budget_item_type in ["wealth", "needs", "wants"]:
+                target_pillar = payload.budget_item_type
+                existing_items = cf.get(target_pillar, [])
+                if not any(str(it.get("id")) == str(payload.budget_item_id) or it.get("name", "").lower() == payload.budget_item_name.lower() for it in existing_items):
+                    new_item = {
+                        "id": payload.budget_item_id,
+                        "name": payload.budget_item_name,
+                        "icon": "📁",
+                        "amount": amount_val if target_pillar != "wealth" else 0.0,
+                        "monthlyContribution": amount_val if target_pillar == "wealth" else 0.0,
+                    }
+                    existing_items.append(new_item)
+                    cf[target_pillar] = existing_items
+                    logger.info(f"[Webhook] Auto-creado nuevo rubro '{payload.budget_item_name}' en pilar {target_pillar}")
+
             cf_tx = {
                 "id": f"cf_{tx_id}",
                 "period": active_period,
-                "budgetItemId": None,
-                "budgetItemName": clean_desc,
-                "budgetItemType": "needs" if tx_type == "debit" else "income",
+                "budgetItemId": assigned_budget_id,
+                "budgetItemName": assigned_budget_name,
+                "budgetItemType": assigned_budget_type,
                 "description": clean_desc,
                 "amount": amount_val,
                 "currency": account.get("currency", "COP"),

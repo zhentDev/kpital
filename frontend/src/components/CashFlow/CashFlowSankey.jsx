@@ -31,6 +31,7 @@ export default function CashFlowSankey({
   const isExpanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
   const toggleExpand = onToggleExpand || (() => setInternalExpanded(!internalExpanded));
   const [viewOrientation, setViewOrientation] = useState("auto"); // 'auto' | 'horizontal' | 'vertical'
+  const [pillarFilter, setPillarFilter] = useState("all"); // 'all' | 'wealth' | 'needs' | 'wants'
 
   // Detectar pantalla pequeña (< 900px)
   const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== "undefined" ? window.innerWidth < 900 : false));
@@ -98,25 +99,31 @@ export default function CashFlowSankey({
     const validInflows = activeInflows;
     const col0Count = Math.max(1, validInflows.length);
 
-    // Column 2: Pillars
+    // Column 2: Pillars con herencia cromática parental pura
     const pillars = [
       {
         id: "pillar_wealth",
-        name: "🔵 Ahorro & Inversión",
+        pillarType: "wealth",
+        name: "🟢 Ahorro & Patrimonio",
         amount: totalWealth,
-        color: isLight ? "#0284c7" : "#38bdf8",
+        color: isLight ? "#059669" : "#10b981", // Esmeralda vivo
+        glowColor: "#00f5a0",
       },
       {
         id: "pillar_needs",
-        name: "🔴 Gastos Fijos (Needs)",
+        pillarType: "needs",
+        name: "🔵 Gastos Fijos (Needs)",
         amount: totalNeeds,
-        color: "#f43f5e",
+        color: isLight ? "#0284c7" : "#0ea5e9", // Azul cielo eléctrico
+        glowColor: "#38bdf8",
       },
       {
         id: "pillar_wants",
+        pillarType: "wants",
         name: "🟣 Estilo de Vida (Wants)",
         amount: totalWants,
-        color: "#a855f7",
+        color: isLight ? "#9333ea" : "#c084fc", // Púrpura / Fucsia vibrante
+        glowColor: "#e879f9",
       },
     ];
 
@@ -131,28 +138,28 @@ export default function CashFlowSankey({
 
     const col2Count = pillars.length;
 
-    // Column 3: Specific Subcategory Destinations (Pockets)
+    // Column 3: Specific Subcategory Destinations (Pockets) heredando el tono de su pilar padre
     const validDestinations = [
       ...wealth.map((w) => ({
         ...w,
         amount: Number(w.monthlyContribution) || 0,
         pillarId: "pillar_wealth",
         pillarType: "wealth",
-        color: isLight ? "#0284c7" : "#38bdf8",
+        color: isLight ? "#059669" : "#10b981",
       })),
       ...needs.map((n) => ({
         ...n,
         amount: Number(n.amount) || 0,
         pillarId: "pillar_needs",
         pillarType: "needs",
-        color: "#f43f5e",
+        color: isLight ? "#0284c7" : "#0ea5e9",
       })),
       ...wants.map((w) => ({
         ...w,
         amount: Number(w.amount) || 0,
         pillarId: "pillar_wants",
         pillarType: "wants",
-        color: "#a855f7",
+        color: isLight ? "#9333ea" : "#c084fc",
       })),
     ].filter((d) => d.amount > 0);
 
@@ -250,61 +257,140 @@ export default function CashFlowSankey({
       const progressPct = budgeted > 0 ? (spent / budgeted) * 100 : 0;
       const remaining = Math.max(0, budgeted - spent);
 
-      let statusLabel = "⏳ Pendiente";
-      let statusColor = isLight ? "#94a3b8" : "#64748b";
-      let statusBg = "rgba(100, 116, 139, 0.14)";
       let isPaid = false;
       let isExceeded = false;
       let isNearLimit = false;
-      let isActive = false;
+      let isActive = spent > 0;
+
+      // ── HERENCIA CROMÁTICA DE LOS 3 PADRES PRINCIPALES ──
+      // Wealth: Verde Esmeralda / Menta
+      // Needs: Azul Cielo / Índigo Eléctrico
+      // Wants: Púrpura / Fucsia Radiante
+      const pType = item.pillarType || (item.id?.startsWith("wealth") ? "wealth" : item.id?.startsWith("need") ? "needs" : "wants");
+
+      let statusLabel = "⏳ Pendiente";
+      let statusColor = item.color;
+      let statusBg = "rgba(100, 116, 139, 0.14)";
+      let dynamicNodeColor = item.color;
       let liquidColorStart = item.color;
       let liquidColorEnd = item.color;
-      let dynamicNodeColor = item.color;
 
-      if (spent > 0) {
-        isActive = true;
-        if (spent >= budgeted && (spent - budgeted) <= Math.max(1000, budgeted * 0.05)) {
+      if (pType === "wealth") {
+        // ── RAMA PATRIMONIO & AHORRO (VERDES / ESMERALDA) ──
+        if (spent === 0) {
+          statusLabel = "⏳ Pendiente";
+          statusColor = isLight ? "#059669" : "#34d399";
+          statusBg = isLight ? "rgba(5, 150, 105, 0.12)" : "rgba(16, 185, 129, 0.15)";
+          dynamicNodeColor = isLight ? "#059669" : "#10b981";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.25)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.08)" : "rgba(0, 245, 160, 0.12)";
+        } else if (spent >= budgeted && (spent - budgeted) <= Math.max(1000, budgeted * 0.05)) {
           statusLabel = "✅ Pagado";
-          statusColor = isLight ? "#059669" : "#00f5a0";
-          statusBg = isLight ? "rgba(16, 185, 129, 0.18)" : "rgba(0, 245, 160, 0.2)";
+          statusColor = isLight ? "#047857" : "#00f5a0";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.24)" : "rgba(0, 245, 160, 0.25)";
           isPaid = true;
           dynamicNodeColor = isLight ? "#059669" : "#00f5a0";
-          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.26)" : "rgba(16, 185, 129, 0.42)";
-          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.14)" : "rgba(0, 245, 160, 0.22)";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.38)" : "rgba(16, 185, 129, 0.48)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.18)" : "rgba(0, 245, 160, 0.26)";
         } else if (spent > budgeted) {
-          const isWealthPocket = item.pillarType === "wealth" || item.id?.startsWith("wealth_");
-          if (isWealthPocket) {
-            statusLabel = `🚀 +${Math.round((spent / budgeted - 1) * 100)}%`;
-            statusColor = isLight ? "#059669" : "#10b981";
-            statusBg = isLight ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.25)";
-            isPaid = true;
-            dynamicNodeColor = isLight ? "#059669" : "#10b981";
-            liquidColorStart = isLight ? "rgba(16, 185, 129, 0.3)" : "rgba(16, 185, 129, 0.45)";
-            liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.16)" : "rgba(52, 211, 153, 0.22)";
-          } else {
-            statusLabel = `🚨 +${Math.round((spent / budgeted - 1) * 100)}%`;
-            statusColor = "#ff2a5f";
-            statusBg = "rgba(255, 42, 95, 0.22)";
-            isExceeded = true;
-            dynamicNodeColor = "#ff2a5f";
-            liquidColorStart = isLight ? "rgba(244, 63, 94, 0.26)" : "rgba(255, 42, 95, 0.44)";
-            liquidColorEnd = isLight ? "rgba(225, 29, 72, 0.14)" : "rgba(244, 63, 94, 0.22)";
-          }
+          statusLabel = `🚀 +${Math.round((spent / budgeted - 1) * 100)}%`;
+          statusColor = isLight ? "#047857" : "#10b981";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.26)" : "rgba(16, 185, 129, 0.32)";
+          isPaid = true;
+          dynamicNodeColor = isLight ? "#059669" : "#00f5a0";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.45)" : "rgba(16, 185, 129, 0.55)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.22)" : "rgba(52, 211, 153, 0.28)";
+        } else {
+          statusLabel = `⚡ ${progressPct.toFixed(0)}%`;
+          statusColor = isLight ? "#059669" : "#34d399";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.20)" : "rgba(16, 185, 129, 0.28)";
+          dynamicNodeColor = isLight ? "#059669" : "#10b981";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.30)" : "rgba(16, 185, 129, 0.40)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.14)" : "rgba(52, 211, 153, 0.20)";
+        }
+      } else if (pType === "needs") {
+        // ── RAMA GASTOS FIJOS & NECESIDADES (AZULES / CELESTE) ──
+        if (spent === 0) {
+          statusLabel = "⏳ Pendiente";
+          statusColor = isLight ? "#0284c7" : "#38bdf8";
+          statusBg = isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(14, 165, 233, 0.15)";
+          dynamicNodeColor = isLight ? "#0284c7" : "#0ea5e9";
+          liquidColorStart = isLight ? "rgba(2, 132, 199, 0.18)" : "rgba(14, 165, 233, 0.24)";
+          liquidColorEnd = isLight ? "rgba(3, 105, 161, 0.08)" : "rgba(56, 189, 248, 0.12)";
+        } else if (spent >= budgeted && (spent - budgeted) <= Math.max(1000, budgeted * 0.05)) {
+          // Cubierto: Mantiene su identidad AZUL pura, no se confunde con verde de ahorro
+          statusLabel = "✅ Cubierto";
+          statusColor = isLight ? "#0284c7" : "#38bdf8";
+          statusBg = isLight ? "rgba(2, 132, 199, 0.24)" : "rgba(56, 189, 248, 0.28)";
+          isPaid = true;
+          dynamicNodeColor = isLight ? "#0284c7" : "#38bdf8";
+          liquidColorStart = isLight ? "rgba(2, 132, 199, 0.38)" : "rgba(14, 165, 233, 0.48)";
+          liquidColorEnd = isLight ? "rgba(3, 105, 161, 0.18)" : "rgba(56, 189, 248, 0.26)";
+        } else if (spent > budgeted) {
+          statusLabel = `🚨 +${Math.round((spent / budgeted - 1) * 100)}%`;
+          statusColor = "#ff2a5f";
+          statusBg = "rgba(255, 42, 95, 0.24)";
+          isExceeded = true;
+          dynamicNodeColor = "#ff2a5f";
+          liquidColorStart = isLight ? "rgba(244, 63, 94, 0.32)" : "rgba(255, 42, 95, 0.48)";
+          liquidColorEnd = isLight ? "rgba(225, 29, 72, 0.16)" : "rgba(244, 63, 94, 0.24)";
         } else if (progressPct >= 80) {
           statusLabel = `⚠️ ${progressPct.toFixed(0)}%`;
           statusColor = "#fbbf24";
-          statusBg = "rgba(245, 158, 11, 0.22)";
+          statusBg = "rgba(245, 158, 11, 0.24)";
           isNearLimit = true;
           dynamicNodeColor = "#f59e0b";
-          liquidColorStart = isLight ? "rgba(245, 158, 11, 0.26)" : "rgba(245, 158, 11, 0.42)";
-          liquidColorEnd = isLight ? "rgba(251, 191, 36, 0.14)" : "rgba(251, 191, 36, 0.22)";
+          liquidColorStart = isLight ? "rgba(245, 158, 11, 0.30)" : "rgba(245, 158, 11, 0.42)";
+          liquidColorEnd = isLight ? "rgba(251, 191, 36, 0.15)" : "rgba(251, 191, 36, 0.22)";
         } else {
           statusLabel = `⚡ ${progressPct.toFixed(0)}%`;
-          statusColor = isLight ? "#0284c7" : "#00e5ff";
-          statusBg = "rgba(0, 229, 255, 0.18)";
-          dynamicNodeColor = isLight ? "#0284c7" : "#00e5ff";
-          liquidColorStart = isLight ? "rgba(2, 132, 199, 0.22)" : "rgba(0, 229, 255, 0.36)";
-          liquidColorEnd = isLight ? "rgba(56, 189, 248, 0.12)" : "rgba(56, 189, 248, 0.18)";
+          statusColor = isLight ? "#0284c7" : "#38bdf8";
+          statusBg = isLight ? "rgba(2, 132, 199, 0.18)" : "rgba(14, 165, 233, 0.24)";
+          dynamicNodeColor = isLight ? "#0284c7" : "#0ea5e9";
+          liquidColorStart = isLight ? "rgba(2, 132, 199, 0.28)" : "rgba(14, 165, 233, 0.38)";
+          liquidColorEnd = isLight ? "rgba(3, 105, 161, 0.14)" : "rgba(56, 189, 248, 0.20)";
+        }
+      } else {
+        // ── RAMA ESTILO DE VIDA & DESEOS (PÚRPURAS / FUCSIA) ──
+        if (spent === 0) {
+          statusLabel = "⏳ Pendiente";
+          statusColor = isLight ? "#9333ea" : "#e879f9";
+          statusBg = isLight ? "rgba(147, 51, 234, 0.12)" : "rgba(217, 70, 239, 0.15)";
+          dynamicNodeColor = isLight ? "#9333ea" : "#c084fc";
+          liquidColorStart = isLight ? "rgba(147, 51, 234, 0.18)" : "rgba(217, 70, 239, 0.24)";
+          liquidColorEnd = isLight ? "rgba(126, 34, 206, 0.08)" : "rgba(232, 121, 249, 0.12)";
+        } else if (spent >= budgeted && (spent - budgeted) <= Math.max(1000, budgeted * 0.05)) {
+          // Pagado: Mantiene su identidad PÚRPURA/FUCSIA pura, no se confunde con verde de ahorro
+          statusLabel = "✅ Pagado";
+          statusColor = isLight ? "#9333ea" : "#e879f9";
+          statusBg = isLight ? "rgba(147, 51, 234, 0.24)" : "rgba(232, 121, 249, 0.28)";
+          isPaid = true;
+          dynamicNodeColor = isLight ? "#9333ea" : "#e879f9";
+          liquidColorStart = isLight ? "rgba(147, 51, 234, 0.38)" : "rgba(217, 70, 239, 0.48)";
+          liquidColorEnd = isLight ? "rgba(126, 34, 206, 0.18)" : "rgba(232, 121, 249, 0.26)";
+        } else if (spent > budgeted) {
+          statusLabel = `🚨 +${Math.round((spent / budgeted - 1) * 100)}%`;
+          statusColor = "#ff2a5f";
+          statusBg = "rgba(255, 42, 95, 0.24)";
+          isExceeded = true;
+          dynamicNodeColor = "#ff2a5f";
+          liquidColorStart = isLight ? "rgba(244, 63, 94, 0.32)" : "rgba(255, 42, 95, 0.48)";
+          liquidColorEnd = isLight ? "rgba(225, 29, 72, 0.16)" : "rgba(244, 63, 94, 0.24)";
+        } else if (progressPct >= 80) {
+          statusLabel = `⚠️ ${progressPct.toFixed(0)}%`;
+          statusColor = "#fbbf24";
+          statusBg = "rgba(245, 158, 11, 0.24)";
+          isNearLimit = true;
+          dynamicNodeColor = "#f59e0b";
+          liquidColorStart = isLight ? "rgba(245, 158, 11, 0.30)" : "rgba(245, 158, 11, 0.42)";
+          liquidColorEnd = isLight ? "rgba(251, 191, 36, 0.15)" : "rgba(251, 191, 36, 0.22)";
+        } else {
+          statusLabel = `⚡ ${progressPct.toFixed(0)}%`;
+          statusColor = isLight ? "#9333ea" : "#e879f9";
+          statusBg = isLight ? "rgba(147, 51, 234, 0.18)" : "rgba(217, 70, 239, 0.24)";
+          dynamicNodeColor = isLight ? "#9333ea" : "#c084fc";
+          liquidColorStart = isLight ? "rgba(147, 51, 234, 0.28)" : "rgba(217, 70, 239, 0.38)";
+          liquidColorEnd = isLight ? "rgba(126, 34, 206, 0.14)" : "rgba(232, 121, 249, 0.20)";
         }
       }
 
@@ -446,13 +532,15 @@ export default function CashFlowSankey({
           isExceeded: dest.isExceeded,
           isNearLimit: dest.isNearLimit,
           isDormant: !dest.isActive,
-          streamColor: dest.isPaid
-            ? "#6ee7b7"
-            : dest.isExceeded
+          streamColor: dest.isExceeded
             ? "#fda4af"
             : dest.isNearLimit
             ? "#fde68a"
-            : "#7dd3fc",
+            : dest.pillarType === "wealth"
+            ? (isLight ? "#059669" : "#34d399")
+            : dest.pillarType === "needs"
+            ? (isLight ? "#0284c7" : "#38bdf8")
+            : (isLight ? "#9333ea" : "#e879f9"),
         });
       }
     });
@@ -554,26 +642,92 @@ export default function CashFlowSankey({
         </div>
 
         {isExpanded && (
-          <div className="cashflow-sankey-legend" style={{ marginTop: 10 }}>
-            <div className="cashflow-legend-item">
-              <span className="cashflow-legend-dot" style={{ background: isLight ? "#059669" : "#10b981" }} />
-              <span>Ingresos Activos</span>
+          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            {/* Filtro interactivo de los 3 Pilares Principales */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700, marginRight: 2 }}>
+                🎯 Filtrar Rama:
+              </span>
+              <button
+                type="button"
+                onClick={() => setPillarFilter("all")}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: pillarFilter === "all" ? "1.5px solid var(--accent-primary)" : "1px solid rgba(255,255,255,0.1)",
+                  background: pillarFilter === "all" ? (isLight ? "#e0f2fe" : "rgba(0, 229, 255, 0.15)") : "transparent",
+                  color: pillarFilter === "all" ? (isLight ? "#0369a1" : "#00e5ff") : "var(--text-muted)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                ✨ Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setPillarFilter("wealth")}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: pillarFilter === "wealth" ? "1.5px solid #10b981" : "1px solid rgba(16, 185, 129, 0.2)",
+                  background: pillarFilter === "wealth" ? (isLight ? "#dcfce7" : "rgba(16, 185, 129, 0.2)") : "transparent",
+                  color: pillarFilter === "wealth" ? (isLight ? "#047857" : "#34d399") : "var(--text-muted)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                🟢 Patrimonio & Ahorro ({customRatios.savings}%)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPillarFilter("needs")}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: pillarFilter === "needs" ? "1.5px solid #0ea5e9" : "1px solid rgba(14, 165, 233, 0.2)",
+                  background: pillarFilter === "needs" ? (isLight ? "#e0f2fe" : "rgba(14, 165, 233, 0.2)") : "transparent",
+                  color: pillarFilter === "needs" ? (isLight ? "#0369a1" : "#38bdf8") : "var(--text-muted)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                🔵 Gastos Fijos ({customRatios.needs}%)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPillarFilter("wants")}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: pillarFilter === "wants" ? "1.5px solid #c084fc" : "1px solid rgba(192, 132, 252, 0.2)",
+                  background: pillarFilter === "wants" ? (isLight ? "#f3e8ff" : "rgba(192, 132, 252, 0.2)") : "transparent",
+                  color: pillarFilter === "wants" ? (isLight ? "#7e22ce" : "#e879f9") : "var(--text-muted)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                🟣 Estilo de Vida ({customRatios.wants}%)
+              </button>
             </div>
-            <div className="cashflow-legend-item">
-              <span className="cashflow-legend-dot" style={{ background: isLight ? "#0284c7" : "#00e5ff" }} />
-              <span>Rendimientos Pasivos</span>
-            </div>
-            <div className="cashflow-legend-item">
-              <span className="cashflow-legend-dot" style={{ background: isLight ? "#0284c7" : "#38bdf8" }} />
-              <span>Ahorro & Inversión ({customRatios.savings}%)</span>
-            </div>
-            <div className="cashflow-legend-item">
-              <span className="cashflow-legend-dot" style={{ background: "#f43f5e" }} />
-              <span>Gastos Fijos ({customRatios.needs}%)</span>
-            </div>
-            <div className="cashflow-legend-item">
-              <span className="cashflow-legend-dot" style={{ background: "#a855f7" }} />
-              <span>Estilo de Vida ({customRatios.wants}%)</span>
+
+            {/* Leyenda complementaria */}
+            <div className="cashflow-sankey-legend" style={{ margin: 0 }}>
+              <div className="cashflow-legend-item">
+                <span className="cashflow-legend-dot" style={{ background: isLight ? "#059669" : "#10b981" }} />
+                <span>Ingreso Activo</span>
+              </div>
+              <div className="cashflow-legend-item">
+                <span className="cashflow-legend-dot" style={{ background: isLight ? "#0284c7" : "#00e5ff" }} />
+                <span>Rendimientos</span>
+              </div>
             </div>
           </div>
         )}
@@ -955,7 +1109,8 @@ export default function CashFlowSankey({
               const isHovered = hoveredItem && hoveredItem.id === node.id;
               const displayName = node.name.length > 22 ? `${node.name.slice(0, 20)}...` : node.name;
               const isDormantDest = node.col === 3 && !node.isActive;
-              const nodeOpacity = isHovered ? 1.0 : isDormantDest ? 0.58 : 1.0;
+              const matchesPillar = pillarFilter === "all" || node.pillarType === pillarFilter || node.col !== 3;
+            const nodeOpacity = !matchesPillar ? 0.18 : (isHovered ? 1.0 : isDormantDest ? 0.65 : 1.0);
 
               const nodePulseClass =
                 node.col === 3
