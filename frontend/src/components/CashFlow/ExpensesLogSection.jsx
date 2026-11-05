@@ -122,20 +122,9 @@ export default function ExpensesLogSection({
       });
   }, [expensesLog, activePeriod]);
 
-  // Sub-items resulting from credit card multi-rubro split distribution are deductions,
-  // NOT standalone movements. The only true primary movement is the credit card payment.
-  // Deductions from distributed movements (cards, debts, or multi-envelope splits) are shown nested in the parent movement
-  const isSplitDeductionChild = (tx) => Boolean(
-    tx.isSplitChild ||
-    tx.splitParentId ||
-    tx.isCreditCardPayoff ||
-    tx.creditCardPaymentId ||
-    (tx.cardId && tx.id && String(tx.id).includes("_split_")) ||
-    (tx.description && String(tx.description).toLowerCase().includes("descontado de") && !tx.isDistributed)
-  );
-
+  // All 73 real movements from periodExpenses are displayed as full transactions in the history
   const standaloneExpenses = useMemo(() => {
-    return periodExpenses.filter((tx) => !isSplitDeductionChild(tx));
+    return periodExpenses;
   }, [periodExpenses]);
 
   const periodPayments = useMemo(() => {
@@ -173,12 +162,10 @@ export default function ExpensesLogSection({
       });
   }, [creditCardPayments, expensesLog, activePeriod]);
 
-  // Combined sorted activity feed: Standalone movements + Card Payments (no duplicate split children)
-  // Always strictly sorted by date & time from most recent to oldest
+  // Combined sorted activity feed: preserves all 73 individual transactions from the cash flow SSOT
   const combinedActivities = useMemo(() => {
-    const combined = [...standaloneExpenses, ...periodPayments];
-    return sortMovementsByDateTimeDesc(combined);
-  }, [standaloneExpenses, periodPayments]);
+    return sortMovementsByDateTimeDesc(standaloneExpenses);
+  }, [standaloneExpenses]);
 
   const pendingLoans = useMemo(() => {
     return standaloneExpenses.filter((tx) => tx.isLoan && tx.loanStatus !== "settled");
@@ -198,7 +185,7 @@ export default function ExpensesLogSection({
         const isW = item.itemType === "wealth_saving" || (item.itemType === "card_payment" && (item.budgetDeductions || []).some((d) => d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_")));
         if (!isW) return false;
       }
-      if (filterSource === "only_payments" && item.itemType !== "card_payment") return false;
+      if (filterSource === "only_payments" && item.itemType !== "card_payment" && !item.isCreditCardPayoff && !item.creditCardPaymentId && !(item.description || "").toLowerCase().includes("descontado de") && !(item.description || "").toLowerCase().includes("pago tarjeta")) return false;
       if (filterSource === "payroll") {
         const isPay = ((item.itemType === "expense" || item.itemType === "wealth_saving" || item.itemType === "income") && (!item.paymentSource || item.paymentSource.type === "payroll")) ||
           (item.itemType === "card_payment" && (!item.sourceType || item.sourceType === "payroll"));

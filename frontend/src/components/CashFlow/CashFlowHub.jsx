@@ -2900,17 +2900,7 @@ export default function CashFlowHub() {
                 border: `1px solid ${isLight ? "rgba(147, 51, 234, 0.25)" : "rgba(192, 132, 252, 0.3)"}`,
               }}
             >
-              {[
-                ...(expensesLog || []).filter(
-                  (tx) =>
-                    (!tx.period || tx.period === activePeriod) &&
-                    !tx.isCreditCardPayoff &&
-                    !tx.creditCardPaymentId &&
-                    !(tx.cardId && tx.id && String(tx.id).includes("_split_")) &&
-                    !(tx.description && String(tx.description).toLowerCase().includes("descontado de") && !String(tx.description).toLowerCase().includes("mike"))
-                ),
-                ...(creditCardPayments || []).filter((p) => !p.period || p.period === activePeriod),
-              ].length} movimientos
+              {(expensesLog || []).filter((tx) => !tx.period || tx.period === activePeriod).length} movimientos
             </span>
           </div>
           <button

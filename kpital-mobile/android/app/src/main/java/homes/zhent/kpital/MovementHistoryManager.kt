@@ -92,23 +92,28 @@ object MovementHistoryManager {
 
     /**
      * Guarda un movimiento en el historial (LIFO).
-     * Evita duplicados cercanos (mismo banco, monto y timestamp dentro de 4 segundos).
+     * Si detecta que es duplicado (mismo texto en 24h o mismo banco y monto en 15m),
+     * lo clasifica automáticamente como STATUS_DISCARDED para no interrumpir al usuario,
+     * pero permitiendo que el usuario lo rectifique en cualquier momento.
      * Retorna el id del movimiento guardado.
      */
     fun addMovement(context: Context, movement: CapturedMovement): String {
         return lock.withLock {
             val list = loadMovementsInternal(context).toMutableList()
 
-            // Filtro anti-duplicados por notificaciones dobles del sistema operativo
-            val existing = list.firstOrNull {
-                it.bank.equals(movement.bank, ignoreCase = true) &&
+            // Filtro anti-duplicados inteligente
+            val isDuplicate = list.any {
+                (it.rawText.isNotBlank() && it.rawText.equals(movement.rawText, ignoreCase = true) &&
+                        kotlin.math.abs(it.timestamp - movement.timestamp) < 86_400_000L) ||
+                (it.bank.equals(movement.bank, ignoreCase = true) &&
                         kotlin.math.abs(it.amount - movement.amount) < 0.01 &&
-                        kotlin.math.abs(it.timestamp - movement.timestamp) < 4000
+                        it.amount > 0 &&
+                        kotlin.math.abs(it.timestamp - movement.timestamp) < 900_000L)
             }
 
-            if (existing != null) {
-                Log.d(TAG, "Notificación duplicada detectada para ${movement.bank} ($${movement.amount}), reutilizando id=${existing.id}")
-                return@withLock existing.id
+            if (isDuplicate) {
+                Log.d(TAG, "Notificación duplicada detectada para ${movement.bank} ($${movement.amount}). Clasificada automáticamente en Descartadas.")
+                movement.status = STATUS_DISCARDED
             }
 
             list.add(0, movement)
@@ -188,12 +193,37 @@ object MovementHistoryManager {
     }
 
     /**
-     * Elimina únicamente los movimientos que ya fueron completados o descartados,
+     * Marca un movimiento como descartado/rechazado.
+     */
+    fun discardMovement(context: Context, id: String) {
+        updateMovementStatus(context, id, STATUS_DISCARDED)
+    }
+
+    /**
+     * Rectifica un movimiento descartado o duplicado, devolviéndolo a estado PENDING.
+     */
+    fun restoreMovement(context: Context, id: String) {
+        updateMovementStatus(context, id, STATUS_PENDING)
+    }
+
+    /**
+     * Elimina permanentemente todos los movimientos que están en la pestaña Descartadas.
+     */
+    fun clearDiscardedMovements(context: Context) {
+        lock.withLock {
+            val list = loadMovementsInternal(context).filter { it.status != STATUS_DISCARDED }
+            saveMovementsInternal(context, list)
+            notifyChanged()
+        }
+    }
+
+    /**
+     * Elimina únicamente los movimientos que ya fueron completados,
      * conservando los pendientes para que no se pierdan.
      */
     fun clearCompletedMovements(context: Context) {
         lock.withLock {
-            val list = loadMovementsInternal(context).filter { it.status == STATUS_PENDING }
+            val list = loadMovementsInternal(context).filter { it.status != STATUS_COMPLETED }
             saveMovementsInternal(context, list)
             notifyChanged()
         }

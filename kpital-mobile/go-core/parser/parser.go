@@ -17,8 +17,8 @@ var (
 
 // Common extraction regular expressions compiled once for zero-allocation performance.
 var (
-	amountRegex = regexp.MustCompile(`(?i)(?:\$|por|de|valor de|pagaste)\s*\$?\s*([\d\.,]+)`)
-	genericAmt  = regexp.MustCompile(`\$?\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)`)
+	amountRegex = regexp.MustCompile(`(?i)(?:(?:\$|por|de|valor de|pagaste|compra|abono)\s*\$?\s*|\$\s*)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)`)
+	genericAmt  = regexp.MustCompile(`(?i)(?:\$|COP\s*)\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)`)
 	balanceReg  = regexp.MustCompile(`(?i)(?:saldo|disponible|saldo nuevo|nuevo saldo)\s*(?:es|de)?:?\s*\$?\s*([\d\.,]+)`)
 
 	// Nu Colombia
@@ -151,27 +151,31 @@ func (e *Engine) DetectType(n models.RawNotification) models.TransactionType {
 
 // ExtractAmount parses the monetary amount, prioritizing Title if present (as in Nu).
 func (e *Engine) ExtractAmount(n models.RawNotification) (float64, error) {
+	combined := n.Title + " " + n.Text
+	hasCurrencySymbol := strings.Contains(combined, "$") || strings.Contains(strings.ToLower(combined), "cop")
+
 	// 1. Try Title first (Nu Colombia puts "Enviaste $33.500,00" in Title).
-	// Only parse Title if it explicitly contains currency symbol '$' to avoid shortcodes (e.g. 87227) or phone numbers.
 	if n.Title != "" && (strings.Contains(n.Title, "$") || strings.Contains(strings.ToLower(n.Title), "cop")) {
 		if m := genericAmt.FindStringSubmatch(n.Title); len(m) > 1 {
-			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 {
+			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
 				return amt, nil
 			}
 		}
 	}
 
-	// 2. Try contextual regex on Text
+	// 2. Try contextual regex on Text (e.g. "por $43.427,99", "pagaste $15.000", "de $20.000")
 	if m := amountRegex.FindStringSubmatch(n.Text); len(m) > 1 {
-		if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 {
+		if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
 			return amt, nil
 		}
 	}
 
-	// 3. Try generic amount pattern on Text
-	if m := genericAmt.FindStringSubmatch(n.Text); len(m) > 1 {
-		if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 {
-			return amt, nil
+	// 3. Try generic amount pattern on Text ONLY if text contains '$' or 'cop'
+	if hasCurrencySymbol {
+		if m := genericAmt.FindStringSubmatch(n.Text); len(m) > 1 {
+			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
+				return amt, nil
+			}
 		}
 	}
 

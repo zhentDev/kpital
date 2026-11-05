@@ -54,8 +54,12 @@ class MainActivity : Activity() {
     private var allFilterBtn: Button? = null
     private var pendingFilterBtn: Button? = null
     private var completedFilterBtn: Button? = null
-    private var activeFilter: String = "ALL" // "ALL", "PENDING", "COMPLETED"
+    private var discardedFilterBtn: Button? = null
+    private var activeFilter: String = "ALL" // "ALL", "PENDING", "COMPLETED", "DISCARDED"
     private var isCompletedHistoryExpanded: Boolean = false
+    private var isDiscardedHistoryExpanded: Boolean = false
+    private var cleanCompletedBtn: Button? = null
+    private var cleanDiscardedBtn: Button? = null
 
     // Contenedores de la sección de Alertas de Bolsa y Deudas
     private lateinit var alertsCardsContainer: LinearLayout
@@ -87,6 +91,7 @@ class MainActivity : Activity() {
 
         // Cargar preferencias de expansión de acordeones
         isCompletedHistoryExpanded = prefs.getBoolean("pref_completed_history_expanded", false)
+        isDiscardedHistoryExpanded = prefs.getBoolean("pref_discarded_history_expanded", false)
         isDebtAlertsExpanded = prefs.getBoolean("pref_debt_alerts_expanded", true)
         isTriggeredStockAlertsExpanded = prefs.getBoolean("pref_triggered_stock_expanded", true)
         isNearStockAlertsExpanded = prefs.getBoolean("pref_near_stock_expanded", true)
@@ -751,10 +756,12 @@ class MainActivity : Activity() {
         allFilterBtn = createFilterButton("Todos", "ALL")
         pendingFilterBtn = createFilterButton("🟡 Pendientes", "PENDING")
         completedFilterBtn = createFilterButton("🟢 Registrados", "COMPLETED")
+        discardedFilterBtn = createFilterButton("🗑️ Descartadas", "DISCARDED")
 
         filterContainer.addView(allFilterBtn)
         filterContainer.addView(pendingFilterBtn)
         filterContainer.addView(completedFilterBtn)
+        filterContainer.addView(discardedFilterBtn)
         historyHeader.addView(filterContainer)
 
         sectionBankMovements.addView(historyHeader)
@@ -796,7 +803,7 @@ class MainActivity : Activity() {
         sectionBankMovements.addView(historyContainer)
 
         // Botón para limpiar completados
-        val cleanCompletedBtn = Button(this).apply {
+        cleanCompletedBtn = Button(this).apply {
             text = "🧹 Limpiar Registrados del Historial"
             textSize = 11f
             isAllCaps = false
@@ -821,6 +828,34 @@ class MainActivity : Activity() {
             }
         }
         sectionBankMovements.addView(cleanCompletedBtn)
+
+        // Botón para vaciar descartadas
+        cleanDiscardedBtn = Button(this).apply {
+            text = "🗑️ Vaciar Todas las Descartadas"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#f87171"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#2a0a10"))
+                setStroke(1, Color.parseColor("#ef4444"))
+            }
+            setPadding(20, 12, 20, 12)
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 20, 0, 10)
+            }
+            layoutParams = params
+            visibility = View.GONE
+            setOnClickListener {
+                MovementHistoryManager.clearDiscardedMovements(this@MainActivity)
+                refreshHistoryUI()
+                Toast.makeText(this@MainActivity, "Notificaciones descartadas vaciadas", Toast.LENGTH_SHORT).show()
+            }
+        }
+        sectionBankMovements.addView(cleanDiscardedBtn)
 
         root.addView(sectionBankMovements)
     }
@@ -869,6 +904,9 @@ class MainActivity : Activity() {
 
         completedFilterBtn?.background = getFilterButtonDrawable(activeFilter == "COMPLETED")
         completedFilterBtn?.setTextColor(if (activeFilter == "COMPLETED") Color.WHITE else Color.parseColor("#94a3b8"))
+
+        discardedFilterBtn?.background = getFilterButtonDrawable(activeFilter == "DISCARDED")
+        discardedFilterBtn?.setTextColor(if (activeFilter == "DISCARDED") Color.WHITE else Color.parseColor("#94a3b8"))
     }
 
     private fun refreshHistoryUI() {
@@ -877,11 +915,16 @@ class MainActivity : Activity() {
         val allMovements = MovementHistoryManager.getMovements(this)
         val pendingCount = allMovements.count { it.status == MovementHistoryManager.STATUS_PENDING }
         val completedCount = allMovements.count { it.status == MovementHistoryManager.STATUS_COMPLETED }
+        val discardedCount = allMovements.count { it.status == MovementHistoryManager.STATUS_DISCARDED }
 
         // Actualizar badges en botones de filtro
         allFilterBtn?.text = "Todos (${allMovements.size})"
         pendingFilterBtn?.text = "🟡 Pendientes ($pendingCount)"
         completedFilterBtn?.text = "🟢 Registrados ($completedCount)"
+        discardedFilterBtn?.text = "🗑️ Descartadas ($discardedCount)"
+
+        cleanCompletedBtn?.visibility = if (activeFilter == "COMPLETED" || (activeFilter == "ALL" && completedCount > 0)) View.VISIBLE else View.GONE
+        cleanDiscardedBtn?.visibility = if (activeFilter == "DISCARDED" || (activeFilter == "ALL" && discardedCount > 0)) View.VISIBLE else View.GONE
 
         historyContainer.removeAllViews()
 
@@ -915,9 +958,30 @@ class MainActivity : Activity() {
             return
         }
 
-        // Modo "ALL": Organización limpia con sección pendiente arriba y acordeón para completados
+        if (activeFilter == "DISCARDED") {
+            val discardedList = allMovements.filter { it.status == MovementHistoryManager.STATUS_DISCARDED }
+            if (discardedList.isEmpty()) {
+                emptyHistoryView.visibility = View.VISIBLE
+            } else {
+                val banner = TextView(this).apply {
+                    text = "💡 Las notificaciones descartadas o duplicadas se clasifican aquí. Puedes 'Rectificar' para devolverlas a Pendientes o 'Borrar' para eliminarlas."
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#94a3b8"))
+                    setPadding(10, 6, 10, 14)
+                }
+                historyContainer.addView(banner)
+
+                for (movement in discardedList) {
+                    historyContainer.addView(createMovementCardView(movement))
+                }
+            }
+            return
+        }
+
+        // Modo "ALL": Organización limpia con sección pendiente arriba, acordeón para completados y acordeón para descartadas
         val pendingList = allMovements.filter { it.status == MovementHistoryManager.STATUS_PENDING }
         val completedList = allMovements.filter { it.status == MovementHistoryManager.STATUS_COMPLETED }
+        val discardedList = allMovements.filter { it.status == MovementHistoryManager.STATUS_DISCARDED }
 
         // 1. Bloque de Movimientos Pendientes
         if (pendingList.isNotEmpty()) {
@@ -965,10 +1029,42 @@ class MainActivity : Activity() {
             completedSectionLayout.addView(completedCardsLayout)
             historyContainer.addView(completedSectionLayout)
         }
+
+        // 3. Bloque Acordeón para Movimientos Descartados / Duplicados
+        if (discardedList.isNotEmpty()) {
+            val discardedSectionLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 12, 0, 0)
+            }
+
+            val discardedCardsLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isDiscardedHistoryExpanded) View.VISIBLE else View.GONE
+            }
+
+            val accordionHeader = createAccordionHeader(
+                title = "🗑️ Descartadas & Duplicadas",
+                count = discardedList.size,
+                badgeColor = "#ef4444",
+                isExpanded = isDiscardedHistoryExpanded
+            ) { expanded ->
+                isDiscardedHistoryExpanded = expanded
+                discardedCardsLayout.visibility = if (expanded) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_discarded_history_expanded", expanded).apply()
+            }
+            discardedSectionLayout.addView(accordionHeader)
+
+            for (movement in discardedList) {
+                discardedCardsLayout.addView(createMovementCardView(movement))
+            }
+            discardedSectionLayout.addView(discardedCardsLayout)
+            historyContainer.addView(discardedSectionLayout)
+        }
     }
 
     private fun createMovementCardView(movement: CapturedMovement): View {
         val isPending = (movement.status == MovementHistoryManager.STATUS_PENDING)
+        val isDiscarded = (movement.status == MovementHistoryManager.STATUS_DISCARDED)
         val isCredit = (movement.txType.equals("credit", ignoreCase = true))
 
         val card = LinearLayout(this).apply {
@@ -976,11 +1072,19 @@ class MainActivity : Activity() {
             setPadding(30, 24, 30, 24)
             background = GradientDrawable().apply {
                 cornerRadius = 20f
-                setColor(Color.parseColor("#0c111e"))
-                if (isPending) {
-                    setStroke(2, Color.parseColor("#f59e0b")) // Borde ámbar para pendientes
-                } else {
-                    setStroke(1, Color.parseColor("#1e293b"))
+                when {
+                    isPending -> {
+                        setColor(Color.parseColor("#0c111e"))
+                        setStroke(2, Color.parseColor("#f59e0b")) // Borde ámbar para pendientes
+                    }
+                    isDiscarded -> {
+                        setColor(Color.parseColor("#150b10"))
+                        setStroke(1, Color.parseColor("#7f1d1d")) // Borde rojo tenue para descartadas
+                    }
+                    else -> {
+                        setColor(Color.parseColor("#0c111e"))
+                        setStroke(1, Color.parseColor("#1e293b"))
+                    }
                 }
             }
             val params = LinearLayout.LayoutParams(
@@ -998,11 +1102,11 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
+        val bankColor = getBankColor(movement.bank)
         val bankBadge = TextView(this).apply {
             text = movement.bank
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            val bankColor = getBankColor(movement.bank)
             setTextColor(bankColor)
             background = GradientDrawable().apply {
                 cornerRadius = 10f
@@ -1044,7 +1148,7 @@ class MainActivity : Activity() {
         val amountView = TextView(this).apply {
             text = "$${String.format(Locale.US, "%,.0f", movement.amount)} COP"
             textSize = 15f
-            setTextColor(Color.WHITE)
+            setTextColor(if (isDiscarded) Color.parseColor("#94a3b8") else Color.WHITE)
             setTypeface(null, Typeface.BOLD)
         }
         topRow.addView(amountView)
@@ -1054,7 +1158,7 @@ class MainActivity : Activity() {
         val descView = TextView(this).apply {
             text = movement.description
             textSize = 13f
-            setTextColor(Color.parseColor("#f1f5f9"))
+            setTextColor(if (isDiscarded) Color.parseColor("#94a3b8") else Color.parseColor("#f1f5f9"))
             setPadding(0, 8, 0, 2)
         }
         card.addView(descView)
@@ -1076,22 +1180,34 @@ class MainActivity : Activity() {
         }
 
         val statusView = TextView(this).apply {
-            if (isPending) {
-                text = "🟡 Pendiente de asignar"
-                setTextColor(Color.parseColor("#f59e0b"))
-                background = GradientDrawable().apply {
-                    cornerRadius = 8f
-                    setColor(Color.parseColor("#2a1e04"))
-                    setStroke(1, Color.parseColor("#f59e0b"))
+            when {
+                isPending -> {
+                    text = "🟡 Pendiente de asignar"
+                    setTextColor(Color.parseColor("#f59e0b"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 8f
+                        setColor(Color.parseColor("#2a1e04"))
+                        setStroke(1, Color.parseColor("#f59e0b"))
+                    }
                 }
-            } else {
-                val pocketLabel = movement.pocketName ?: "Kpital"
-                text = "🟢 En $pocketLabel"
-                setTextColor(Color.parseColor("#4ade80"))
-                background = GradientDrawable().apply {
-                    cornerRadius = 8f
-                    setColor(Color.parseColor("#052e16"))
-                    setStroke(1, Color.parseColor("#10b981"))
+                isDiscarded -> {
+                    text = "❌ Descartada / Duplicada"
+                    setTextColor(Color.parseColor("#f87171"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 8f
+                        setColor(Color.parseColor("#2a0a10"))
+                        setStroke(1, Color.parseColor("#ef4444"))
+                    }
+                }
+                else -> {
+                    val pocketLabel = movement.pocketName ?: "Kpital"
+                    text = "🟢 En $pocketLabel"
+                    setTextColor(Color.parseColor("#4ade80"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 8f
+                        setColor(Color.parseColor("#052e16"))
+                        setStroke(1, Color.parseColor("#10b981"))
+                    }
                 }
             }
             textSize = 10f
@@ -1105,24 +1221,122 @@ class MainActivity : Activity() {
         }
         bottomRow.addView(spacer)
 
-        if (isPending) {
-            val completeBtn = Button(this).apply {
-                text = "⚡ Asignar Cajita"
-                textSize = 11f
-                isAllCaps = false
-                setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
-                background = GradientDrawable().apply {
-                    cornerRadius = 14f
-                    setColor(Color.parseColor("#0284c7"))
-                    setStroke(1, Color.parseColor("#38bdf8"))
+        when {
+            isPending -> {
+                // Botón Descartar (rojo oscuro)
+                val discardBtn = Button(this).apply {
+                    text = "✕ Descartar"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#f87171"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#2a0a10"))
+                        setStroke(1, Color.parseColor("#ef4444"))
+                    }
+                    setPadding(16, 8, 16, 8)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 8, 0)
+                    }
+                    layoutParams = p
+                    setOnClickListener {
+                        MovementHistoryManager.discardMovement(this@MainActivity, movement.id)
+                        refreshHistoryUI()
+                        Toast.makeText(this@MainActivity, "Movimiento movido a Descartadas", Toast.LENGTH_SHORT).show()
+                    }
                 }
-                setPadding(22, 10, 22, 10)
-                setOnClickListener {
-                    openPocketSelector(movement)
+                bottomRow.addView(discardBtn)
+
+                // Botón Asignar Cajita
+                val completeBtn = Button(this).apply {
+                    text = "⚡ Asignar Cajita"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#0284c7"))
+                        setStroke(1, Color.parseColor("#38bdf8"))
+                    }
+                    setPadding(22, 10, 22, 10)
+                    setOnClickListener {
+                        openPocketSelector(movement)
+                    }
                 }
+                bottomRow.addView(completeBtn)
             }
-            bottomRow.addView(completeBtn)
+            isDiscarded -> {
+                // Botón Rectificar (restaura a pendientes)
+                val rectifyBtn = Button(this).apply {
+                    text = "↩️ Rectificar"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#38bdf8"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#0c2340"))
+                        setStroke(1, Color.parseColor("#0284c7"))
+                    }
+                    setPadding(16, 8, 16, 8)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 8, 0)
+                    }
+                    layoutParams = p
+                    setOnClickListener {
+                        MovementHistoryManager.restoreMovement(this@MainActivity, movement.id)
+                        refreshHistoryUI()
+                        Toast.makeText(this@MainActivity, "Movimiento devuelto a Pendientes", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                bottomRow.addView(rectifyBtn)
+
+                // Botón Eliminar Permanente
+                val deleteBtn = Button(this).apply {
+                    text = "🗑️ Borrar"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#ef4444"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#1f070c"))
+                        setStroke(1, Color.parseColor("#991b1b"))
+                    }
+                    setPadding(16, 8, 16, 8)
+                    setOnClickListener {
+                        MovementHistoryManager.deleteMovement(this@MainActivity, movement.id)
+                        refreshHistoryUI()
+                        Toast.makeText(this@MainActivity, "Notificación eliminada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                bottomRow.addView(deleteBtn)
+            }
+            else -> {
+                // Completado: botón para eliminar del historial si se desea
+                val deleteBtn = Button(this).apply {
+                    text = "🗑️"
+                    textSize = 11f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#94a3b8"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 12f
+                        setColor(Color.parseColor("#0e1526"))
+                        setStroke(1, Color.parseColor("#1e293b"))
+                    }
+                    setPadding(14, 6, 14, 6)
+                    setOnClickListener {
+                        MovementHistoryManager.deleteMovement(this@MainActivity, movement.id)
+                        refreshHistoryUI()
+                    }
+                }
+                bottomRow.addView(deleteBtn)
+            }
         }
 
         card.addView(bottomRow)

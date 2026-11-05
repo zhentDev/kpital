@@ -236,6 +236,9 @@ class PocketSelectorActivity : Activity() {
 
                 setOnClickListener {
                     if (isCancel) {
+                        movementId?.let { id ->
+                            MovementHistoryManager.discardMovement(this@PocketSelectorActivity, id)
+                        }
                         Toast.makeText(this@PocketSelectorActivity, "Gasto descartado", Toast.LENGTH_SHORT).show()
                         finish()
                         return@setOnClickListener

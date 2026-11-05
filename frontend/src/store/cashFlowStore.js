@@ -645,6 +645,7 @@ export const useCashFlowStore = create(
                   exp.date === p.date)
             );
             if (!parentPay) {
+              reconciledExpenses.push(exp);
               continue;
             }
             if (Array.isArray(parentPay.budgetDeductions) && parentPay.budgetDeductions.length > 0) {
@@ -655,10 +656,9 @@ export const useCashFlowStore = create(
                   (d.subItemId || null) === (exp.subItemId || null) &&
                   Math.abs(Number(d.amount) - Number(exp.amount)) < 1
               );
-              if (dedIdx < 0) {
-                continue;
+              if (dedIdx >= 0) {
+                claimedCardDeductions.add(`${parentPay.id}_${dedIdx}`);
               }
-              claimedCardDeductions.add(`${parentPay.id}_${dedIdx}`);
             }
             reconciledExpenses.push({
               ...exp,
@@ -678,10 +678,9 @@ export const useCashFlowStore = create(
                   (d.subItemId || null) === (exp.subItemId || null) &&
                   Math.abs(Number(d.amount) - Number(exp.amount)) < 1
               );
-              if (dedIdx < 0) {
-                continue;
+              if (dedIdx >= 0) {
+                claimedParentDeductions.add(`${distParent.id}_${dedIdx}`);
               }
-              claimedParentDeductions.add(`${distParent.id}_${dedIdx}`);
             }
           }
 

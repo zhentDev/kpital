@@ -33,12 +33,22 @@ class KpitalNotificationListener : NotificationListenerService() {
             "co.com.bancolombia",
             "com.bancolombia.personas",
             "co.com.davivienda",
+            "br.com.nubank",
             "com.nu.colombia",
+            "co.nu.colombia",
+            "com.nu.production",
             "com.nequi.MobileApp",
+            "co.nequi",
             "com.rpay.rappi",
+            "com.rappi.pay",
             "com.bancofalabella.bancofalabella",
             "com.lulobank",
             "com.cajasocial",
+            "co.com.bancocajasocial",
+            "com.mercadopago.wallet",
+            "co.com.bancodebogota.bancamovil",
+            "com.bbva.bbvacolombia",
+            "co.com.colpatria.bancamovil",
             "com.google.android.apps.walletnfcrel"
         )
 
@@ -103,8 +113,7 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
-        // Disparador temporal para pruebas: permite probar con notificaciones existentes al borrarlas/descartarlas
-        handleNotificationEvent(sbn, "REMOVED")
+        // No-op: no re-procesar notificaciones al borrarlas o descartarlas para evitar falsos positivos
     }
 
     private fun handleNotificationEvent(sbn: StatusBarNotification?, eventType: String) {
@@ -115,8 +124,21 @@ class KpitalNotificationListener : NotificationListenerService() {
         if (packageName == applicationContext.packageName) return
 
         // 1. FILTRADO ESTRICTO DE ORIGEN:
-        val isFromBankApp = BANK_PACKAGES.any { packageName.contains(it, ignoreCase = true) }
-        val isFromSmsApp = SMS_PACKAGES.any { packageName.contains(it, ignoreCase = true) }
+        val isFromBankApp = BANK_PACKAGES.any { packageName.contains(it, ignoreCase = true) } ||
+                packageName.contains("nubank", ignoreCase = true) ||
+                packageName.contains("nu.colombia", ignoreCase = true) ||
+                packageName.contains("bancolombia", ignoreCase = true) ||
+                packageName.contains("nequi", ignoreCase = true) ||
+                packageName.contains("davivienda", ignoreCase = true) ||
+                packageName.contains("daviplata", ignoreCase = true) ||
+                packageName.contains("lulobank", ignoreCase = true) ||
+                packageName.contains("cajasocial", ignoreCase = true) ||
+                packageName.contains("falabella", ignoreCase = true)
+
+        val isFromSmsApp = SMS_PACKAGES.any { packageName.contains(it, ignoreCase = true) } ||
+                packageName.contains("sms", ignoreCase = true) ||
+                packageName.contains("mms", ignoreCase = true) ||
+                packageName.contains("messaging", ignoreCase = true)
 
         if (!isFromBankApp && !isFromSmsApp) return
 
@@ -209,18 +231,32 @@ class KpitalNotificationListener : NotificationListenerService() {
             Log.e(TAG, "Error procesando con Go Core: ${e.message}", e)
         }
 
+        // 3.4. Validar monto para evitar falsos positivos de números de fecha o teléfono
+        val fullCombinedText = "$title - $textToProcess"
+        val hasExplicitCurrency = fullCombinedText.contains("$") || fullCombinedText.contains("COP", ignoreCase = true)
+        if (amount > 50_000_000 || (amount > 10_000_000 && !hasExplicitCurrency)) {
+            Log.w(TAG, "Monto sospechoso o fuera de rango ($amount COP) en '$fullCombinedText'. Ignorando para proteger integridad.")
+            return
+        }
+
         // 3.5. Registrar y persistir de inmediato en el historial de la app Kpital
         val movement = CapturedMovement(
             bank = bank,
             amount = amount,
             description = description,
             txType = txType,
-            rawText = "$title - $textToProcess",
+            rawText = fullCombinedText,
             timestamp = if (postTime > 0) postTime else System.currentTimeMillis(),
             status = MovementHistoryManager.STATUS_PENDING
         )
         val movementId = MovementHistoryManager.addMovement(applicationContext, movement)
-        Log.d(TAG, "Movimiento guardado en historial local: id=$movementId, $bank, $amount COP")
+        Log.d(TAG, "Movimiento guardado en historial local: id=$movementId, $bank, $amount COP, status=${movement.status}")
+
+        // Si fue clasificado automáticamente como duplicado/descartado, no interrumpir con overlay
+        if (movement.status == MovementHistoryManager.STATUS_DISCARDED) {
+            Log.d(TAG, "Notificación clasificada como duplicada/descartada. No se muestra overlay.")
+            return
+        }
 
         // 4. DISPARADOR PRINCIPAL: Overlay Flotante Directo (WindowManager)
         val canOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

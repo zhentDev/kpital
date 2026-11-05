@@ -189,6 +189,9 @@ object PocketOverlayManager {
                     }
                     layoutParams = btnParams
                     setOnClickListener {
+                        if (movementId != null) {
+                            MovementHistoryManager.discardMovement(appContext, movementId)
+                        }
                         dismiss()
                     }
                 }
