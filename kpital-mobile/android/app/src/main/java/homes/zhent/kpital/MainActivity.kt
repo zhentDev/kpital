@@ -33,6 +33,12 @@ class MainActivity : Activity() {
     private lateinit var loginFormLayout: LinearLayout
     private lateinit var welcomeUserTextView: TextView
 
+    // Control de Cabecera y Sección Colapsable de Ajustes
+    private lateinit var overallStatusBadge: TextView
+    private lateinit var btnToggleSettings: Button
+    private lateinit var collapsibleSettingsCard: LinearLayout
+    private var isSettingsExpanded: Boolean = false
+
     // Control de Pestañas Principales (Bancos vs Alertas de Bolsa)
     private var activeMainTab: String = "BANK" // "BANK" o "ALERTS"
     private lateinit var tabSelectorLayout: LinearLayout
@@ -49,6 +55,7 @@ class MainActivity : Activity() {
     private var pendingFilterBtn: Button? = null
     private var completedFilterBtn: Button? = null
     private var activeFilter: String = "ALL" // "ALL", "PENDING", "COMPLETED"
+    private var isCompletedHistoryExpanded: Boolean = false
 
     // Contenedores de la sección de Alertas de Bolsa
     private lateinit var alertsCardsContainer: LinearLayout
@@ -60,6 +67,12 @@ class MainActivity : Activity() {
     private lateinit var btnRefreshAlerts: Button
     private lateinit var btnTestAlertNotification: Button
 
+    // Estados de colapso de acordeones en alertas de bolsa
+    private var isTriggeredStockAlertsExpanded: Boolean = true
+    private var isNearStockAlertsExpanded: Boolean = true
+    private var isActiveStockAlertsExpanded: Boolean = true
+    private var isPausedStockAlertsExpanded: Boolean = false
+
     private val dateFormat = SimpleDateFormat("d 'de' MMM, h:mm a", Locale("es", "CO"))
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +82,13 @@ class MainActivity : Activity() {
         val savedToken = prefs.getString("auth_token", "") ?: ""
         val savedUserEmail = prefs.getString("user_email", "") ?: ""
         val savedUserName = prefs.getString("user_name", "") ?: ""
+
+        // Cargar preferencias de expansión de acordeones
+        isCompletedHistoryExpanded = prefs.getBoolean("pref_completed_history_expanded", false)
+        isTriggeredStockAlertsExpanded = prefs.getBoolean("pref_triggered_stock_expanded", true)
+        isNearStockAlertsExpanded = prefs.getBoolean("pref_near_stock_expanded", true)
+        isActiveStockAlertsExpanded = prefs.getBoolean("pref_active_stock_expanded", true)
+        isPausedStockAlertsExpanded = prefs.getBoolean("pref_paused_stock_expanded", false)
 
         // Inicializar motor en Go con token si existe
         try {
@@ -88,56 +108,255 @@ class MainActivity : Activity() {
 
         val rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(45, 60, 45, 60)
+            setPadding(40, 50, 40, 50)
         }
         scroll.addView(rootLayout)
 
-        // Título Principal
+        // Determinar si los ajustes deben iniciar colapsados (si ya hay sesión y permisos dados)
+        val notifReady = isNotificationServiceEnabled()
+        val overlayReady = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true
+        val isSessionReady = savedToken.isNotBlank()
+        val allConfigured = notifReady && overlayReady && isSessionReady
+
+        isSettingsExpanded = prefs.getBoolean("pref_settings_expanded", !allConfigured)
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 1. CABECERA MODERNA Y COMPACTA (Always on top)
+        // ─────────────────────────────────────────────────────────────────────────
+        buildTopHeader(rootLayout)
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 2. SECCIÓN COLAPSABLE: AJUSTES, PERMISOS Y SESIÓN (Accordion Card)
+        // ─────────────────────────────────────────────────────────────────────────
+        buildCollapsibleSettingsCard(rootLayout, savedToken, savedUserEmail, savedUserName)
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 3. SELECTOR DE PESTAÑAS (Inmediatamente arriba y accesible)
+        // ─────────────────────────────────────────────────────────────────────────
+        buildTabSelector(rootLayout)
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 4. PESTAÑA 1: BANDEJA E HISTORIAL DE MOVIMIENTOS BANCARIOS
+        // ─────────────────────────────────────────────────────────────────────────
+        buildHistorySection(rootLayout)
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // 5. PESTAÑA 2: ALERTAS ACTIVAS DE BOLSA Y ETFS
+        // ─────────────────────────────────────────────────────────────────────────
+        buildStockAlertsSection(rootLayout)
+
+        updatePermissionStatus()
+
+        // Escuchar cambios de notificaciones bancarias en segundo plano
+        MovementHistoryManager.setOnHistoryChangeListener {
+            runOnUiThread {
+                refreshHistoryUI()
+            }
+        }
+
+        // Iniciar monitoreo continuo de alertas de bolsa (cada 5 min)
+        StockAlertManager.startPolling(this, intervalMinutes = 5)
+        StockAlertManager.setOnAlertsUpdatedListener { pollResult ->
+            runOnUiThread {
+                renderStockAlertsUI(pollResult)
+            }
+        }
+
+        // Revisar si la app fue abierta desde una notificación de alerta
+        handleOpenFromNotification(intent)
+
+        setContentView(scroll)
+        refreshHistoryUI()
+        switchMainTab(activeMainTab)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleOpenFromNotification(intent)
+    }
+
+    private fun handleOpenFromNotification(intent: Intent?) {
+        if (intent?.getStringExtra("OPEN_TAB") == "ALERTS") {
+            switchMainTab("ALERTS")
+            val ticker = intent.getStringExtra("ALERT_TICKER") ?: ""
+            if (ticker.isNotBlank()) {
+                Toast.makeText(this, "🚨 Alerta disparada para $ticker", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updatePermissionStatus()
+        refreshHistoryUI()
+        if (activeMainTab == "ALERTS") {
+            StockAlertManager.fetchLiveAlertsAsync(this) { res ->
+                if (res != null) renderStockAlertsUI(res)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        StockAlertManager.stopPolling()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // COMPONENTE: CABECERA MODERNA CON TOGGLE DE AJUSTES
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private fun buildTopHeader(root: LinearLayout) {
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 16)
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val titleBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
         val titleView = TextView(this).apply {
             text = "Kpital Mobile"
-            textSize = 26f
+            textSize = 22f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
         }
-        rootLayout.addView(titleView)
+        titleBlock.addView(titleView)
 
         val descView = TextView(this).apply {
-            text = "Terminal nativa para captura de gastos bancarios y monitoreo de alertas de venta de bolsa en Colombia y Wall Street.\n"
-            textSize = 13f
+            text = "Gastos bancarios & alertas de bolsa en vivo"
+            textSize = 11f
             setTextColor(Color.parseColor("#94a3b8"))
         }
-        rootLayout.addView(descView)
+        titleBlock.addView(descView)
+
+        topRow.addView(titleBlock)
+
+        // Badge de Estado General (🟢 Activo / 🟡 Permisos / ⚪ Sin Sesión)
+        overallStatusBadge = TextView(this).apply {
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(14, 8, 14, 8)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 10, 0)
+            }
+            layoutParams = p
+        }
+        topRow.addView(overallStatusBadge)
+
+        // Botón Toggle para Expandir/Ocultar Ajustes, Permisos y Sesión
+        btnToggleSettings = Button(this).apply {
+            text = if (isSettingsExpanded) "⚙️ Ajustes ▲" else "⚙️ Ajustes ▼"
+            textSize = 11f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38bdf8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0c2340"))
+                setStroke(1, Color.parseColor("#0284c7"))
+            }
+            setPadding(20, 10, 20, 10)
+            setOnClickListener {
+                isSettingsExpanded = !isSettingsExpanded
+                collapsibleSettingsCard.visibility = if (isSettingsExpanded) View.VISIBLE else View.GONE
+                text = if (isSettingsExpanded) "⚙️ Ajustes ▲" else "⚙️ Ajustes ▼"
+                prefs.edit().putBoolean("pref_settings_expanded", isSettingsExpanded).apply()
+            }
+        }
+        topRow.addView(btnToggleSettings)
+
+        headerLayout.addView(topRow)
+        root.addView(headerLayout)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // COMPONENTE: TARJETA COLAPSABLE DE AJUSTES, PERMISOS Y SESIÓN
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    private fun buildCollapsibleSettingsCard(root: LinearLayout, savedToken: String, savedUserEmail: String, savedUserName: String) {
+        collapsibleSettingsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(35, 30, 35, 30)
+            visibility = if (isSettingsExpanded) View.VISIBLE else View.GONE
+            background = GradientDrawable().apply {
+                cornerRadius = 20f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(1, Color.parseColor("#1e293b"))
+            }
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 22)
+            }
+            layoutParams = p
+        }
+
+        // Sub-título 1: Permisos del Sistema
+        val permTitle = TextView(this).apply {
+            text = "🛡️ Permisos del Sistema"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 10)
+        }
+        collapsibleSettingsCard.addView(permTitle)
 
         // Estado del Servicio de Notificaciones
         statusTextView = TextView(this).apply {
-            textSize = 14f
+            textSize = 12f
             setTypeface(null, Typeface.BOLD)
+            setPadding(0, 0, 0, 6)
         }
-        rootLayout.addView(statusTextView)
+        collapsibleSettingsCard.addView(statusTextView)
 
         val permButton = Button(this).apply {
-            text = "1. Permiso de Lectura de Notificaciones"
-            setBackgroundColor(Color.parseColor("#1e293b"))
+            text = "1. Permiso de Notificaciones Bancarias"
+            textSize = 11f
+            isAllCaps = false
             setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#1e293b"))
+                setStroke(1, Color.parseColor("#334155"))
+            }
+            setPadding(16, 8, 16, 8)
             setOnClickListener {
                 startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
             }
         }
-        rootLayout.addView(permButton)
+        collapsibleSettingsCard.addView(permButton)
 
-        // Estado del Permiso de Ventana Flotante / Mostrar sobre otras apps
+        // Estado del Permiso de Ventana Flotante
         overlayStatusTextView = TextView(this).apply {
-            textSize = 14f
+            textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 20, 0, 0)
+            setPadding(0, 14, 0, 6)
         }
-        rootLayout.addView(overlayStatusTextView)
+        collapsibleSettingsCard.addView(overlayStatusTextView)
 
         val overlayPermButton = Button(this).apply {
             text = "2. Permitir Ventana Emergente Automática"
-            setBackgroundColor(Color.parseColor("#0284c7"))
+            textSize = 11f
+            isAllCaps = false
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#0284c7"))
+                setStroke(1, Color.parseColor("#38bdf8"))
+            }
+            setPadding(16, 8, 16, 8)
             setOnClickListener {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     val intent = Intent(
@@ -150,20 +369,28 @@ class MainActivity : Activity() {
                 }
             }
         }
-        rootLayout.addView(overlayPermButton)
+        collapsibleSettingsCard.addView(overlayPermButton)
 
         val overlayHelpView = TextView(this).apply {
-            text = "💡 Este permiso permite que cuando Nequi, Nu o Bancolombia envíen una notificación, Kpital despliegue de inmediato la selección de cajita en pantalla.\n"
-            textSize = 12f
-            setTextColor(Color.parseColor("#94a3b8"))
-            setPadding(0, 10, 0, 0)
+            text = "💡 Permite que cuando Nequi, Nu o Bancolombia envíen una notificación, aparezca el selector táctil de cajita de inmediato."
+            textSize = 10f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 6, 0, 14)
         }
-        rootLayout.addView(overlayHelpView)
+        collapsibleSettingsCard.addView(overlayHelpView)
 
-        updatePermissionStatus()
+        // Separador interno
+        collapsibleSettingsCard.addView(createSeparator())
 
-        // Separador 1
-        rootLayout.addView(createSeparator())
+        // Sub-título 2: Sesión de Usuario
+        val sessionHeaderTitle = TextView(this).apply {
+            text = "👤 Cuenta y Sincronización"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 8, 0, 10)
+        }
+        collapsibleSettingsCard.addView(sessionHeaderTitle)
 
         // --- SECCIÓN 1: SESIÓN INICIADA ---
         userSessionLayout = LinearLayout(this).apply {
@@ -172,33 +399,42 @@ class MainActivity : Activity() {
         }
         welcomeUserTextView = TextView(this).apply {
             text = "👤 Conectado como:\n${savedUserName.ifEmpty { savedUserEmail }}"
-            textSize = 16f
+            textSize = 14f
             setTextColor(Color.parseColor("#00e5ff"))
             setTypeface(null, Typeface.BOLD)
         }
         userSessionLayout.addView(welcomeUserTextView)
 
         val syncInfoTextView = TextView(this).apply {
-            text = "\nTus gastos de Bancolombia, Nu y Rappi se vinculan a tus cajitas, y tus alertas de venta de acciones/ETFs te notificarán aquí en vivo.\n"
-            textSize = 13f
+            text = "Tus transacciones y alertas se sincronizan en vivo con tu cuenta Kpital.\n"
+            textSize = 11f
             setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 4, 0, 8)
         }
         userSessionLayout.addView(syncInfoTextView)
 
         val logoutButton = Button(this).apply {
             text = "Cerrar Sesión"
-            setBackgroundColor(Color.parseColor("#334155"))
+            textSize = 11f
+            isAllCaps = false
             setTextColor(Color.parseColor("#f87171"))
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#2a0f1d"))
+                setStroke(1, Color.parseColor("#ef4444"))
+            }
+            setPadding(18, 8, 18, 8)
             setOnClickListener {
                 prefs.edit().clear().apply()
                 Core.initConfig("https://titanes-portfolio-backend.onrender.com", "", "", true)
                 userSessionLayout.visibility = View.GONE
                 loginFormLayout.visibility = View.VISIBLE
+                updatePermissionStatus()
                 Toast.makeText(this@MainActivity, "Sesión cerrada", Toast.LENGTH_SHORT).show()
             }
         }
         userSessionLayout.addView(logoutButton)
-        rootLayout.addView(userSessionLayout)
+        collapsibleSettingsCard.addView(userSessionLayout)
 
         // --- SECCIÓN 2: FORMULARIO DE LOGIN ---
         loginFormLayout = LinearLayout(this).apply {
@@ -206,22 +442,26 @@ class MainActivity : Activity() {
             visibility = if (savedToken.isBlank()) View.VISIBLE else View.GONE
         }
 
-        val loginTitle = TextView(this).apply {
-            text = "Iniciar Sesión en Kpital"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-        }
-        loginFormLayout.addView(loginTitle)
-
         val emailInput = EditText(this).apply {
             hint = "Correo electrónico"
             setHintTextColor(Color.parseColor("#64748b"))
             setTextColor(Color.WHITE)
+            textSize = 13f
             inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             setText(if (savedUserEmail.isNotBlank()) savedUserEmail else "caballerojesus703@hotmail.com")
-            setBackgroundColor(Color.parseColor("#0f172a"))
-            setPadding(30, 25, 30, 25)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#0f172a"))
+                setStroke(1, Color.parseColor("#334155"))
+            }
+            setPadding(24, 18, 24, 18)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 10)
+            }
+            layoutParams = p
         }
         loginFormLayout.addView(emailInput)
 
@@ -229,17 +469,35 @@ class MainActivity : Activity() {
             hint = "Contraseña"
             setHintTextColor(Color.parseColor("#64748b"))
             setTextColor(Color.WHITE)
+            textSize = 13f
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setBackgroundColor(Color.parseColor("#0f172a"))
-            setPadding(30, 25, 30, 25)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#0f172a"))
+                setStroke(1, Color.parseColor("#334155"))
+            }
+            setPadding(24, 18, 24, 18)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 12)
+            }
+            layoutParams = p
         }
         loginFormLayout.addView(passInput)
 
         val loginButton = Button(this).apply {
             text = "Entrar a mi Cuenta"
-            setBackgroundColor(Color.parseColor("#00e5ff"))
+            textSize = 12f
+            isAllCaps = false
             setTextColor(Color.BLACK)
             setTypeface(null, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#00e5ff"))
+            }
+            setPadding(20, 12, 20, 12)
             setOnClickListener {
                 val email = emailInput.text.toString().trim()
                 val pass = passInput.text.toString().trim()
@@ -281,6 +539,14 @@ class MainActivity : Activity() {
                                 welcomeUserTextView.text = "👤 Conectado como:\n$userName\n($email)"
                                 loginFormLayout.visibility = View.GONE
                                 userSessionLayout.visibility = View.VISIBLE
+                                updatePermissionStatus()
+
+                                // Auto-colapsar ajustes al iniciar sesión con éxito
+                                isSettingsExpanded = false
+                                collapsibleSettingsCard.visibility = View.GONE
+                                btnToggleSettings.text = "⚙️ Ajustes ▼"
+                                prefs.edit().putBoolean("pref_settings_expanded", false).apply()
+
                                 Toast.makeText(this@MainActivity, "¡Bienvenido, $userName!", Toast.LENGTH_SHORT).show()
                                 StockAlertManager.fetchLiveAlertsAsync(this@MainActivity)
                             } else {
@@ -299,78 +565,15 @@ class MainActivity : Activity() {
             }
         }
         loginFormLayout.addView(loginButton)
-        rootLayout.addView(loginFormLayout)
+        collapsibleSettingsCard.addView(loginFormLayout)
 
-        // Separador 2
-        rootLayout.addView(createSeparator())
-
-        // --- SELECTOR DE PESTAÑAS (GASTOS BANCARIOS vs ALERTAS DE BOLSA) ---
-        buildTabSelector(rootLayout)
-
-        // --- SECCIÓN: BANDEJA E HISTORIAL DE MOVIMIENTOS BANCARIOS ---
-        buildHistorySection(rootLayout)
-
-        // --- SECCIÓN: ALERTAS ACTIVAS DE BOLSA Y ETFS ---
-        buildStockAlertsSection(rootLayout)
-
-        // Escuchar cambios de notificaciones bancarias en segundo plano
-        MovementHistoryManager.setOnHistoryChangeListener {
-            runOnUiThread {
-                refreshHistoryUI()
-            }
-        }
-
-        // Iniciar monitoreo continuo de alertas de bolsa (cada 5 min)
-        StockAlertManager.startPolling(this, intervalMinutes = 5)
-        StockAlertManager.setOnAlertsUpdatedListener { pollResult ->
-            runOnUiThread {
-                renderStockAlertsUI(pollResult)
-            }
-        }
-
-        // Revisar si la app fue abierta desde una notificación de alerta
-        handleOpenFromNotification(intent)
-
-        setContentView(scroll)
-        refreshHistoryUI()
-        switchMainTab(activeMainTab)
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        handleOpenFromNotification(intent)
-    }
-
-    private fun handleOpenFromNotification(intent: Intent?) {
-        if (intent?.getStringExtra("OPEN_TAB") == "ALERTS") {
-            switchMainTab("ALERTS")
-            val ticker = intent.getStringExtra("ALERT_TICKER") ?: ""
-            if (ticker.isNotBlank()) {
-                Toast.makeText(this, "🎯 Alerta disparada para $ticker", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updatePermissionStatus()
-        refreshHistoryUI()
-        if (activeMainTab == "ALERTS") {
-            StockAlertManager.fetchLiveAlertsAsync(this) { res ->
-                if (res != null) renderStockAlertsUI(res)
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        StockAlertManager.stopPolling()
+        root.addView(collapsibleSettingsCard)
     }
 
     private fun createSeparator(): View {
         return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 2).apply {
-                setMargins(0, 35, 0, 35)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                setMargins(0, 20, 0, 20)
             }
             setBackgroundColor(Color.parseColor("#1e293b"))
         }
@@ -383,7 +586,7 @@ class MainActivity : Activity() {
     private fun buildTabSelector(root: LinearLayout) {
         tabSelectorLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 24)
+            setPadding(0, 0, 0, 20)
         }
 
         btnTabBank = Button(this).apply {
@@ -476,24 +679,25 @@ class MainActivity : Activity() {
 
         val titleView = TextView(this).apply {
             text = "📋 Historial de Notificaciones"
-            textSize = 19f
+            textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         headerRow.addView(titleView)
 
-        // Botón de prueba/simulación para testear sin esperar un gasto real
+        // Botón de prueba/simulación
         val testBtn = Button(this).apply {
             text = "+ Simular"
             textSize = 11f
+            isAllCaps = false
             setTextColor(Color.parseColor("#38bdf8"))
             background = GradientDrawable().apply {
                 cornerRadius = 14f
                 setColor(Color.parseColor("#0c2340"))
                 setStroke(1, Color.parseColor("#0284c7"))
             }
-            setPadding(20, 10, 20, 10)
+            setPadding(18, 8, 18, 8)
             setOnClickListener {
                 showSimulateMovementDialog()
             }
@@ -502,22 +706,22 @@ class MainActivity : Activity() {
         historyHeader.addView(headerRow)
 
         val subDesc = TextView(this).apply {
-            text = "Todos los movimientos detectados quedan guardados aquí. Si cerraste la ventana flotante o no pudiste atenderla, puedes completarlos en cualquier momento con un clic."
-            textSize = 12f
+            text = "Movimientos detectados automáticamente en tus bancos. Puedes completarlos en cualquier momento."
+            textSize = 11f
             setTextColor(Color.parseColor("#94a3b8"))
-            setPadding(0, 8, 0, 16)
+            setPadding(0, 6, 0, 14)
         }
         historyHeader.addView(subDesc)
 
         // Contenedor de Botones de Filtro
         filterContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 16)
+            setPadding(0, 0, 0, 14)
         }
 
         allFilterBtn = createFilterButton("Todos", "ALL")
         pendingFilterBtn = createFilterButton("🟡 Pendientes", "PENDING")
-        completedFilterBtn = createFilterButton("🟢 Completados", "COMPLETED")
+        completedFilterBtn = createFilterButton("🟢 Registrados", "COMPLETED")
 
         filterContainer.addView(allFilterBtn)
         filterContainer.addView(pendingFilterBtn)
@@ -526,7 +730,7 @@ class MainActivity : Activity() {
 
         sectionBankMovements.addView(historyHeader)
 
-        // Vista de Estado Vacío
+        // Estado Vacío
         emptyHistoryView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -540,15 +744,15 @@ class MainActivity : Activity() {
         }
 
         val emptyIcon = TextView(this).apply {
-            text = "📭"
+            text = "💳"
             textSize = 34f
             gravity = Gravity.CENTER
         }
         emptyHistoryView.addView(emptyIcon)
 
         val emptyText = TextView(this).apply {
-            text = "No hay movimientos en esta sección.\nLas compras, retiros o transferencias detectadas aparecerán aquí automáticamente."
-            textSize = 13f
+            text = "No hay movimientos registrados todavía.\nCuando recibas una notificación bancaria o simules un movimiento, aparecerá aquí."
+            textSize = 12f
             setTextColor(Color.parseColor("#64748b"))
             gravity = Gravity.CENTER
             setPadding(0, 10, 0, 0)
@@ -556,33 +760,35 @@ class MainActivity : Activity() {
         emptyHistoryView.addView(emptyText)
         sectionBankMovements.addView(emptyHistoryView)
 
-        // Contenedor dinámico de tarjetas de movimientos
+        // Contenedor de Tarjetas de Movimientos
         historyContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
         sectionBankMovements.addView(historyContainer)
 
-        // Botón inferior para limpiar completados
+        // Botón para limpiar completados
         val cleanCompletedBtn = Button(this).apply {
-            text = "🧹 Limpiar movimientos completados"
-            textSize = 12f
+            text = "🧹 Limpiar Registrados del Historial"
+            textSize = 11f
+            isAllCaps = false
             setTextColor(Color.parseColor("#94a3b8"))
             background = GradientDrawable().apply {
-                cornerRadius = 16f
-                setColor(Color.parseColor("#0f172a"))
-                setStroke(1, Color.parseColor("#334155"))
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(1, Color.parseColor("#1e293b"))
             }
+            setPadding(20, 12, 20, 12)
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 16, 0, 20)
+                setMargins(0, 20, 0, 10)
             }
             layoutParams = params
             setOnClickListener {
                 MovementHistoryManager.clearCompletedMovements(this@MainActivity)
                 refreshHistoryUI()
-                Toast.makeText(this@MainActivity, "Movimientos completados eliminados del historial", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Movimientos registrados eliminados", Toast.LENGTH_SHORT).show()
             }
         }
         sectionBankMovements.addView(cleanCompletedBtn)
@@ -593,14 +799,14 @@ class MainActivity : Activity() {
     private fun createFilterButton(label: String, filterKey: String): Button {
         return Button(this).apply {
             text = label
-            textSize = 12f
+            textSize = 11f
             isAllCaps = false
             val isSelected = (activeFilter == filterKey)
             setTextColor(if (isSelected) Color.WHITE else Color.parseColor("#94a3b8"))
             background = getFilterButtonDrawable(isSelected)
 
             val params = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(6, 0, 6, 0)
+                setMargins(4, 0, 4, 0)
             }
             layoutParams = params
 
@@ -614,7 +820,7 @@ class MainActivity : Activity() {
 
     private fun getFilterButtonDrawable(isSelected: Boolean): GradientDrawable {
         return GradientDrawable().apply {
-            cornerRadius = 16f
+            cornerRadius = 14f
             if (isSelected) {
                 setColor(Color.parseColor("#0284c7"))
                 setStroke(2, Color.parseColor("#38bdf8"))
@@ -648,22 +854,87 @@ class MainActivity : Activity() {
         pendingFilterBtn?.text = "🟡 Pendientes ($pendingCount)"
         completedFilterBtn?.text = "🟢 Registrados ($completedCount)"
 
-        val filtered = when (activeFilter) {
-            "PENDING" -> allMovements.filter { it.status == MovementHistoryManager.STATUS_PENDING }
-            "COMPLETED" -> allMovements.filter { it.status == MovementHistoryManager.STATUS_COMPLETED }
-            else -> allMovements
-        }
-
         historyContainer.removeAllViews()
 
-        if (filtered.isEmpty()) {
+        if (allMovements.isEmpty()) {
             emptyHistoryView.visibility = View.VISIBLE
-        } else {
-            emptyHistoryView.visibility = View.GONE
-            for (movement in filtered) {
-                val cardView = createMovementCardView(movement)
-                historyContainer.addView(cardView)
+            return
+        }
+        emptyHistoryView.visibility = View.GONE
+
+        if (activeFilter == "PENDING") {
+            val pendingList = allMovements.filter { it.status == MovementHistoryManager.STATUS_PENDING }
+            if (pendingList.isEmpty()) {
+                emptyHistoryView.visibility = View.VISIBLE
+            } else {
+                for (movement in pendingList) {
+                    historyContainer.addView(createMovementCardView(movement))
+                }
             }
+            return
+        }
+
+        if (activeFilter == "COMPLETED") {
+            val completedList = allMovements.filter { it.status == MovementHistoryManager.STATUS_COMPLETED }
+            if (completedList.isEmpty()) {
+                emptyHistoryView.visibility = View.VISIBLE
+            } else {
+                for (movement in completedList) {
+                    historyContainer.addView(createMovementCardView(movement))
+                }
+            }
+            return
+        }
+
+        // Modo "ALL": Organización limpia con sección pendiente arriba y acordeón para completados
+        val pendingList = allMovements.filter { it.status == MovementHistoryManager.STATUS_PENDING }
+        val completedList = allMovements.filter { it.status == MovementHistoryManager.STATUS_COMPLETED }
+
+        // 1. Bloque de Movimientos Pendientes
+        if (pendingList.isNotEmpty()) {
+            val pendingTitle = TextView(this).apply {
+                text = "🟡 Pendientes de Asignar Cajita (${pendingList.size})"
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#f59e0b"))
+                setPadding(0, 6, 0, 10)
+            }
+            historyContainer.addView(pendingTitle)
+
+            for (movement in pendingList) {
+                historyContainer.addView(createMovementCardView(movement))
+            }
+        }
+
+        // 2. Bloque Acordeón para Movimientos Registrados
+        if (completedList.isNotEmpty()) {
+            val completedSectionLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, if (pendingList.isNotEmpty()) 12 else 0, 0, 0)
+            }
+
+            val completedCardsLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isCompletedHistoryExpanded) View.VISIBLE else View.GONE
+            }
+
+            val accordionHeader = createAccordionHeader(
+                title = "🟢 Movimientos Registrados",
+                count = completedList.size,
+                badgeColor = "#10b981",
+                isExpanded = isCompletedHistoryExpanded
+            ) { expanded ->
+                isCompletedHistoryExpanded = expanded
+                completedCardsLayout.visibility = if (expanded) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_completed_history_expanded", expanded).apply()
+            }
+            completedSectionLayout.addView(accordionHeader)
+
+            for (movement in completedList) {
+                completedCardsLayout.addView(createMovementCardView(movement))
+            }
+            completedSectionLayout.addView(completedCardsLayout)
+            historyContainer.addView(completedSectionLayout)
         }
     }
 
@@ -673,12 +944,12 @@ class MainActivity : Activity() {
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(35, 30, 35, 30)
+            setPadding(30, 24, 30, 24)
             background = GradientDrawable().apply {
-                cornerRadius = 24f
+                cornerRadius = 20f
                 setColor(Color.parseColor("#0c111e"))
                 if (isPending) {
-                    setStroke(2, Color.parseColor("#0284c7")) // Resaltado azul para pendientes
+                    setStroke(2, Color.parseColor("#f59e0b")) // Borde ámbar para pendientes
                 } else {
                     setStroke(1, Color.parseColor("#1e293b"))
                 }
@@ -687,124 +958,116 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 0, 0, 20)
+                setMargins(0, 0, 0, 14)
             }
             layoutParams = params
         }
 
-        // Fila 1: Banco (Pill con color) + Fecha/Hora + Botón Eliminar
+        // Fila 1: Banco Badge + Tipo + Monto
         val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val bankColor = getBankColor(movement.bank)
         val bankBadge = TextView(this).apply {
             text = movement.bank
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            val bankColor = getBankColor(movement.bank)
+            setTextColor(bankColor)
             background = GradientDrawable().apply {
-                cornerRadius = 12f
-                setColor(adjustAlpha(bankColor, 0.25f))
-                setStroke(2, bankColor)
+                cornerRadius = 10f
+                setColor(adjustAlpha(bankColor, 0.15f))
+                setStroke(1, bankColor)
             }
-            setPadding(20, 6, 20, 6)
+            setPadding(16, 6, 16, 6)
         }
         topRow.addView(bankBadge)
 
-        val timeView = TextView(this).apply {
-            text = dateFormat.format(Date(movement.timestamp))
-            textSize = 11f
-            setTextColor(Color.parseColor("#64748b"))
-            setPadding(20, 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        topRow.addView(timeView)
-
-        val deleteBtn = TextView(this).apply {
-            text = "✕"
-            textSize = 14f
-            setTextColor(Color.parseColor("#64748b"))
-            setPadding(15, 5, 10, 5)
-            setOnClickListener {
-                MovementHistoryManager.deleteMovement(this@MainActivity, movement.id)
-                refreshHistoryUI()
+        if (isCredit) {
+            val creditBadge = TextView(this).apply {
+                text = "💳 Tarjeta"
+                textSize = 10f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#c084fc"))
+                background = GradientDrawable().apply {
+                    cornerRadius = 8f
+                    setColor(Color.parseColor("#2e1065"))
+                    setStroke(1, Color.parseColor("#9333ea"))
+                }
+                setPadding(12, 4, 12, 4)
+                val p = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(10, 0, 0, 0)
+                }
+                layoutParams = p
             }
+            topRow.addView(creditBadge)
         }
-        topRow.addView(deleteBtn)
-        card.addView(topRow)
 
-        // Fila 2: Descripción / Concepto del Gasto
-        val descView = TextView(this).apply {
-            text = movement.description
-            textSize = 16f
+        val spacerTop = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        }
+        topRow.addView(spacerTop)
+
+        val amountView = TextView(this).apply {
+            text = "$${String.format(Locale.US, "%,.0f", movement.amount)} COP"
+            textSize = 15f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 14, 0, 4)
+        }
+        topRow.addView(amountView)
+        card.addView(topRow)
+
+        // Fila 2: Descripción y Fecha
+        val descView = TextView(this).apply {
+            text = movement.description
+            textSize = 13f
+            setTextColor(Color.parseColor("#f1f5f9"))
+            setPadding(0, 8, 0, 2)
         }
         card.addView(descView)
 
-        // Fila 3: Monto formateado
-        val amountView = TextView(this).apply {
-            if (movement.amount > 0) {
-                val formatted = String.format("%,.0f", movement.amount)
-                val prefix = if (isCredit) "+$" else "$"
-                text = "$prefix$formatted COP"
-                setTextColor(if (isCredit) Color.parseColor("#4ade80") else Color.parseColor("#00e5ff"))
-                textSize = 22f
-                setTypeface(null, Typeface.BOLD)
-            } else {
-                text = "⚠️ Monto por definir al completar"
-                setTextColor(Color.parseColor("#f59e0b"))
-                textSize = 14f
-                setTypeface(null, Typeface.BOLD)
-            }
-            setPadding(0, 2, 0, 8)
+        val dateView = TextView(this).apply {
+            val formattedDate = dateFormat.format(Date(movement.timestamp))
+            text = formattedDate
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 0, 0, 10)
         }
-        card.addView(amountView)
+        card.addView(dateView)
 
-        // Snippet de texto original si está disponible
-        if (movement.rawText.isNotBlank()) {
-            val rawSnippet = TextView(this).apply {
-                val textClean = movement.rawText.replace("\n", " ").trim()
-                text = if (textClean.length > 90) textClean.take(90) + "..." else textClean
-                textSize = 11f
-                setTextColor(Color.parseColor("#475569"))
-                setPadding(0, 0, 0, 12)
-            }
-            card.addView(rawSnippet)
-        }
-
-        // Fila 4: Estado y Botón de Acción 1-Clic
+        // Fila 3: Estado y Botón de Acción
         val bottomRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 6, 0, 0)
+            setPadding(0, 4, 0, 0)
         }
 
         val statusView = TextView(this).apply {
             if (isPending) {
-                text = "🟡 Pendiente de cajita"
-                setTextColor(Color.parseColor("#fbbf24"))
+                text = "🟡 Pendiente de asignar"
+                setTextColor(Color.parseColor("#f59e0b"))
                 background = GradientDrawable().apply {
-                    cornerRadius = 10f
+                    cornerRadius = 8f
                     setColor(Color.parseColor("#2a1e04"))
                     setStroke(1, Color.parseColor("#f59e0b"))
                 }
             } else {
                 val pocketLabel = movement.pocketName ?: "Kpital"
-                text = "🟢 Registrado en $pocketLabel"
+                text = "🟢 En $pocketLabel"
                 setTextColor(Color.parseColor("#4ade80"))
                 background = GradientDrawable().apply {
-                    cornerRadius = 10f
+                    cornerRadius = 8f
                     setColor(Color.parseColor("#052e16"))
                     setStroke(1, Color.parseColor("#10b981"))
                 }
             }
-            textSize = 11f
+            textSize = 10f
             setTypeface(null, Typeface.BOLD)
-            setPadding(16, 8, 16, 8)
+            setPadding(14, 6, 14, 6)
         }
         bottomRow.addView(statusView)
 
@@ -813,20 +1076,19 @@ class MainActivity : Activity() {
         }
         bottomRow.addView(spacer)
 
-        // Botón estrella: "⚡ Completar con 1 clic"
         if (isPending) {
             val completeBtn = Button(this).apply {
-                text = "⚡ Asignar Cajita (1 clic)"
-                textSize = 12f
+                text = "⚡ Asignar Cajita"
+                textSize = 11f
                 isAllCaps = false
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
-                    cornerRadius = 16f
+                    cornerRadius = 14f
                     setColor(Color.parseColor("#0284c7"))
                     setStroke(1, Color.parseColor("#38bdf8"))
                 }
-                setPadding(28, 12, 28, 12)
+                setPadding(22, 10, 22, 10)
                 setOnClickListener {
                     openPocketSelector(movement)
                 }
@@ -869,23 +1131,23 @@ class MainActivity : Activity() {
             bank = chosenBank,
             amount = chosenAmount,
             description = chosenDesc,
-            txType = "debit",
-            rawText = "Transacción aprobada por $chosenAmount COP en $chosenDesc con $chosenBank",
-            timestamp = System.currentTimeMillis(),
+            txType = if (chosenBank.contains("Nu") || chosenBank.contains("Rappi")) "credit" else "expense",
+            rawText = "Notificación simulada para pruebas",
             status = MovementHistoryManager.STATUS_PENDING
         )
 
         MovementHistoryManager.addMovement(this, movement)
         refreshHistoryUI()
-        Toast.makeText(this, "Simulación generada: $chosenBank ($chosenAmount COP). Toca 'Asignar Cajita' para registrarla.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Simulado: $chosenBank por $${chosenAmount.toInt()}", Toast.LENGTH_SHORT).show()
+        openPocketSelector(movement)
     }
 
     private fun getBankColor(bank: String): Int {
         val lower = bank.lowercase()
         return when {
-            lower.contains("nu") -> Color.parseColor("#820ad1") // Nu morado
-            lower.contains("bancolombia") -> Color.parseColor("#eab308") // Bancolombia amarillo
-            lower.contains("nequi") -> Color.parseColor("#ec008c") // Nequi magenta
+            lower.contains("nu") -> Color.parseColor("#8b5cf6") // Nu morado
+            lower.contains("bancolombia") -> Color.parseColor("#facc15") // Bancolombia amarillo
+            lower.contains("nequi") -> Color.parseColor("#ec4899") // Nequi fucsia
             lower.contains("rappi") -> Color.parseColor("#f97316") // Rappi naranja
             lower.contains("davi") -> Color.parseColor("#ef4444") // Davivienda rojo
             lower.contains("falabella") -> Color.parseColor("#10b981") // Falabella verde
@@ -919,27 +1181,28 @@ class MainActivity : Activity() {
 
         val titleView = TextView(this).apply {
             text = "📈 Alertas de Venta (Bolsa)"
-            textSize = 19f
+            textSize = 18f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         headerRow.addView(titleView)
 
-        // Botón Probar Alerta Sonora en Celular
+        // Botón Probar Alerta Sonora
         btnTestAlertNotification = Button(this).apply {
             text = "🧪 Probar"
             textSize = 11f
+            isAllCaps = false
             setTextColor(Color.parseColor("#f43f5e"))
             background = GradientDrawable().apply {
                 cornerRadius = 14f
                 setColor(Color.parseColor("#2a0f1d"))
                 setStroke(1, Color.parseColor("#f43f5e"))
             }
-            setPadding(18, 10, 18, 10)
+            setPadding(16, 8, 16, 8)
             setOnClickListener {
                 StockAlertManager.sendTestAlertNotification(this@MainActivity)
-                Toast.makeText(this@MainActivity, "🚨 Alerta emitida con sonido y vibración en tu teléfono", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "🚨 Alerta emitida con sonido y vibración", Toast.LENGTH_SHORT).show()
             }
         }
         headerRow.addView(btnTestAlertNotification)
@@ -948,13 +1211,14 @@ class MainActivity : Activity() {
         btnRefreshAlerts = Button(this).apply {
             text = "🔄 Actualizar"
             textSize = 11f
+            isAllCaps = false
             setTextColor(Color.parseColor("#38bdf8"))
             background = GradientDrawable().apply {
                 cornerRadius = 14f
                 setColor(Color.parseColor("#0c2340"))
                 setStroke(1, Color.parseColor("#0284c7"))
             }
-            setPadding(18, 10, 18, 10)
+            setPadding(16, 8, 16, 8)
             val p = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -984,17 +1248,17 @@ class MainActivity : Activity() {
         sectionStockAlerts.addView(headerRow)
 
         val subDesc = TextView(this).apply {
-            text = "Monitoreo en vivo cada 5 min. Tu teléfono te notificará con alarma sonora en cuanto una acción o ETF alcance tu precio de Take Profit o Stop Loss."
-            textSize = 12f
+            text = "Monitoreo en vivo cada 5 min. Tu teléfono te notificará con alarma sonora en cuanto una posición alcance tu precio de venta."
+            textSize = 11f
             setTextColor(Color.parseColor("#94a3b8"))
-            setPadding(0, 8, 0, 14)
+            setPadding(0, 6, 0, 12)
         }
         sectionStockAlerts.addView(subDesc)
 
         // Fila de Métricas (Activas, Cerca, Disparadas)
         val metricsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 14)
+            setPadding(0, 0, 0, 12)
         }
 
         alertsMetricActive = createMetricPill("🎯 Activas: --", "#0284c7")
@@ -1008,9 +1272,9 @@ class MainActivity : Activity() {
 
         alertsLastUpdatedText = TextView(this).apply {
             text = "● Monitoreando en vivo cada 5 min"
-            textSize = 11f
+            textSize = 10f
             setTextColor(Color.parseColor("#64748b"))
-            setPadding(0, 0, 0, 14)
+            setPadding(0, 0, 0, 12)
         }
         sectionStockAlerts.addView(alertsLastUpdatedText)
 
@@ -1035,8 +1299,8 @@ class MainActivity : Activity() {
         emptyAlertsView.addView(emptyIcon)
 
         val emptyText = TextView(this).apply {
-            text = "No tienes alertas de venta registradas.\nPuedes configurarlas desde la terminal Kpital en tus posiciones de bolsa y se sincronizarán aquí automáticamente."
-            textSize = 13f
+            text = "No tienes alertas de venta registradas.\nPuedes configurarlas desde la terminal Kpital en tus posiciones y se sincronizarán aquí."
+            textSize = 12f
             setTextColor(Color.parseColor("#64748b"))
             gravity = Gravity.CENTER
             setPadding(0, 10, 0, 0)
@@ -1064,13 +1328,90 @@ class MainActivity : Activity() {
                 setColor(Color.parseColor("#0e1526"))
                 setStroke(1, Color.parseColor(strokeColor))
             }
-            setPadding(16, 10, 16, 10)
+            setPadding(14, 8, 14, 8)
             val p = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(4, 0, 4, 0)
             }
             layoutParams = p
             gravity = Gravity.CENTER
         }
+    }
+
+    /**
+     * Componente Reutilizable: Encabezado de Acordeón Desplegable (Expandir / Ocultar)
+     */
+    private fun createAccordionHeader(
+        title: String,
+        count: Int,
+        badgeColor: String,
+        isExpanded: Boolean,
+        onToggle: (Boolean) -> Unit
+    ): LinearLayout {
+        var expandedState = isExpanded
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(24, 16, 24, 16)
+            background = GradientDrawable().apply {
+                cornerRadius = 16f
+                setColor(Color.parseColor("#0e1526"))
+                setStroke(1, Color.parseColor("#1e293b"))
+            }
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 10, 0, 10)
+            }
+            layoutParams = p
+        }
+
+        val titleView = TextView(this).apply {
+            text = title
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        header.addView(titleView)
+
+        val countBadge = TextView(this).apply {
+            text = "$count"
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(badgeColor))
+            background = GradientDrawable().apply {
+                cornerRadius = 10f
+                setColor(adjustAlpha(Color.parseColor(badgeColor), 0.18f))
+                setStroke(1, Color.parseColor(badgeColor))
+            }
+            setPadding(14, 4, 14, 4)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 12, 0)
+            }
+            layoutParams = p
+        }
+        header.addView(countBadge)
+
+        val chevronView = TextView(this).apply {
+            text = if (expandedState) "▲" else "▼"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94a3b8"))
+            setTypeface(null, Typeface.BOLD)
+        }
+        header.addView(chevronView)
+
+        header.setOnClickListener {
+            expandedState = !expandedState
+            chevronView.text = if (expandedState) "▲" else "▼"
+            onToggle(expandedState)
+        }
+
+        return header
     }
 
     private fun renderStockAlertsUI(result: AlertsPollResult) {
@@ -1087,12 +1428,106 @@ class MainActivity : Activity() {
 
         if (result.alerts.isEmpty()) {
             emptyAlertsView.visibility = View.VISIBLE
-        } else {
-            emptyAlertsView.visibility = View.GONE
-            for (alert in result.alerts) {
-                val card = createAlertCardView(alert)
-                alertsCardsContainer.addView(card)
+            return
+        }
+        emptyAlertsView.visibility = View.GONE
+
+        // Agrupación por categoría para evitar listas desparramadas
+        val triggeredList = result.alerts.filter { it.status == "TRIGGERED" }
+        val nearList = result.alerts.filter { it.status == "NEAR" }
+        val activeList = result.alerts.filter { it.status == "ACTIVE" }
+        val pausedList = result.alerts.filter { it.status == "PAUSED" }
+
+        // 1. Acordeón 🚨 Objetivos de Venta Alcanzados
+        if (triggeredList.isNotEmpty()) {
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isTriggeredStockAlertsExpanded) View.VISIBLE else View.GONE
             }
+            val header = createAccordionHeader(
+                title = "🚨 Objetivos de Venta Alcanzados",
+                count = triggeredList.size,
+                badgeColor = "#10b981",
+                isExpanded = isTriggeredStockAlertsExpanded
+            ) { exp ->
+                isTriggeredStockAlertsExpanded = exp
+                container.visibility = if (exp) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_triggered_stock_expanded", exp).apply()
+            }
+            alertsCardsContainer.addView(header)
+            for (alert in triggeredList) {
+                container.addView(createAlertCardView(alert))
+            }
+            alertsCardsContainer.addView(container)
+        }
+
+        // 2. Acordeón ⚡ Próximas a Ejecutar (Cerca <= 1.5%)
+        if (nearList.isNotEmpty()) {
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isNearStockAlertsExpanded) View.VISIBLE else View.GONE
+            }
+            val header = createAccordionHeader(
+                title = "⚡ Próximas a Ejecutar (≤1.5%)",
+                count = nearList.size,
+                badgeColor = "#f59e0b",
+                isExpanded = isNearStockAlertsExpanded
+            ) { exp ->
+                isNearStockAlertsExpanded = exp
+                container.visibility = if (exp) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_near_stock_expanded", exp).apply()
+            }
+            alertsCardsContainer.addView(header)
+            for (alert in nearList) {
+                container.addView(createAlertCardView(alert))
+            }
+            alertsCardsContainer.addView(container)
+        }
+
+        // 3. Acordeón 🎯 Alertas Activas en Seguimiento
+        if (activeList.isNotEmpty()) {
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isActiveStockAlertsExpanded) View.VISIBLE else View.GONE
+            }
+            val header = createAccordionHeader(
+                title = "🎯 Alertas Activas en Seguimiento",
+                count = activeList.size,
+                badgeColor = "#0284c7",
+                isExpanded = isActiveStockAlertsExpanded
+            ) { exp ->
+                isActiveStockAlertsExpanded = exp
+                container.visibility = if (exp) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_active_stock_expanded", exp).apply()
+            }
+            alertsCardsContainer.addView(header)
+            for (alert in activeList) {
+                container.addView(createAlertCardView(alert))
+            }
+            alertsCardsContainer.addView(container)
+        }
+
+        // 4. Acordeón ⏸️ Alertas Pausadas
+        if (pausedList.isNotEmpty()) {
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (isPausedStockAlertsExpanded) View.VISIBLE else View.GONE
+            }
+            val header = createAccordionHeader(
+                title = "⚪ Alertas Pausadas",
+                count = pausedList.size,
+                badgeColor = "#64748b",
+                isExpanded = isPausedStockAlertsExpanded
+            ) { exp ->
+                isPausedStockAlertsExpanded = exp
+                container.visibility = if (exp) View.VISIBLE else View.GONE
+                prefs.edit().putBoolean("pref_paused_stock_expanded", exp).apply()
+            }
+            alertsCardsContainer.addView(header)
+            for (alert in pausedList) {
+                container.addView(createAlertCardView(alert))
+            }
+            alertsCardsContainer.addView(container)
         }
     }
 
@@ -1101,15 +1536,17 @@ class MainActivity : Activity() {
         val isTriggered = (alert.status == "TRIGGERED")
         val isNear = (alert.status == "NEAR")
 
+        var isDetailsExpanded = false
+
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(35, 30, 35, 30)
+            setPadding(30, 24, 30, 24)
             background = GradientDrawable().apply {
-                cornerRadius = 24f
+                cornerRadius = 20f
                 setColor(Color.parseColor("#0c111e"))
                 val strokeColor = when {
-                    isTriggered -> Color.parseColor("#10b981") // Verde esmeralda si se ejecutó
-                    isNear -> Color.parseColor("#f59e0b") // Ámbar si está cerca
+                    isTriggered -> Color.parseColor("#10b981")
+                    isNear -> Color.parseColor("#f59e0b")
                     else -> Color.parseColor("#1e293b")
                 }
                 setStroke(if (isTriggered || isNear) 2 else 1, strokeColor)
@@ -1118,7 +1555,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 0, 0, 20)
+                setMargins(0, 0, 0, 14)
             }
             layoutParams = params
         }
@@ -1131,24 +1568,24 @@ class MainActivity : Activity() {
 
         val tickerBadge = TextView(this).apply {
             text = alert.ticker
-            textSize = 14f
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#00e5ff"))
             background = GradientDrawable().apply {
-                cornerRadius = 12f
+                cornerRadius = 10f
                 setColor(Color.parseColor("#082f49"))
-                setStroke(2, Color.parseColor("#00e5ff"))
+                setStroke(1, Color.parseColor("#00e5ff"))
             }
-            setPadding(20, 6, 20, 6)
+            setPadding(16, 4, 16, 4)
         }
         topRow.addView(tickerBadge)
 
         val companyView = TextView(this).apply {
             text = alert.companyName
-            textSize = 14f
+            textSize = 13f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
-            setPadding(16, 0, 10, 0)
+            setPadding(12, 0, 8, 0)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         topRow.addView(companyView)
@@ -1156,35 +1593,87 @@ class MainActivity : Activity() {
         val typePill = TextView(this).apply {
             val prefix = if (alert.targetValue >= 0) "+" else ""
             text = if (isTakeProfit) "🟢 $prefix${alert.targetValue}% TP" else "🔴 ${alert.targetValue}% SL"
-            textSize = 11f
+            textSize = 10f
             setTypeface(null, Typeface.BOLD)
             setTextColor(if (isTakeProfit) Color.parseColor("#4ade80") else Color.parseColor("#f87171"))
             background = GradientDrawable().apply {
-                cornerRadius = 10f
+                cornerRadius = 8f
                 setColor(if (isTakeProfit) Color.parseColor("#062e16") else Color.parseColor("#2a0f1d"))
                 setStroke(1, if (isTakeProfit) Color.parseColor("#10b981") else Color.parseColor("#ef4444"))
             }
-            setPadding(16, 6, 16, 6)
+            setPadding(14, 4, 14, 4)
         }
         topRow.addView(typePill)
         card.addView(topRow)
 
-        // Fila 2: Subtítulo / Lote y Estrategia
+        // Fila 2: Resumen Compacto (Precio Actual, Retorno y Botón Toggle Detalles)
+        val summaryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 4)
+        }
+
+        val curPriceView = TextView(this).apply {
+            text = "$${String.format(Locale.US, "%.2f", alert.currentPrice)} USD"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        }
+        summaryRow.addView(curPriceView)
+
+        val retText = "${if (alert.currentReturnPct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", alert.currentReturnPct)}%"
+        val retView = TextView(this).apply {
+            text = " ($retText)"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (alert.currentReturnPct >= 0) Color.parseColor("#4ade80") else Color.parseColor("#f87171"))
+        }
+        summaryRow.addView(retView)
+
+        val spacerSummary = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        }
+        summaryRow.addView(spacerSummary)
+
+        // Botón Toggle para ver/ocultar detalles de precios (P0, Target)
+        val btnToggleDetails = TextView(this).apply {
+            text = "👁️ Precios ▼"
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38bdf8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 8f
+                setColor(Color.parseColor("#0c2340"))
+                setStroke(1, Color.parseColor("#0284c7"))
+            }
+            setPadding(14, 6, 14, 6)
+        }
+        summaryRow.addView(btnToggleDetails)
+        card.addView(summaryRow)
+
+        // ── SECCIÓN COLAPSABLE INTERNA DE LA TARJETA (DETALLES Y GRILLA) ──────────
+        val detailsSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 8, 0, 0)
+        }
+
+        // Subtítulo / Lote y Estrategia
         val subText = alert.lotLabel ?: "Posición Consolidada"
         val subView = TextView(this).apply {
             text = "$subText • ${alert.scope.replaceFirstChar { it.uppercase() }}"
-            textSize = 11f
+            textSize = 10f
             setTextColor(Color.parseColor("#64748b"))
-            setPadding(0, 8, 0, 14)
+            setPadding(0, 0, 0, 8)
         }
-        card.addView(subView)
+        detailsSection.addView(subView)
 
-        // Fila 3: Grilla de Precios (Precio Actual vs Entrada vs Meta de Venta)
+        // Grilla de Precios (Precio Actual vs Entrada P0 vs Meta Venta)
         val priceGrid = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(20, 16, 20, 16)
+            setPadding(16, 12, 16, 12)
             background = GradientDrawable().apply {
-                cornerRadius = 16f
+                cornerRadius = 14f
                 setColor(Color.parseColor("#080c14"))
             }
         }
@@ -1202,38 +1691,28 @@ class MainActivity : Activity() {
         priceGrid.addView(colActual)
         priceGrid.addView(colEntrada)
         priceGrid.addView(colTarget)
-        card.addView(priceGrid)
+        detailsSection.addView(priceGrid)
 
-        // Fila 4: Retorno actual + Distancia restante + Estado
-        val bottomRow = LinearLayout(this).apply {
+        // Fila de Distancia y Estado
+        val distRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 14, 0, 0)
+            setPadding(0, 10, 0, 0)
         }
-
-        val retText = "${if (alert.currentReturnPct >= 0) "+" else ""}${String.format(Locale.US, "%.2f", alert.currentReturnPct)}%"
-        val retView = TextView(this).apply {
-            text = "Retorno: $retText"
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(if (alert.currentReturnPct >= 0) Color.parseColor("#4ade80") else Color.parseColor("#f87171"))
-        }
-        bottomRow.addView(retView)
 
         val distView = TextView(this).apply {
             text = if (isTriggered) {
-                " • 🎯 ¡Alcanzado!"
+                "🎯 ¡Meta Alcanzada!"
             } else if (alert.distancePct <= 0) {
-                " • 🎯 Cumplido"
+                "🎯 Cumplido"
             } else {
-                " • Faltan ${String.format(Locale.US, "%.2f", alert.distancePct)}%"
+                "Distancia: faltan ${String.format(Locale.US, "%.2f", alert.distancePct)}%"
             }
-            textSize = 12f
+            textSize = 11f
             setTextColor(if (isTriggered || alert.distancePct <= 0) Color.parseColor("#10b981") else Color.parseColor("#94a3b8"))
-            setPadding(10, 0, 10, 0)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        bottomRow.addView(distView)
+        distRow.addView(distView)
 
         val statusBadge = TextView(this).apply {
             val (stText, stColor, stBg) = when (alert.status) {
@@ -1243,18 +1722,30 @@ class MainActivity : Activity() {
                 else -> Triple("🟢 ACTIVA", "#0284c7", "#0c2340")
             }
             text = stText
-            textSize = 11f
+            textSize = 10f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor(stColor))
             background = GradientDrawable().apply {
-                cornerRadius = 10f
+                cornerRadius = 8f
                 setColor(Color.parseColor(stBg))
                 setStroke(1, Color.parseColor(stColor))
             }
-            setPadding(18, 8, 18, 8)
+            setPadding(14, 6, 14, 6)
         }
-        bottomRow.addView(statusBadge)
-        card.addView(bottomRow)
+        distRow.addView(statusBadge)
+        detailsSection.addView(distRow)
+
+        card.addView(detailsSection)
+
+        // Evento para alternar detalles
+        fun toggleCardDetails() {
+            isDetailsExpanded = !isDetailsExpanded
+            detailsSection.visibility = if (isDetailsExpanded) View.VISIBLE else View.GONE
+            btnToggleDetails.text = if (isDetailsExpanded) "👁️ Precios ▲" else "👁️ Precios ▼"
+        }
+
+        btnToggleDetails.setOnClickListener { toggleCardDetails() }
+        card.setOnClickListener { toggleCardDetails() }
 
         return card
     }
@@ -1276,7 +1767,7 @@ class MainActivity : Activity() {
 
             val vView = TextView(this@MainActivity).apply {
                 text = value
-                textSize = 13f
+                textSize = 12f
                 setTextColor(Color.parseColor(valueColor))
                 setTypeface(null, Typeface.BOLD)
                 gravity = Gravity.CENTER
@@ -1286,7 +1777,7 @@ class MainActivity : Activity() {
 
             val sView = TextView(this@MainActivity).apply {
                 text = subtext
-                textSize = 9f
+                textSize = 8f
                 setTextColor(Color.parseColor("#64748b"))
                 gravity = Gravity.CENTER
             }
@@ -1306,6 +1797,40 @@ class MainActivity : Activity() {
         }
         overlayStatusTextView.text = if (overlayEnabled) "● Ventana Emergente Automática: ACTIVO" else "○ Ventana Emergente Automática: PENDIENTE"
         overlayStatusTextView.setTextColor(if (overlayEnabled) Color.parseColor("#10b981") else Color.parseColor("#f59e0b"))
+
+        val savedToken = prefs.getString("auth_token", "") ?: ""
+        val hasToken = savedToken.isNotBlank()
+        val allOk = notifEnabled && overlayEnabled && hasToken
+
+        if (::overallStatusBadge.isInitialized) {
+            overallStatusBadge.apply {
+                if (allOk) {
+                    text = "🟢 Conectado"
+                    setTextColor(Color.parseColor("#4ade80"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 12f
+                        setColor(Color.parseColor("#052e16"))
+                        setStroke(1, Color.parseColor("#10b981"))
+                    }
+                } else if (!notifEnabled || !overlayEnabled) {
+                    text = "🟡 Permisos"
+                    setTextColor(Color.parseColor("#f59e0b"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 12f
+                        setColor(Color.parseColor("#2a1e04"))
+                        setStroke(1, Color.parseColor("#f59e0b"))
+                    }
+                } else {
+                    text = "⚪ Sin Sesión"
+                    setTextColor(Color.parseColor("#94a3b8"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 12f
+                        setColor(Color.parseColor("#0e1526"))
+                        setStroke(1, Color.parseColor("#334155"))
+                    }
+                }
+            }
+        }
     }
 
     private fun isNotificationServiceEnabled(): Boolean {
