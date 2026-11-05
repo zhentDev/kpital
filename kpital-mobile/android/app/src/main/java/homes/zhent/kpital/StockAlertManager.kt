@@ -140,6 +140,7 @@ object StockAlertManager {
         scheduler?.scheduleWithFixedDelay({
             try {
                 pollAlerts(appContext)
+                DebtAlertManager.fetchDebtAlertsAsync(appContext)
             } catch (t: Throwable) {
                 Log.e(TAG, "Error durante polling de alertas: ${t.message}", t)
             }

@@ -57,8 +57,9 @@ class MainActivity : Activity() {
     private var activeFilter: String = "ALL" // "ALL", "PENDING", "COMPLETED"
     private var isCompletedHistoryExpanded: Boolean = false
 
-    // Contenedores de la sección de Alertas de Bolsa
+    // Contenedores de la sección de Alertas de Bolsa y Deudas
     private lateinit var alertsCardsContainer: LinearLayout
+    private lateinit var containerDebtAlerts: LinearLayout
     private lateinit var emptyAlertsView: LinearLayout
     private lateinit var alertsMetricActive: TextView
     private lateinit var alertsMetricNear: TextView
@@ -67,7 +68,8 @@ class MainActivity : Activity() {
     private lateinit var btnRefreshAlerts: Button
     private lateinit var btnTestAlertNotification: Button
 
-    // Estados de colapso de acordeones en alertas de bolsa
+    // Estados de colapso de acordeones en alertas de bolsa y deudas
+    private var isDebtAlertsExpanded: Boolean = true
     private var isTriggeredStockAlertsExpanded: Boolean = true
     private var isNearStockAlertsExpanded: Boolean = true
     private var isActiveStockAlertsExpanded: Boolean = true
@@ -85,6 +87,7 @@ class MainActivity : Activity() {
 
         // Cargar preferencias de expansión de acordeones
         isCompletedHistoryExpanded = prefs.getBoolean("pref_completed_history_expanded", false)
+        isDebtAlertsExpanded = prefs.getBoolean("pref_debt_alerts_expanded", true)
         isTriggeredStockAlertsExpanded = prefs.getBoolean("pref_triggered_stock_expanded", true)
         isNearStockAlertsExpanded = prefs.getBoolean("pref_near_stock_expanded", true)
         isActiveStockAlertsExpanded = prefs.getBoolean("pref_active_stock_expanded", true)
@@ -162,6 +165,18 @@ class MainActivity : Activity() {
             }
         }
 
+        // Monitoreo de alertas de vencimientos de deudas y préstamos
+        DebtAlertManager.setOnDebtAlertsUpdatedListener { debtAlerts ->
+            runOnUiThread {
+                renderDebtAlertsUI(debtAlerts)
+            }
+        }
+        DebtAlertManager.fetchDebtAlertsAsync(this) { debtAlerts ->
+            runOnUiThread {
+                renderDebtAlertsUI(debtAlerts)
+            }
+        }
+
         // Revisar si la app fue abierta desde una notificación de alerta
         handleOpenFromNotification(intent)
 
@@ -192,6 +207,9 @@ class MainActivity : Activity() {
         if (activeMainTab == "ALERTS") {
             StockAlertManager.fetchLiveAlertsAsync(this) { res ->
                 if (res != null) renderStockAlertsUI(res)
+            }
+            DebtAlertManager.fetchDebtAlertsAsync(this) { debtAlerts ->
+                renderDebtAlertsUI(debtAlerts)
             }
         }
     }
@@ -640,8 +658,15 @@ class MainActivity : Activity() {
             if (cached != null) {
                 renderStockAlertsUI(cached)
             }
+            val cachedDebts = DebtAlertManager.latestDebtAlerts
+            if (cachedDebts.isNotEmpty()) {
+                renderDebtAlertsUI(cachedDebts)
+            }
             StockAlertManager.fetchLiveAlertsAsync(this) { res ->
                 if (res != null) renderStockAlertsUI(res)
+            }
+            DebtAlertManager.fetchDebtAlertsAsync(this) { debtAlerts ->
+                renderDebtAlertsUI(debtAlerts)
             }
         }
     }
@@ -1229,6 +1254,11 @@ class MainActivity : Activity() {
             setOnClickListener {
                 text = "⏳ ..."
                 isEnabled = false
+                DebtAlertManager.fetchDebtAlertsAsync(this@MainActivity) { debtAlerts ->
+                    runOnUiThread {
+                        renderDebtAlertsUI(debtAlerts)
+                    }
+                }
                 StockAlertManager.fetchLiveAlertsAsync(this@MainActivity) { res ->
                     isEnabled = true
                     text = "🔄 Actualizar"
@@ -1248,12 +1278,20 @@ class MainActivity : Activity() {
         sectionStockAlerts.addView(headerRow)
 
         val subDesc = TextView(this).apply {
-            text = "Monitoreo en vivo cada 5 min. Tu teléfono te notificará con alarma sonora en cuanto una posición alcance tu precio de venta."
+            text = "Monitoreo en vivo cada 5 min. Tu teléfono te notificará con alarma sonora en cuanto una posición alcance tu precio de venta o un préstamo esté por vencer."
             textSize = 11f
             setTextColor(Color.parseColor("#94a3b8"))
             setPadding(0, 6, 0, 12)
         }
         sectionStockAlerts.addView(subDesc)
+
+        // Contenedor de Vencimientos de Deudas y Préstamos
+        containerDebtAlerts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 0, 0, 14)
+        }
+        sectionStockAlerts.addView(containerDebtAlerts)
 
         // Fila de Métricas (Activas, Cerca, Disparadas)
         val metricsRow = LinearLayout(this).apply {
@@ -1412,6 +1450,149 @@ class MainActivity : Activity() {
         }
 
         return header
+    }
+
+    private fun renderDebtAlertsUI(alerts: List<DebtDueAlert>) {
+        if (!::containerDebtAlerts.isInitialized) return
+        containerDebtAlerts.removeAllViews()
+
+        if (alerts.isEmpty()) {
+            containerDebtAlerts.visibility = View.GONE
+            return
+        }
+        containerDebtAlerts.visibility = View.VISIBLE
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (isDebtAlertsExpanded) View.VISIBLE else View.GONE
+        }
+
+        val dueTodayCount = alerts.count { it.status == "DUE_TODAY" }
+        val overdueCount = alerts.count { it.status == "OVERDUE" }
+        val headerColor = when {
+            overdueCount > 0 -> "#ef4444"
+            dueTodayCount > 0 -> "#f59e0b"
+            else -> "#0284c7"
+        }
+
+        val header = createAccordionHeader(
+            title = "⏰ Vencimientos de Deudas y Préstamos",
+            count = alerts.size,
+            badgeColor = headerColor,
+            isExpanded = isDebtAlertsExpanded
+        ) { exp ->
+            isDebtAlertsExpanded = exp
+            listContainer.visibility = if (exp) View.VISIBLE else View.GONE
+            prefs.edit().putBoolean("pref_debt_alerts_expanded", exp).apply()
+        }
+        containerDebtAlerts.addView(header)
+
+        for (alert in alerts) {
+            listContainer.addView(createDebtAlertCardView(alert))
+        }
+        containerDebtAlerts.addView(listContainer)
+    }
+
+    private fun createDebtAlertCardView(alert: DebtDueAlert): View {
+        val isReceivable = alert.debtType == "receivable"
+        val isToday = alert.status == "DUE_TODAY"
+        val isOverdue = alert.status == "OVERDUE"
+
+        val accentColor = when {
+            isOverdue -> "#ef4444"
+            isToday -> "#f59e0b"
+            else -> "#0284c7"
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(26, 20, 26, 20)
+            background = GradientDrawable().apply {
+                cornerRadius = 18f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(if (isToday || isOverdue) 2 else 1, Color.parseColor(accentColor))
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 12)
+            }
+            layoutParams = params
+        }
+
+        // Fila 1: Título y Badge de Vencimiento
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val titleView = TextView(this).apply {
+            text = alert.concept
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row1.addView(titleView)
+
+        val badgeText = when {
+            isToday -> "⏰ Vence hoy"
+            isOverdue -> "⚠️ Vencido (${Math.abs(alert.daysDiff)}d)"
+            else -> "🗓️ En ${alert.daysDiff} días"
+        }
+
+        val badgeView = TextView(this).apply {
+            text = badgeText
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(accentColor))
+            background = GradientDrawable().apply {
+                cornerRadius = 8f
+                setColor(adjustAlpha(Color.parseColor(accentColor), 0.16f))
+                setStroke(1, Color.parseColor(accentColor))
+            }
+            setPadding(12, 4, 12, 4)
+        }
+        row1.addView(badgeView)
+        card.addView(row1)
+
+        // Fila 2: Persona y Monto
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 4)
+        }
+
+        val personText = TextView(this).apply {
+            text = "${if (isReceivable) "👤 Deudor" else "🏦 Acreedor"}: ${alert.personName}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94a3b8"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row2.addView(personText)
+
+        val amountText = TextView(this).apply {
+            text = DebtAlertManager.formatCop(alert.remainingAmount)
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(if (isReceivable) "#10b981" else "#f43f5e"))
+        }
+        row2.addView(amountText)
+        card.addView(row2)
+
+        // Fila 3: Fecha límite y medio de pago
+        val subInfo = TextView(this).apply {
+            val dueLabel = "Fecha pactada: ${alert.dueDate}"
+            val methodLabel = if (!alert.paymentMethod.isNullOrBlank()) " • ${alert.paymentMethod}" else ""
+            text = "$dueLabel$methodLabel"
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748b"))
+            setPadding(0, 2, 0, 0)
+        }
+        card.addView(subInfo)
+
+        return card
     }
 
     private fun renderStockAlertsUI(result: AlertsPollResult) {
