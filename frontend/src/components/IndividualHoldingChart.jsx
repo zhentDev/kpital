@@ -479,6 +479,34 @@ export default function IndividualHoldingChart({
   }, [chartData, selectedItem?.status, selectedItem?.exitDate, selectedItem?.costBasis]);
 
 
+  if (availableOptions.length === 0) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          padding: "50px 24px",
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.5)",
+          borderRadius: 14,
+          border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
+        }}
+      >
+        <span style={{ fontSize: "2.4rem" }}>🪙</span>
+        <h4 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
+          Sin posiciones activas en este portafolio
+        </h4>
+        <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)", maxWidth: 440, lineHeight: 1.5 }}>
+          Has vendido o liquidado todas las posiciones de este portafolio. Cuando realices nuevas compras, aquí podrás inspeccionar sus gráficos de velas y métricas detalladas hora a hora.
+        </p>
+      </div>
+    );
+  }
+
   const displayVal = hoverPoint ? hoverPoint.value : (chartData?.current_value ?? selectedItem?.currentValue ?? 0);
   const displayBase = hoverPoint ? hoverPoint.base : (chartData?.cost_basis ?? selectedItem?.costBasis ?? 0);
   const displayRetUsd = hoverPoint ? hoverPoint.returnUsd : (chartData?.return_usd ?? selectedItem?.returnUsd ?? 0);

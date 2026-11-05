@@ -229,6 +229,31 @@ export async function directFetchCashFlow() {
     };
   });
 
+  // Hydrate credit card payments: database columns take strict precedence over extra_json cache
+  const creditCardPayments = (paymentsRes.data || []).map((p) => {
+    const extra = p.extra_json || {};
+    return {
+      ...extra,
+      id: p.id,
+      cardId: p.card_id || extra.cardId,
+      cardName: p.card_name || extra.cardName,
+      period: p.period || extra.period,
+      amount: Number(p.amount != null ? p.amount : (extra.amount || 0)),
+      date: p.date || extra.date,
+      time: p.time != null ? p.time : extra.time,
+      sourceType: p.source_type || extra.sourceType || "payroll",
+      sourceAccountId: p.source_account_id || extra.sourceAccountId || null,
+      sourceAccount: p.source_account_name || extra.sourceAccount || null,
+      sourceAccountName: p.source_account_name || extra.sourceAccountName || null,
+      budgetDeductions: Array.isArray(p.budget_deductions_json) && p.budget_deductions_json.length > 0
+        ? p.budget_deductions_json
+        : (extra.budgetDeductions || []),
+      notes: p.notes != null ? p.notes : extra.notes,
+      description: extra.description || `Pago ${p.card_name || "Tarjeta"}`,
+      createdAt: p.created_at || extra.createdAt,
+    };
+  });
+
   // Hydrate debts: database columns take strict precedence over extra_json cache
   const debts = (debtsRes.data || []).map((d) => {
     const extra = d.extra_json || {};
@@ -274,6 +299,7 @@ export async function directFetchCashFlow() {
     expensesLog,
     creditCards,
     creditPurchases,
+    creditCardPayments,
     debts,
   };
 }
@@ -287,60 +313,72 @@ export async function directFetchFixedIncome() {
     supabase.from("fi_transactions").select("*").eq("user_id", OWNER_USER_ID).order("date", { ascending: false }),
   ]);
 
-  const entities = (entitiesRes.data || []).map((e) => ({
-    id: e.id,
-    name: e.name,
-    country: e.country,
-    color: e.color,
-    icon: e.icon,
-    ...(e.extra_json || {}),
-  }));
+  const entities = (entitiesRes.data || []).map((e) => {
+    const extra = e.extra_json || {};
+    return {
+      ...extra,
+      id: e.id,
+      name: e.name || extra.name,
+      country: e.country || extra.country,
+      color: e.color || extra.color,
+      icon: e.icon || extra.icon,
+    };
+  });
 
-  const accounts = (accountsRes.data || []).map((a) => ({
-    id: a.id,
-    entityId: a.entity_id,
-    name: a.name,
-    type: a.type,
-    accountCategory: a.account_category,
-    syncType: a.sync_type,
-    currency: a.currency,
-    balance: a.balance,
-    interestRateEA: a.interest_rate_ea,
-    isTaxExemptGMF: a.is_tax_exempt_gmf,
-    rateHistory: a.rate_history_json || [],
-    ...(a.extra_json || {}),
-  }));
+  const accounts = (accountsRes.data || []).map((a) => {
+    const extra = a.extra_json || {};
+    return {
+      ...extra,
+      id: a.id,
+      entityId: a.entity_id || extra.entityId,
+      name: a.name || extra.name,
+      type: a.type || extra.type,
+      accountCategory: a.account_category || extra.accountCategory,
+      syncType: a.sync_type || extra.syncType,
+      currency: a.currency || extra.currency,
+      balance: Number(a.balance != null ? a.balance : (extra.balance || 0)),
+      interestRateEA: Number(a.interest_rate_ea != null ? a.interest_rate_ea : (extra.interestRateEA || 0)),
+      isTaxExemptGMF: a.is_tax_exempt_gmf != null ? a.is_tax_exempt_gmf : extra.isTaxExemptGMF,
+      rateHistory: a.rate_history_json || extra.rateHistory || [],
+    };
+  });
 
-  const cdts = (cdtsRes.data || []).map((c) => ({
-    id: c.id,
-    entityId: c.entity_id,
-    name: c.name,
-    capital: c.capital,
-    currency: c.currency,
-    interestRateEA: c.interest_rate_ea,
-    termDays: c.term_days,
-    startDate: c.start_date,
-    maturityDate: c.maturity_date,
-    reteFuentePct: c.rete_fuente_pct,
-    isAutoRenew: c.is_auto_renew,
-    status: c.status,
-    ...(c.extra_json || {}),
-  }));
+  const cdts = (cdtsRes.data || []).map((c) => {
+    const extra = c.extra_json || {};
+    return {
+      ...extra,
+      id: c.id,
+      entityId: c.entity_id || extra.entityId,
+      name: c.name || extra.name,
+      capital: Number(c.capital != null ? c.capital : (extra.capital || 0)),
+      currency: c.currency || extra.currency || "COP",
+      interestRateEA: Number(c.interest_rate_ea != null ? c.interest_rate_ea : (extra.interestRateEA || 0)),
+      termDays: Number(c.term_days != null ? c.term_days : (extra.termDays || 90)),
+      startDate: c.start_date || extra.startDate,
+      maturityDate: c.maturity_date || extra.maturityDate,
+      reteFuentePct: Number(c.rete_fuente_pct != null ? c.rete_fuente_pct : (extra.reteFuentePct || 4)),
+      isAutoRenew: c.is_auto_renew != null ? c.is_auto_renew : extra.isAutoRenew,
+      status: c.status || extra.status || "active",
+    };
+  });
 
-  const transactions = (txsRes.data || []).map((t) => ({
-    id: t.id,
-    accountId: t.account_id,
-    entityId: t.entity_id,
-    date: t.date,
-    time: t.time,
-    type: t.type,
-    amount: t.amount,
-    currency: t.currency,
-    description: t.description,
-    category: t.category,
-    source: t.source,
-    ...(t.extra_json || {}),
-  }));
+  const transactions = (txsRes.data || []).map((t) => {
+    const extra = t.extra_json || {};
+    return {
+      ...extra,
+      id: t.id,
+      accountId: t.account_id || extra.accountId,
+      entityId: t.entity_id || extra.entityId,
+      date: t.date || extra.date,
+      time: t.time || extra.time,
+      type: t.type || extra.type || "credit",
+      amount: Number(t.amount != null ? t.amount : (extra.amount || 0)),
+      currency: t.currency || extra.currency || "COP",
+      description: t.description || extra.description || "",
+      category: t.category || extra.category || null,
+      source: t.source || extra.source || "manual",
+    };
+  });
 
   return {
     entities,

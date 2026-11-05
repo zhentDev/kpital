@@ -1590,6 +1590,15 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
         }
       });
 
+      // Si actualmente no hay posiciones activas en cartera (se liquidó o vendió todo),
+      // el valor activo actual e invertido en la fecha de hoy cae a 0.00
+      if (dateStr === todayStr && sortedPurchases.length === 0) {
+        totalInvested = 0;
+        totalValue = 0;
+        totalSp500 = 0;
+        totalNasdaq = 0;
+      }
+
       investedData.push({ time: dateStr, value: Number(totalInvested.toFixed(2)) });
       valueData.push({ time: dateStr, value: Number(totalValue.toFixed(2)) });
       if (hasIndexData) {
