@@ -20,7 +20,8 @@ import android.widget.*
 import core.Core
 import org.json.JSONObject
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
@@ -43,7 +44,7 @@ class MainActivity : Activity() {
 
     private val dateFormat = SimpleDateFormat("d 'de' MMM, h:mm a", Locale("es", "CO"))
 
-    override fun onCreate(savedInstanceState) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         prefs = getSharedPreferences("kpital_mobile_prefs", Context.MODE_PRIVATE)
@@ -707,7 +708,7 @@ class MainActivity : Activity() {
             "Compra en Rappi Restaurante"
         )
 
-        val randIdx = Random().nextInt(testBanks.size)
+        val randIdx = testBanks.indices.random()
         val chosenBank = testBanks[randIdx]
         val chosenAmount = testAmounts[randIdx]
         val chosenDesc = testDescs[randIdx]
