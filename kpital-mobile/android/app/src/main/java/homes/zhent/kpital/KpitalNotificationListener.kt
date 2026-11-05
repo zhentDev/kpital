@@ -51,18 +51,24 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         // Paquetes de apps bancarias oficiales
         private val BANK_PACKAGES = setOf(
+            "com.grability.rappi",
+            "com.rappipay.app",
+            "com.rappi.pay",
+            "com.rpay.rappi",
             "co.com.bancolombia",
             "com.bancolombia.personas",
+            "co.com.bancolombia.app",
             "co.com.davivienda",
+            "co.com.davivienda.daviplata",
+            "com.davivienda.personas",
             "br.com.nubank",
             "com.nu.colombia",
             "co.nu.colombia",
             "com.nu.production",
             "com.nequi.MobileApp",
             "co.nequi",
-            "com.rpay.rappi",
-            "com.rappi.pay",
             "com.bancofalabella.bancofalabella",
+            "cl.falabella.banco",
             "com.lulobank",
             "com.cajasocial",
             "co.com.bancocajasocial",
@@ -78,17 +84,22 @@ class KpitalNotificationListener : NotificationListenerService() {
             "com.google.android.apps.messaging",
             "com.samsung.android.messaging",
             "com.android.mms",
+            "com.android.mms.service",
             "com.miui.sms",
             "com.motorola.messaging",
             "com.huawei.message",
-            "com.coloros.mms"
+            "com.coloros.mms",
+            "com.oplus.mms",
+            "com.heytap.mms",
+            "com.transsion.message"
         )
 
         // Entidades financieras reconocidas en SMS bancarios
         private val KNOWN_BANK_NAMES = listOf(
             "caja social", "bcs", "bancolombia", "davivienda", "daviplata",
             "banco de bogota", "banco de bogotá", "banco de occidente",
-            "falabella", "scotiabank", "colpatria", "bbva", "nequi", "nu colombia", "nubank"
+            "falabella", "scotiabank", "colpatria", "bbva", "nequi", "nu colombia", "nubank",
+            "rappi", "rappipay", "rappicuenta", "rappicard", "lulo", "lulobank", "mercado pago"
         )
     }
 
@@ -157,15 +168,22 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         // 1. FILTRADO ESTRICTO DE ORIGEN:
         val isFromBankApp = BANK_PACKAGES.any { packageName.contains(it, ignoreCase = true) } ||
+                packageName.contains("rappi", ignoreCase = true) ||
                 packageName.contains("nubank", ignoreCase = true) ||
                 packageName.contains("nu.colombia", ignoreCase = true) ||
+                packageName.contains("nu.production", ignoreCase = true) ||
                 packageName.contains("bancolombia", ignoreCase = true) ||
                 packageName.contains("nequi", ignoreCase = true) ||
                 packageName.contains("davivienda", ignoreCase = true) ||
                 packageName.contains("daviplata", ignoreCase = true) ||
                 packageName.contains("lulobank", ignoreCase = true) ||
                 packageName.contains("cajasocial", ignoreCase = true) ||
-                packageName.contains("falabella", ignoreCase = true)
+                packageName.contains("falabella", ignoreCase = true) ||
+                packageName.contains("bcs", ignoreCase = true) ||
+                packageName.contains("mercadopago", ignoreCase = true) ||
+                packageName.contains("bbva", ignoreCase = true) ||
+                packageName.contains("colpatria", ignoreCase = true) ||
+                packageName.contains("bancodebogota", ignoreCase = true)
 
         val isFromSmsApp = SMS_PACKAGES.any { packageName.contains(it, ignoreCase = true) } ||
                 packageName.contains("sms", ignoreCase = true) ||
@@ -183,19 +201,28 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         if (title.isBlank() && rawText.isBlank()) return
 
-        // En caso de que la app de SMS agrupe varios mensajes históricos, tomar el más reciente (última línea)
+        // Extracción de texto:
+        // En apps bancarias oficiales (Nu, Rappi, etc.), concatenamos todas las líneas para no perder el monto ni el comercio.
+        // En SMS, si agrupa el historial del remitente, tomamos la última línea más reciente.
         val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-        val latestMessage = if (textLines != null && textLines.isNotEmpty()) {
-            textLines.last().toString()
+        val textToProcess = if (isFromBankApp) {
+            if (textLines != null && textLines.isNotEmpty()) {
+                textLines.joinToString(" ").trim()
+            } else {
+                rawText.replace("\n", " ").trim()
+            }
         } else {
-            rawText.split("\n").filter { it.isNotBlank() }.lastOrNull() ?: rawText
+            if (textLines != null && textLines.isNotEmpty()) {
+                textLines.last().toString().trim()
+            } else {
+                rawText.split("\n").filter { it.isNotBlank() }.lastOrNull()?.trim() ?: rawText.trim()
+            }
         }
 
         // 2. FILTRADO DE CONTENIDO FINANCIERO Y SEGURIDAD:
+        val lower = (title + " " + textToProcess).lowercase()
         if (isFromSmsApp) {
-            val lower = latestMessage.lowercase()
-
-            // A. Debe mencionar explícitamente a un banco colombiano
+            // A. Debe mencionar explícitamente a un banco o billetera colombiana
             val mentionsBank = KNOWN_BANK_NAMES.any { lower.contains(it) }
             if (!mentionsBank) return
 
@@ -219,15 +246,15 @@ class KpitalNotificationListener : NotificationListenerService() {
             if (!hasFinancialKeywords) return
         } else {
             // Para apps bancarias oficiales:
-            val lower = (title + " " + latestMessage).lowercase()
-            val hasFinancialKeywords = lower.contains("$") || lower.contains("compra") ||
+            val hasFinancialKeywords = lower.contains("$") || lower.contains("cop") ||
+                    lower.contains("compra") || lower.contains("compraste") ||
                     lower.contains("envia") || lower.contains("envío") || lower.contains("transfer") ||
                     lower.contains("pagaste") || lower.contains("pago") || lower.contains("recibiste") ||
-                    lower.contains("te transfirieron") || lower.contains("plata")
+                    lower.contains("te transfirieron") || lower.contains("plata") ||
+                    lower.contains("aprob") || lower.contains("abono") || lower.contains("retiro") ||
+                    lower.contains("transacc") || lower.contains("exitos") || lower.contains("gasto")
             if (!hasFinancialKeywords) return
         }
-
-        val textToProcess = latestMessage
         Log.d(TAG, "[$eventType] Movimiento detectado ($packageName): $title -> $textToProcess")
 
         // 3. Procesar y extraer entidad, monto y concepto con el motor Go
