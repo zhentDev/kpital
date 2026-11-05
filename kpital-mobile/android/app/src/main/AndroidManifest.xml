@@ -49,5 +49,16 @@
             </intent-filter>
         </service>
 
+        <!-- Receptor de alarma diaria de las 8:00 PM y reinicio del sistema -->
+        <receiver
+            android:name=".DebtEveningReminderReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="homes.zhent.kpital.ACTION_DEBT_EVENING_REMINDER" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

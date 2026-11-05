@@ -177,6 +177,9 @@ class MainActivity : Activity() {
             }
         }
 
+        // Programar alarma diaria de recordatorios de cobro a las 8:00 PM
+        DebtAlertManager.scheduleDaily8PmAlarm(this)
+
         // Revisar si la app fue abierta desde una notificación de alerta
         handleOpenFromNotification(intent)
 
@@ -204,6 +207,7 @@ class MainActivity : Activity() {
         super.onResume()
         updatePermissionStatus()
         refreshHistoryUI()
+        DebtAlertManager.scheduleDaily8PmAlarm(this)
         if (activeMainTab == "ALERTS") {
             StockAlertManager.fetchLiveAlertsAsync(this) { res ->
                 if (res != null) renderStockAlertsUI(res)
@@ -1537,7 +1541,7 @@ class MainActivity : Activity() {
         row1.addView(titleView)
 
         val badgeText = when {
-            isToday -> "⏰ Vence hoy"
+            isToday -> "⏰ Vence hoy • 8:00 PM"
             isOverdue -> "⚠️ Vencido (${Math.abs(alert.daysDiff)}d)"
             else -> "🗓️ En ${alert.daysDiff} días"
         }
@@ -1585,7 +1589,8 @@ class MainActivity : Activity() {
         val subInfo = TextView(this).apply {
             val dueLabel = "Fecha pactada: ${alert.dueDate}"
             val methodLabel = if (!alert.paymentMethod.isNullOrBlank()) " • ${alert.paymentMethod}" else ""
-            text = "$dueLabel$methodLabel"
+            val reminderLabel = if (isToday) " • 🔔 Alarma 8:00 PM programada" else ""
+            text = "$dueLabel$methodLabel$reminderLabel"
             textSize = 11f
             setTextColor(Color.parseColor("#64748b"))
             setPadding(0, 2, 0, 0)

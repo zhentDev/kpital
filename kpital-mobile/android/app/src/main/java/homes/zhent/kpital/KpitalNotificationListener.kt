@@ -64,6 +64,20 @@ class KpitalNotificationListener : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        try {
+            DebtAlertManager.scheduleDaily8PmAlarm(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error programando alarma 8PM en listener onCreate: ${e.message}")
+        }
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        try {
+            DebtAlertManager.scheduleDaily8PmAlarm(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error programando alarma 8PM en onListenerConnected: ${e.message}")
+        }
     }
 
     private fun createNotificationChannel() {
