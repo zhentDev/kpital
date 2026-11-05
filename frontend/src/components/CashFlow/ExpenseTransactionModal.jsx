@@ -80,8 +80,13 @@ export default function ExpenseTransactionModal({
     setSelectedBudgetItemId(itemId);
     const item = budgetItems.find((b) => b.id === itemId);
     if (item && !editTransaction) {
-      setAmount(Number(item.amount) || 0);
-      setDescription(item.name || "");
+      // Solo auto-llenar con el presupuesto presupuestado si el usuario NO ha escrito un monto previo
+      if (!amount || Number(amount) <= 0) {
+        setAmount(Number(item.amount) || 0);
+      }
+      if (!description || description.trim() === "") {
+        setDescription(item.name || "");
+      }
 
       if (item.paymentSource) {
         setSourceType(item.paymentSource.type || "payroll");

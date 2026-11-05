@@ -210,6 +210,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        KpitalNotificationListener.requestRebindIfDisconnected(this)
         updatePermissionStatus()
         refreshHistoryUI()
         DebtAlertManager.scheduleDaily8PmAlarm(this)
@@ -1223,6 +1224,33 @@ class MainActivity : Activity() {
 
         when {
             isPending -> {
+                // Botón Eliminar Permanente Directo
+                val deleteBtn = Button(this).apply {
+                    text = "🗑️"
+                    textSize = 12f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#ef4444"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#1f070c"))
+                        setStroke(1, Color.parseColor("#991b1b"))
+                    }
+                    setPadding(14, 8, 14, 8)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 8, 0)
+                    }
+                    layoutParams = p
+                    setOnClickListener {
+                        MovementHistoryManager.deleteMovement(this@MainActivity, movement.id)
+                        refreshHistoryUI()
+                        Toast.makeText(this@MainActivity, "Notificación eliminada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                bottomRow.addView(deleteBtn)
+
                 // Botón Descartar (rojo oscuro)
                 val discardBtn = Button(this).apply {
                     text = "✕ Descartar"
@@ -2187,8 +2215,26 @@ class MainActivity : Activity() {
 
     private fun updatePermissionStatus() {
         val notifEnabled = isNotificationServiceEnabled()
-        statusTextView.text = if (notifEnabled) "● Lectura de Notificaciones: ACTIVO" else "○ Lectura de Notificaciones: PENDIENTE"
-        statusTextView.setTextColor(if (notifEnabled) Color.parseColor("#10b981") else Color.parseColor("#f59e0b"))
+        val isBound = KpitalNotificationListener.isConnected
+
+        if (notifEnabled && !isBound) {
+            statusTextView.text = "🟡 Lectura de Notificaciones: RECONECTANDO (Toca para reactivar)"
+            statusTextView.setTextColor(Color.parseColor("#f59e0b"))
+            statusTextView.setOnClickListener {
+                Toast.makeText(this, "Para reactivar el enlace tras actualizar, desactiva y vuelve a activar el permiso de Kpital", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        } else if (notifEnabled) {
+            statusTextView.text = "● Lectura de Notificaciones: ACTIVO"
+            statusTextView.setTextColor(Color.parseColor("#10b981"))
+            statusTextView.setOnClickListener(null)
+        } else {
+            statusTextView.text = "○ Lectura de Notificaciones: PENDIENTE"
+            statusTextView.setTextColor(Color.parseColor("#f59e0b"))
+            statusTextView.setOnClickListener {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
 
         val overlayEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(this)
@@ -2200,7 +2246,7 @@ class MainActivity : Activity() {
 
         val savedToken = prefs.getString("auth_token", "") ?: ""
         val hasToken = savedToken.isNotBlank()
-        val allOk = notifEnabled && overlayEnabled && hasToken
+        val allOk = notifEnabled && isBound && overlayEnabled && hasToken
 
         if (::overallStatusBadge.isInitialized) {
             overallStatusBadge.apply {
@@ -2212,6 +2258,19 @@ class MainActivity : Activity() {
                         setColor(Color.parseColor("#052e16"))
                         setStroke(1, Color.parseColor("#10b981"))
                     }
+                    setOnClickListener(null)
+                } else if (notifEnabled && !isBound) {
+                    text = "🟡 Reactivar"
+                    setTextColor(Color.parseColor("#f59e0b"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 12f
+                        setColor(Color.parseColor("#2a1e04"))
+                        setStroke(1, Color.parseColor("#f59e0b"))
+                    }
+                    setOnClickListener {
+                        Toast.makeText(this@MainActivity, "Android desconectó el listener al actualizar. Desactiva y activa el interruptor de Kpital", Toast.LENGTH_LONG).show()
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    }
                 } else if (!notifEnabled || !overlayEnabled) {
                     text = "🟡 Permisos"
                     setTextColor(Color.parseColor("#f59e0b"))
@@ -2220,6 +2279,7 @@ class MainActivity : Activity() {
                         setColor(Color.parseColor("#2a1e04"))
                         setStroke(1, Color.parseColor("#f59e0b"))
                     }
+                    setOnClickListener(null)
                 } else {
                     text = "⚪ Sin Sesión"
                     setTextColor(Color.parseColor("#94a3b8"))
@@ -2228,6 +2288,7 @@ class MainActivity : Activity() {
                         setColor(Color.parseColor("#0e1526"))
                         setStroke(1, Color.parseColor("#334155"))
                     }
+                    setOnClickListener(null)
                 }
             }
         }

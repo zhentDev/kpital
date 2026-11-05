@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -27,6 +28,26 @@ class KpitalNotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "KpitalMobile"
         private const val CHANNEL_ID = "kpital_urgent_alerts"
+
+        // Estado de conexión del Binder con el sistema Android OS
+        var isConnected: Boolean = false
+            private set
+
+        /**
+         * Fuerza a Android a reconectar el listener si el sistema lo desconectó
+         * tras actualizar el APK.
+         */
+        fun requestRebindIfDisconnected(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try {
+                    val component = ComponentName(context, KpitalNotificationListener::class.java)
+                    Log.d(TAG, "Solicitando requestRebind para KpitalNotificationListener...")
+                    requestRebind(component)
+                } catch (e: Exception) {
+                    Log.w(TAG, "requestRebind no pudo ejecutarse: ${e.message}")
+                }
+            }
+        }
 
         // Paquetes de apps bancarias oficiales
         private val BANK_PACKAGES = setOf(
@@ -83,11 +104,19 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isConnected = true
+        Log.i(TAG, "🟢 KpitalNotificationListener conectado exitosamente a Android OS")
         try {
             DebtAlertManager.scheduleDaily8PmAlarm(this)
         } catch (e: Exception) {
             Log.e(TAG, "Error programando alarma 8PM en onListenerConnected: ${e.message}")
         }
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        isConnected = false
+        Log.w(TAG, "🔴 KpitalNotificationListener desconectado por Android OS")
     }
 
     private fun createNotificationChannel() {
@@ -113,7 +142,10 @@ class KpitalNotificationListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
-        // No-op: no re-procesar notificaciones al borrarlas o descartarlas para evitar falsos positivos
+        // Procesar notificación cuando el usuario la desliza/borra de la barra de estado
+        // Permite capturar transacciones bancarias durante pruebas o si llegaron antes de reconectar.
+        // MovementHistoryManager evitará duplicados automáticamente si ya fue registrada o procesada.
+        handleNotificationEvent(sbn, "REMOVED")
     }
 
     private fun handleNotificationEvent(sbn: StatusBarNotification?, eventType: String) {
