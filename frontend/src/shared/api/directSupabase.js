@@ -160,35 +160,39 @@ export async function directFetchCashFlow() {
     }
   });
 
-  // Hydrate movements
-  const expensesLog = (movementsRes.data || []).map((m) => ({
-    id: m.id,
-    period: m.period,
-    date: m.date,
-    time: m.time,
-    type: m.type,
-    amount: m.amount,
-    currency: m.currency,
-    description: m.description,
-    budgetItemId: m.budget_item_id,
-    budgetItemName: m.budget_item_name,
-    budgetItemType: m.budget_item_type,
-    subItemId: m.sub_item_id,
-    subItemName: m.sub_item_name,
-    paymentSource: m.payment_source_json || {},
-    destinationAccountId: m.destination_account_id,
-    destinationAccountName: m.destination_account_name,
-    isSplitChild: m.is_split_child,
-    splitParentId: m.split_parent_id,
-    creditCardPaymentId: m.credit_card_payment_id,
-    cardId: m.card_id,
-    debtId: m.debt_id,
-    isLoan: m.is_loan,
-    isSharedExpense: m.is_shared_expense,
-    participants: m.participants_json || [],
-    isExplicitBudgetIncome: m.is_explicit_sankey_income,
-    ...(m.extra_json || {}),
-  }));
+  // Hydrate movements: database columns take strict precedence over extra_json cache
+  const expensesLog = (movementsRes.data || []).map((m) => {
+    const extra = m.extra_json || {};
+    return {
+      ...extra,
+      id: m.id,
+      period: m.period,
+      date: m.date,
+      time: m.time,
+      type: m.type,
+      amount: m.amount,
+      currency: m.currency,
+      description: m.description,
+      budgetItemId: m.budget_item_id,
+      budgetItemName: m.budget_item_name,
+      budgetItemType: m.budget_item_type,
+      subItemId: m.sub_item_id,
+      subItemName: m.sub_item_name,
+      paymentSource: m.payment_source_json || extra.paymentSource || {},
+      destinationAccountId: m.destination_account_id,
+      destinationAccountName: m.destination_account_name,
+      isSplitChild: m.is_split_child,
+      splitParentId: m.split_parent_id,
+      creditCardPaymentId: m.credit_card_payment_id,
+      cardId: m.card_id,
+      debtId: m.debt_id,
+      isLoan: m.is_loan != null ? m.is_loan : extra.isLoan,
+      isSharedExpense: m.is_shared_expense != null ? m.is_shared_expense : extra.isSharedExpense,
+      participants: Array.isArray(m.participants_json) && m.participants_json.length > 0 ? m.participants_json : (extra.participants || []),
+      settlements: Array.isArray(extra.settlements) ? extra.settlements : [],
+      isExplicitBudgetIncome: m.is_explicit_sankey_income,
+    };
+  });
 
   // Hydrate cards: database columns take strict precedence over extra_json cache
   const creditCards = (cardsRes.data || []).map((c) => {
