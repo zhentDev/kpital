@@ -195,6 +195,19 @@ class KpitalNotificationListener : NotificationListenerService() {
             Log.e(TAG, "Error procesando con Go Core: ${e.message}", e)
         }
 
+        // 3.5. Registrar y persistir de inmediato en el historial de la app Kpital
+        val movement = CapturedMovement(
+            bank = bank,
+            amount = amount,
+            description = description,
+            txType = txType,
+            rawText = "$title - $textToProcess",
+            timestamp = if (postTime > 0) postTime else System.currentTimeMillis(),
+            status = MovementHistoryManager.STATUS_PENDING
+        )
+        val movementId = MovementHistoryManager.addMovement(applicationContext, movement)
+        Log.d(TAG, "Movimiento guardado en historial local: id=$movementId, $bank, $amount COP")
+
         // 4. DISPARADOR PRINCIPAL: Overlay Flotante Directo (WindowManager)
         val canOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(this)
@@ -210,7 +223,8 @@ class KpitalNotificationListener : NotificationListenerService() {
                 initialAmount = amount,
                 desc = description,
                 txType = txType,
-                rawText = "$title - $textToProcess"
+                rawText = "$title - $textToProcess",
+                movementId = movementId
             )
         } else {
             Log.w(TAG, "No tiene permiso canDrawOverlays para mostrar la burbuja flotante")
@@ -226,6 +240,7 @@ class KpitalNotificationListener : NotificationListenerService() {
             putExtra(PocketSelectorActivity.EXTRA_DESC, description)
             putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, txType)
             putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, "$title - $textToProcess")
+            putExtra(PocketSelectorActivity.EXTRA_MOVEMENT_ID, movementId)
         }
 
         val requestCode = System.currentTimeMillis().toInt()

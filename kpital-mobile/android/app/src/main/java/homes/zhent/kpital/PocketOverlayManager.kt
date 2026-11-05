@@ -35,7 +35,8 @@ object PocketOverlayManager {
         initialAmount: Double,
         desc: String,
         txType: String,
-        rawText: String
+        rawText: String,
+        movementId: String? = null
     ) {
         val appContext = context.applicationContext
         val mainHandler = Handler(Looper.getMainLooper())
@@ -227,6 +228,7 @@ object PocketOverlayManager {
                                 desc = desc,
                                 txType = txType,
                                 rawText = rawText,
+                                movementId = movementId,
                                 displayOptions = displayOptions,
                                 internalNames = internalNames,
                                 getFinalAmount = {
@@ -258,6 +260,7 @@ object PocketOverlayManager {
         desc: String,
         txType: String,
         rawText: String,
+        movementId: String?,
         displayOptions: List<String>,
         internalNames: List<String>,
         getFinalAmount: () -> Double
@@ -321,6 +324,15 @@ object PocketOverlayManager {
 
                             mainHandler.post {
                                 if (success) {
+                                    if (movementId != null) {
+                                        MovementHistoryManager.updateMovementStatus(
+                                            context = appContext,
+                                            id = movementId,
+                                            newStatus = MovementHistoryManager.STATUS_COMPLETED,
+                                            pocketName = internalName,
+                                            newAmount = finalAmount
+                                        )
+                                    }
                                     Toast.makeText(appContext, "✅ $msg", Toast.LENGTH_LONG).show()
                                 } else {
                                     Toast.makeText(appContext, "⚠️ $msg", Toast.LENGTH_LONG).show()

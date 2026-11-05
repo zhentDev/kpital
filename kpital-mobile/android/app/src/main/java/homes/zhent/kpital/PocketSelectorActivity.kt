@@ -28,9 +28,11 @@ class PocketSelectorActivity : Activity() {
         const val EXTRA_DESC = "extra_desc"
         const val EXTRA_TX_TYPE = "extra_tx_type"
         const val EXTRA_RAW_TEXT = "extra_raw_text"
+        const val EXTRA_MOVEMENT_ID = "extra_movement_id"
     }
 
     private var currentAmount: Double = 0.0
+    private var movementId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +56,7 @@ class PocketSelectorActivity : Activity() {
         val desc = intent.getStringExtra(EXTRA_DESC) ?: "Movimiento"
         val txType = intent.getStringExtra(EXTRA_TX_TYPE) ?: "debit"
         val rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
+        movementId = intent.getStringExtra(EXTRA_MOVEMENT_ID)
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#090d16"))
@@ -256,6 +259,16 @@ class PocketSelectorActivity : Activity() {
 
                             runOnUiThread {
                                 if (success) {
+                                    val mId = movementId
+                                    if (mId != null) {
+                                        MovementHistoryManager.updateMovementStatus(
+                                            context = this@PocketSelectorActivity,
+                                            id = mId,
+                                            newStatus = MovementHistoryManager.STATUS_COMPLETED,
+                                            pocketName = internalName,
+                                            newAmount = finalAmount
+                                        )
+                                    }
                                     Toast.makeText(this@PocketSelectorActivity, "✅ $msg", Toast.LENGTH_LONG).show()
                                 } else {
                                     Toast.makeText(this@PocketSelectorActivity, "⚠️ $msg", Toast.LENGTH_LONG).show()
