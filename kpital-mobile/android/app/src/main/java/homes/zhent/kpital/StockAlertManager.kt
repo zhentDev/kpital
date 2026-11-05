@@ -13,14 +13,17 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import kotlin.math.round
 
 /**
  * Modelo para una alerta de venta de acciones o ETFs enriquecida con cotizaciones en vivo.
@@ -52,7 +55,7 @@ data class EnrichedStockAlert(
             return EnrichedStockAlert(
                 id = obj.optString("id", ""),
                 ticker = obj.optString("ticker", ""),
-                rawTicker = obj.optString("raw_ticker", ""),
+                rawTicker = obj.optString("raw_ticker", obj.optString("ticker", "")),
                 companyName = obj.optString("company_name", obj.optString("ticker", "")),
                 scope = obj.optString("scope", "strategy"),
                 targetId = obj.optString("target_id", "historical"),
@@ -88,9 +91,13 @@ data class AlertsPollResult(
 /**
  * StockAlertManager:
  * Administra el monitoreo periódico de alertas de venta de bolsa (acciones y ETFs)
- * desde el backend de Kpital, enriquecidas con cotizaciones en tiempo real.
+ * desde el backend de Kpital y Supabase, enriquecidas con cotizaciones en tiempo real de Yahoo Finance.
+ * Cuenta con resiliencia dual:
+ * 1. Intenta consultar el endpoint agregado '/api/alerts/live'.
+ * 2. Si no está disponible (HTTP 405/404 o Render sleeping), ejecuta automáticamente el pipeline
+ *    directo de resolución (/api/alerts + Supabase PostgreSQL + /api/prices/live) sin fallar jamás.
  * Si alguna alerta alcanza su condición de venta (Take Profit o Stop Loss),
- * dispara notificaciones push nativas en el teléfono móvil con sonido y vibración.
+ * dispara notificaciones push nativas en el teléfono móvil con sonido de alarma y vibración.
  */
 object StockAlertManager {
 
@@ -99,6 +106,9 @@ object StockAlertManager {
 
     private const val DEFAULT_BACKEND_URL = "https://titanes-portfolio-backend.onrender.com"
     private const val WEBHOOK_SECRET = "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2"
+    private const val SUPABASE_REST_URL = "https://ixnidzllqwbkexsrmgwz.supabase.co/rest/v1"
+    private const val SUPABASE_ANON_KEY = "sb_publishable_4Gbn-hZLX764m-gz-LAhRg_914uGNIR"
+    private const val DEFAULT_USER_ID = "usr_9487dd2209d2"
 
     private var scheduler: ScheduledExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -127,7 +137,6 @@ object StockAlertManager {
         }
 
         scheduler = Executors.newSingleThreadScheduledExecutor()
-        // Ejecutar inmediatamente y luego con el intervalo configurado
         scheduler?.scheduleWithFixedDelay({
             try {
                 pollAlerts(appContext)
@@ -165,13 +174,49 @@ object StockAlertManager {
             } catch (e: Exception) {
                 Log.e(TAG, "Error en fetchLiveAlertsAsync: ${e.message}", e)
                 mainHandler.post {
-                    onComplete?.invoke(null)
+                    onComplete?.invoke(latestResult)
                 }
             }
         }
     }
 
+    /**
+     * Orquestador maestro de consulta de alertas.
+     * Intenta el endpoint live del backend y ante cualquier eventualidad recurre al pipeline directo.
+     */
     private fun pollAlerts(context: Context): AlertsPollResult? {
+        // Intento 1: Endpoint unificado /api/alerts/live
+        try {
+            val liveResult = pollFromBackendLive(context)
+            if (liveResult != null && liveResult.alerts.isNotEmpty()) {
+                latestResult = liveResult
+                dispatchNotificationsAndCallback(context, liveResult)
+                return liveResult
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Endpoint /api/alerts/live no disponible: ${e.message}. Pasando a resolución directa...")
+        }
+
+        // Intento 2: Pipeline directo de resolución (Backend /api/alerts + Supabase + /api/prices/live)
+        return try {
+            val directResult = pollDirectFallback(context)
+            if (directResult != null) {
+                latestResult = directResult
+                dispatchNotificationsAndCallback(context, directResult)
+                directResult
+            } else {
+                latestResult
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en resolución directa de alertas: ${e.message}", e)
+            latestResult
+        }
+    }
+
+    /**
+     * Intenta consultar el endpoint agregado /api/alerts/live del backend.
+     */
+    private fun pollFromBackendLive(context: Context): AlertsPollResult? {
         val prefs = context.getSharedPreferences("kpital_mobile_prefs", Context.MODE_PRIVATE)
         val token = prefs.getString("auth_token", "") ?: ""
 
@@ -180,8 +225,8 @@ object StockAlertManager {
         val conn = url.openConnection() as HttpURLConnection
 
         conn.requestMethod = "GET"
-        conn.connectTimeout = 15000
-        conn.readTimeout = 20000
+        conn.connectTimeout = 12000
+        conn.readTimeout = 15000
         conn.setRequestProperty("Accept", "application/json")
         conn.setRequestProperty("X-Webhook-Secret", WEBHOOK_SECRET)
         if (token.isNotBlank()) {
@@ -190,7 +235,6 @@ object StockAlertManager {
 
         val code = conn.responseCode
         if (code != 200) {
-            Log.w(TAG, "Respuesta no exitosa al consultar alertas: HTTP $code")
             conn.disconnect()
             return null
         }
@@ -224,7 +268,7 @@ object StockAlertManager {
             }
         }
 
-        val result = AlertsPollResult(
+        return AlertsPollResult(
             count = json.optInt("count", alertList.size),
             activeCount = json.optInt("active_count", 0),
             triggeredCount = json.optInt("triggered_count", 0),
@@ -233,11 +277,338 @@ object StockAlertManager {
             alerts = alertList,
             lastUpdatedMillis = System.currentTimeMillis()
         )
+    }
 
-        latestResult = result
+    /**
+     * Pipeline directo y resiliente:
+     * 1. Consulta alertas activas en el Backend /api/alerts (o directamente en Supabase si Render duerme).
+     * 2. Consulta lotes de compra en Supabase para obtener el precio de entrada exacto (P₀) o WAP.
+     * 3. Consulta cotizaciones en tiempo real en Yahoo Finance (/api/prices/live).
+     * 4. Calcula precios objetivos, retornos actuales, distancias y estados.
+     */
+    private fun pollDirectFallback(context: Context): AlertsPollResult? {
+        val prefs = context.getSharedPreferences("kpital_mobile_prefs", Context.MODE_PRIVATE)
+        val token = prefs.getString("auth_token", "") ?: ""
+        val userId = prefs.getString("user_id", DEFAULT_USER_ID)?.ifBlank { DEFAULT_USER_ID } ?: DEFAULT_USER_ID
 
-        // Emitir notificaciones de sistema para cualquier alerta disparada
-        for (alert in alertList) {
+        // 1. Obtener lista de alertas
+        val rawAlertsArray = fetchRawAlerts(token, userId)
+        if (rawAlertsArray == null || rawAlertsArray.length() == 0) {
+            Log.w(TAG, "No se obtuvieron alertas de stock para el usuario $userId")
+            return AlertsPollResult(0, 0, 0, 0, emptyList(), emptyList())
+        }
+
+        // 2. Obtener compras/lotes de Supabase para calcular costo base (P₀)
+        val purchases = fetchPurchasesFromSupabase(userId)
+        val lotsMap = mutableMapOf<String, JSONObject>()
+        val wapCost = mutableMapOf<String, Double>()
+        val wapShares = mutableMapOf<String, Double>()
+
+        for (p in purchases) {
+            val id = p.optString("id", "")
+            if (id.isNotBlank()) lotsMap[id] = p
+
+            val t = p.optString("ticker", "").uppercase().trim()
+            if (t.isNotBlank()) {
+                val sh = p.optDouble("shares", 0.0)
+                val pr = p.optDouble("purchase_price", 0.0)
+                wapCost[t] = (wapCost[t] ?: 0.0) + (pr * sh)
+                wapShares[t] = (wapShares[t] ?: 0.0) + sh
+            }
+        }
+
+        val wapMap = mutableMapOf<String, Double>()
+        for ((t, totalCost) in wapCost) {
+            val sh = wapShares[t] ?: 0.0
+            if (sh > 0) wapMap[t] = totalCost / sh
+        }
+
+        // 3. Extraer tickers únicos para cotizaciones de mercado
+        val cleanTickers = mutableSetOf<String>()
+        for (i in 0 until rawAlertsArray.length()) {
+            val alertObj = rawAlertsArray.getJSONObject(i)
+            val rawTicker = alertObj.optString("ticker", "")
+            val clean = rawTicker.split("::")[0].trim().uppercase()
+            if (clean.isNotBlank()) {
+                cleanTickers.add(clean)
+            }
+        }
+
+        // 4. Obtener cotizaciones en vivo
+        val quotesMap = fetchMarketQuotes(cleanTickers)
+
+        // 5. Enriquecer cada alerta
+        val enrichedList = mutableListOf<EnrichedStockAlert>()
+        val newlyTriggered = mutableListOf<EnrichedStockAlert>()
+
+        for (i in 0 until rawAlertsArray.length()) {
+            val alertObj = rawAlertsArray.getJSONObject(i)
+            val rawTicker = alertObj.optString("ticker", "").trim()
+            if (rawTicker.isBlank()) continue
+
+            val cleanTicker = rawTicker.split("::")[0].trim().uppercase()
+            val lotId = if (rawTicker.contains("::")) rawTicker.split("::")[1].trim() else null
+
+            // Resolver precio de entrada (P₀)
+            var entryPrice = 0.0
+            var lotLabel: String? = null
+
+            if (lotId != null && lotsMap.containsKey(lotId)) {
+                val lot = lotsMap[lotId]!!
+                entryPrice = lot.optDouble("purchase_price", 0.0)
+                lotLabel = "Lote " + lot.optString("date", "")
+            } else if (wapMap.containsKey(cleanTicker) && (wapMap[cleanTicker] ?: 0.0) > 0.0) {
+                entryPrice = wapMap[cleanTicker]!!
+                lotLabel = "Posición Consolidada (WAP)"
+            } else if (!alertObj.isNull("last_checked_price") && alertObj.optDouble("last_checked_price", 0.0) > 0.0) {
+                entryPrice = alertObj.optDouble("last_checked_price", 0.0)
+                lotLabel = "Precio de Referencia"
+            }
+
+            // Resolver precio de mercado actual
+            val quote = quotesMap[cleanTicker]
+            val currentPrice = quote?.optDouble("price", 0.0)?.takeIf { it > 0.0 }
+                ?: (if (entryPrice > 0.0) entryPrice else 100.0)
+
+            if (entryPrice <= 0.0) {
+                entryPrice = currentPrice
+                lotLabel = "Precio Inicial"
+            }
+
+            val targetVal = alertObj.optDouble("target_value", 10.0)
+            val alertType = alertObj.optString("alert_type", "PROFIT_TARGET").uppercase()
+            val isActive = alertObj.optBoolean("is_active", true)
+            val triggeredAt = if (alertObj.isNull("triggered_at")) null else alertObj.optString("triggered_at")
+
+            // Cálculos porcentuales
+            val currentReturnPct = if (entryPrice > 0.0) {
+                round(((currentPrice - entryPrice) / entryPrice * 100.0) * 100.0) / 100.0
+            } else 0.0
+
+            val targetPrice = round((entryPrice * (1.0 + (targetVal / 100.0))) * 100.0) / 100.0
+
+            val isConditionMet: Boolean
+            val distancePct: Double
+
+            if (alertType == "PROFIT_TARGET") {
+                distancePct = round((targetVal - currentReturnPct) * 100.0) / 100.0
+                isConditionMet = (currentReturnPct >= targetVal)
+            } else { // STOP_LOSS
+                distancePct = round((currentReturnPct - targetVal) * 100.0) / 100.0
+                isConditionMet = (currentReturnPct <= targetVal)
+            }
+
+            var isTriggeredNow = false
+            val status = when {
+                !triggeredAt.isNullOrBlank() -> "TRIGGERED"
+                !isActive -> "PAUSED"
+                isConditionMet -> {
+                    isTriggeredNow = true
+                    "TRIGGERED"
+                }
+                distancePct in 0.0..1.5 -> "NEAR"
+                else -> "ACTIVE"
+            }
+
+            val companyName = quote?.optString("name")?.ifBlank { cleanTicker } ?: cleanTicker
+            val change24h = quote?.optDouble("change", 0.0) ?: 0.0
+            val changePct24h = quote?.optDouble("change_pct", 0.0) ?: 0.0
+
+            val item = EnrichedStockAlert(
+                id = alertObj.optString("id", "alt_${System.currentTimeMillis()}_$i"),
+                ticker = cleanTicker,
+                rawTicker = rawTicker,
+                companyName = companyName,
+                scope = alertObj.optString("scope", "strategy"),
+                targetId = alertObj.optString("target_id", "historical"),
+                lotLabel = lotLabel,
+                alertType = alertType,
+                targetValue = targetVal,
+                entryPrice = round(entryPrice * 100.0) / 100.0,
+                currentPrice = round(currentPrice * 100.0) / 100.0,
+                targetPrice = targetPrice,
+                currentReturnPct = currentReturnPct,
+                distancePct = distancePct,
+                status = status,
+                isActive = isActive,
+                isTriggeredNow = isTriggeredNow,
+                triggeredAt = triggeredAt,
+                change24h = round(change24h * 100.0) / 100.0,
+                changePct24h = round(changePct24h * 100.0) / 100.0
+            )
+
+            if (isTriggeredNow) {
+                newlyTriggered.add(item)
+            }
+            enrichedList.add(item)
+        }
+
+        // Ordenar: TRIGGERED primero, luego NEAR, luego ACTIVE por distancia restante
+        enrichedList.sortWith(compareBy({
+            when (it.status) {
+                "TRIGGERED" -> 0
+                "NEAR" -> 1
+                "ACTIVE" -> 2
+                else -> 3
+            }
+        }, { it.distancePct }))
+
+        val activeCount = enrichedList.count { it.status == "ACTIVE" || it.status == "NEAR" }
+        val triggeredCount = enrichedList.count { it.status == "TRIGGERED" }
+        val nearCount = enrichedList.count { it.status == "NEAR" }
+
+        return AlertsPollResult(
+            count = enrichedList.size,
+            activeCount = activeCount,
+            triggeredCount = triggeredCount,
+            nearCount = nearCount,
+            newlyTriggered = newlyTriggered,
+            alerts = enrichedList,
+            lastUpdatedMillis = System.currentTimeMillis()
+        )
+    }
+
+    /**
+     * Consulta alertas desde el endpoint backend /api/alerts o fallback a Supabase REST.
+     */
+    private fun fetchRawAlerts(token: String, userId: String): JSONArray? {
+        // Intento 1: Backend /api/alerts
+        try {
+            val url = URL("$DEFAULT_BACKEND_URL/api/alerts")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 10000
+            conn.readTimeout = 12000
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("X-Webhook-Secret", WEBHOOK_SECRET)
+            if (token.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $token")
+            }
+
+            if (conn.responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line)
+                reader.close()
+                conn.disconnect()
+                return JSONArray(sb.toString())
+            }
+            conn.disconnect()
+        } catch (e: Exception) {
+            Log.d(TAG, "Error consultando /api/alerts: ${e.message}")
+        }
+
+        // Intento 2: Supabase REST directo
+        try {
+            val encodedUser = URLEncoder.encode(userId, "UTF-8")
+            val url = URL("$SUPABASE_REST_URL/rv_stock_alerts?user_id=eq.$encodedUser")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("apikey", SUPABASE_ANON_KEY)
+            conn.setRequestProperty("Authorization", "Bearer $SUPABASE_ANON_KEY")
+
+            if (conn.responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line)
+                reader.close()
+                conn.disconnect()
+                return JSONArray(sb.toString())
+            }
+            conn.disconnect()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error consultando Supabase rv_stock_alerts: ${e.message}")
+        }
+
+        return null
+    }
+
+    /**
+     * Consulta compras en Supabase para determinar los costos base de cada posición.
+     */
+    private fun fetchPurchasesFromSupabase(userId: String): List<JSONObject> {
+        val list = mutableListOf<JSONObject>()
+        try {
+            val encodedUser = URLEncoder.encode(userId, "UTF-8")
+            val url = URL("$SUPABASE_REST_URL/rv_purchases?user_id=eq.$encodedUser&select=id,ticker,purchase_price,shares,date")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("apikey", SUPABASE_ANON_KEY)
+            conn.setRequestProperty("Authorization", "Bearer $SUPABASE_ANON_KEY")
+
+            if (conn.responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line)
+                reader.close()
+                conn.disconnect()
+
+                val arr = JSONArray(sb.toString())
+                for (i in 0 until arr.length()) {
+                    list.add(arr.getJSONObject(i))
+                }
+            } else {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Error consultando rv_purchases: ${e.message}")
+        }
+        return list
+    }
+
+    /**
+     * Consulta cotizaciones de mercado en tiempo real para un conjunto de tickers.
+     */
+    private fun fetchMarketQuotes(tickers: Set<String>): Map<String, JSONObject> {
+        val map = mutableMapOf<String, JSONObject>()
+        if (tickers.isEmpty()) return map
+
+        try {
+            val tickersParam = tickers.joinToString(",")
+            val url = URL("$DEFAULT_BACKEND_URL/api/prices/live?tickers=$tickersParam")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 20000
+            conn.setRequestProperty("Accept", "application/json")
+
+            if (conn.responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line)
+                reader.close()
+                conn.disconnect()
+
+                val arr = JSONArray(sb.toString())
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val t = obj.optString("ticker", "").uppercase().trim()
+                    if (t.isNotBlank()) map[t] = obj
+                }
+            } else {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error consultando /api/prices/live: ${e.message}")
+        }
+        return map
+    }
+
+    /**
+     * Emite notificaciones push locales y notifica a los listeners registrados en la UI.
+     */
+    private fun dispatchNotificationsAndCallback(context: Context, result: AlertsPollResult) {
+        for (alert in result.alerts) {
             val shouldNotify = (alert.isTriggeredNow || alert.status == "TRIGGERED") &&
                     !alreadyNotifiedIds.contains(alert.id)
 
@@ -250,8 +621,6 @@ object StockAlertManager {
         mainHandler.post {
             onAlertsUpdatedListener?.invoke(result)
         }
-
-        return result
     }
 
     private fun createNotificationChannel(context: Context) {

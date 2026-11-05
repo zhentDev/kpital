@@ -968,9 +968,12 @@ class MainActivity : Activity() {
                 StockAlertManager.fetchLiveAlertsAsync(this@MainActivity) { res ->
                     isEnabled = true
                     text = "🔄 Actualizar"
-                    if (res != null) {
+                    if (res != null && res.alerts.isNotEmpty()) {
                         renderStockAlertsUI(res)
-                        Toast.makeText(this@MainActivity, "Cotizaciones actualizadas", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Cotizaciones actualizadas (${res.alerts.size} alertas)", Toast.LENGTH_SHORT).show()
+                    } else if (res != null) {
+                        renderStockAlertsUI(res)
+                        Toast.makeText(this@MainActivity, "Sin alertas activas", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(this@MainActivity, "Error consultando cotizaciones", Toast.LENGTH_SHORT).show()
                     }
