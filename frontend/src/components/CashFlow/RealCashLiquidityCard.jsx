@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { formatCashFlowMoney } from "../../utils/cashFlowFormatters";
 import { useTheme } from "../../context/ThemeContext";
 import "./CashFlow.css";
@@ -232,6 +232,49 @@ export default function RealCashLiquidityCard({
     }
     return acc;
   }, 0);
+
+  // ── 7. Predictor de Cierre de Mes, Burn Rate Diario & Runway de Emergencia ──
+  const runwayAnalytics = useMemo(() => {
+    const today = new Date();
+    const currentDay = today.getDate();
+    const payDay = Number(payrollAccount?.payDay || 25);
+
+    let daysElapsed = 1;
+    let daysUntilPayDay = 15;
+
+    if (currentDay >= payDay) {
+      daysElapsed = Math.max(1, currentDay - payDay);
+      const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, payDay);
+      daysUntilPayDay = Math.max(1, Math.ceil((nextMonthDate - today) / (1000 * 60 * 60 * 24)));
+    } else {
+      const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, payDay);
+      daysElapsed = Math.max(1, Math.ceil((today - prevMonthDate) / (1000 * 60 * 60 * 24)));
+      daysUntilPayDay = Math.max(1, payDay - currentDay);
+    }
+
+    // Ritmo de gasto real diario de nómina (Burn rate)
+    const dailyBurnRate = executedExpensesFromPayroll > 0 ? executedExpensesFromPayroll / daysElapsed : 0;
+    const projectedRemainingSpend = dailyBurnRate * daysUntilPayDay;
+    const projectedBalanceAtPayDay = realCashInPayroll - projectedRemainingSpend;
+
+    // Runway Total de Emergencia (Nómina + Cajitas de Rendimiento) en meses de vida
+    const totalLiquidReserves = realCashInPayroll + totalLiquidSavings;
+    const monthlyBurnRate = dailyBurnRate > 0 ? dailyBurnRate * 30 : (executedExpensesFromPayroll || 1);
+    const totalRunwayMonths = monthlyBurnRate > 0 ? (totalLiquidReserves / monthlyBurnRate).toFixed(1) : "99+";
+    const daysOfCashLeft = dailyBurnRate > 0 ? Math.floor(realCashInPayroll / dailyBurnRate) : 999;
+    const isDeficitRisk = projectedBalanceAtPayDay < 0;
+
+    return {
+      daysElapsed,
+      daysUntilPayDay,
+      dailyBurnRate,
+      projectedRemainingSpend,
+      projectedBalanceAtPayDay,
+      daysOfCashLeft,
+      totalRunwayMonths,
+      isDeficitRisk,
+    };
+  }, [payrollAccount, executedExpensesFromPayroll, realCashInPayroll, totalLiquidSavings]);
 
   return (
     <div className="cashflow-liquidity-card">
@@ -814,6 +857,97 @@ export default function RealCashLiquidityCard({
               Capacidad disponible de crédito no utilizado
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Banner de Inteligencia Predictiva: Cierre de Mes & Runway de Emergencia ── */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: "14px 18px",
+          borderRadius: "14px",
+          background: runwayAnalytics.isDeficitRisk
+            ? (isLight ? "rgba(239, 68, 68, 0.05)" : "rgba(239, 68, 68, 0.08)")
+            : (isLight ? "rgba(16, 185, 129, 0.05)" : "rgba(16, 185, 129, 0.08)"),
+          border: `1px solid ${runwayAnalytics.isDeficitRisk ? "rgba(239, 68, 68, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 14,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: "1.5rem" }}>
+            {runwayAnalytics.isDeficitRisk ? "⚠️" : "🔮"}
+          </span>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "0.82rem",
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.4px",
+                  color: runwayAnalytics.isDeficitRisk ? (isLight ? "#dc2626" : "#f87171") : (isLight ? "#059669" : "#34d399"),
+                }}
+              >
+                {runwayAnalytics.isDeficitRisk ? "Alerta de Ritmo de Gasto (Riesgo de Déficit)" : "Proyección Predictiva de Cierre de Mes"}
+              </span>
+              <span
+                style={{
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: "6px",
+                  background: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(255, 255, 255, 0.08)",
+                  color: isLight ? "#0f172a" : "#f8fafc",
+                }}
+              >
+                Gasto diario: {formatMoney(runwayAnalytics.dailyBurnRate, currency)}/día
+              </span>
+            </div>
+            <p
+              style={{
+                margin: "3px 0 0 0",
+                fontSize: "0.75rem",
+                color: isLight ? "#475569" : "#94a3b8",
+              }}
+            >
+              {runwayAnalytics.isDeficitRisk ? (
+                <>
+                  A tu ritmo actual de gasto, la cuenta nómina entraría en déficit en aproximadamente{" "}
+                  <strong>{runwayAnalytics.daysOfCashLeft} días</strong>, antes del día de pago ({runwayAnalytics.daysUntilPayDay} días restantes).
+                </>
+              ) : (
+                <>
+                  Manteniendo este ritmo, proyectas llegar al próximo pago (en <strong>{runwayAnalytics.daysUntilPayDay} días</strong>) con un saldo estimado de{" "}
+                  <strong style={{ color: isLight ? "#059669" : "#34d399" }}>+{formatMoney(runwayAnalytics.projectedBalanceAtPayDay, currency)}</strong> disponible.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Runway Pill Badge */}
+        <div
+          style={{
+            padding: "8px 14px",
+            borderRadius: "10px",
+            background: isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.1)",
+            border: isLight ? "1px solid rgba(2, 132, 199, 0.25)" : "1px solid rgba(0, 229, 255, 0.25)",
+            textAlign: "right",
+          }}
+        >
+          <span style={{ fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", color: isLight ? "#0284c7" : "#38bdf8", display: "block" }}>
+            🛡️ Runway de Emergencia
+          </span>
+          <span className="mono" style={{ fontSize: "1.1rem", fontWeight: 800, color: isLight ? "#0f172a" : "#f8fafc" }}>
+            {runwayAnalytics.totalRunwayMonths} Meses
+          </span>
+          <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", display: "block" }}>
+            (Nómina + Cajitas)
+          </span>
         </div>
       </div>
     </div>

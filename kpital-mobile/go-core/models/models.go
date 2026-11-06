@@ -15,23 +15,37 @@ type RawNotification struct {
 type TransactionType string
 
 const (
-	TypeDebit       TransactionType = "debit"
-	TypeCredit      TransactionType = "credit"
-	TypeYieldPayout TransactionType = "yield_payout"
+	TypeDebit         TransactionType = "debit"
+	TypeCredit        TransactionType = "credit"
+	TypeYieldPayout   TransactionType = "yield_payout"
+	TypeBalanceDigest TransactionType = "balance_digest"
+)
+
+// NotificationCategory denotes the semantic nature of a notification.
+type NotificationCategory string
+
+const (
+	CategoryTransaction   NotificationCategory = "transaction"
+	CategoryBalanceDigest NotificationCategory = "balance_digest"
+	CategorySecurityOTP   NotificationCategory = "security_otp"
+	CategoryMarketing     NotificationCategory = "marketing"
+	CategoryDeclined      NotificationCategory = "declined"
 )
 
 // ParsedTransaction represents the normalized financial movement extracted from text.
 type ParsedTransaction struct {
-	Bank             string          `json:"bank"`
-	Account          string          `json:"account"`
-	Amount           float64         `json:"amount"`
-	Type             TransactionType `json:"type"`
-	Description      string          `json:"description"`
-	RawText          string          `json:"raw_text"`
-	ResultingBalance float64         `json:"resulting_balance,omitempty"`
-	Currency         string          `json:"currency"`
-	Confidence       float64         `json:"confidence"`
-	MatchedRule      string          `json:"matched_rule,omitempty"`
+	Bank             string               `json:"bank"`
+	Account          string               `json:"account"`
+	Amount           float64              `json:"amount"`
+	Type             TransactionType      `json:"type"`
+	Category         NotificationCategory `json:"category,omitempty"`
+	IsInformational  bool                 `json:"is_informational,omitempty"`
+	Description      string               `json:"description"`
+	RawText          string               `json:"raw_text"`
+	ResultingBalance float64              `json:"resulting_balance,omitempty"`
+	Currency         string               `json:"currency"`
+	Confidence       float64              `json:"confidence"`
+	MatchedRule      string               `json:"matched_rule,omitempty"`
 }
 
 // TitanesPayload represents the JSON payload expected by the Titanes Portfolio FastAPI webhook.

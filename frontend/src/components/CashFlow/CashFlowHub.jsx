@@ -21,6 +21,7 @@ import LoanSettlementModal from "./LoanSettlementModal";
 import PayrollEntityModal from "./PayrollEntityModal";
 import PillarBreakdownCard from "./PillarBreakdownCard";
 import RealCashLiquidityCard from "./RealCashLiquidityCard";
+import LiveNetWorthCard from "./LiveNetWorthCard";
 import DebtsSection from "./DebtsSection";
 import DebtModal from "./DebtModal";
 import DebtPaymentModal from "./DebtPaymentModal";
@@ -1118,6 +1119,21 @@ export default function CashFlowHub() {
           </button>
         </div>
       </div>
+
+      {/* ── Balance Patrimonial Integral (Live Net Worth Hub) ─────── */}
+      <LiveNetWorthCard
+        realInvestmentMetrics={realInvestmentMetrics}
+        fixedAccounts={fixedAccounts}
+        fixedCdts={fixedCdts}
+        payrollAccount={payrollAccount}
+        creditCards={creditCards}
+        creditPurchases={creditPurchases}
+        debts={debts}
+        expensesLog={expensesLog}
+        activePeriod={activePeriod}
+        currency={currency}
+        fxRate={fxRate}
+      />
 
       {/* ── 3. Top KPI Summary Cards Grid (with Real TRM Conversion & Explanatory Comments) ── */}
       <div className="cashflow-kpi-grid">

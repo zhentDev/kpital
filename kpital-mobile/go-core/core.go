@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,9 +33,12 @@ type ProcessResult struct {
 	Currency     string  `json:"currency"`
 	Description  string  `json:"description"`
 	Account      string  `json:"account"`
-	TxType       string  `json:"txType"` // "debit" (gasto) or "credit" (ingreso)
+	TxType       string  `json:"txType"` // "debit", "credit", "yield_payout", "balance_digest"
 	CardLast4    string  `json:"cardLast4"`
 	ErrorMessage string  `json:"errorMessage"`
+	IsIgnored    bool    `json:"isIgnored"`
+	IgnoreReason string  `json:"ignoreReason"`
+	IsBalance    bool    `json:"isBalance"`
 }
 
 const (
@@ -96,12 +100,33 @@ func ProcessNotification(packageName, title, text string, timestampMs int64) *Pr
 	// 1. Run through the specialized Colombian banking regex parser
 	parsedTx, err := parserEngine.Parse(rawNotif)
 	if err != nil {
+		if errors.Is(err, parser.ErrIgnoredNotification) {
+			res.Success = true
+			res.Parsed = false
+			res.IsIgnored = true
+			res.IgnoreReason = "Informational, security or promotional notification ignored"
+			return res
+		}
 		res.ErrorMessage = fmt.Sprintf("Parser error: %v", err)
 		return res
 	}
 
 	if parsedTx == nil {
 		res.ErrorMessage = "Notification does not match supported bank transaction patterns"
+		return res
+	}
+
+	if parsedTx.IsInformational {
+		res.Success = true
+		res.Parsed = false
+		res.IsIgnored = true
+		res.IsBalance = (parsedTx.Type == models.TypeBalanceDigest || parsedTx.Category == models.CategoryBalanceDigest)
+		res.IgnoreReason = string(parsedTx.Category)
+		res.Bank = parsedTx.Bank
+		res.Amount = 0
+		res.TxType = string(parsedTx.Type)
+		res.Description = parsedTx.Description
+		res.Account = parsedTx.Account
 		return res
 	}
 
@@ -178,6 +203,14 @@ func ParseNotificationJSON(packageName, title, text string, timestampMs int64) s
 
 	parsedTx, err := parserEngine.Parse(rawNotif)
 	if err != nil {
+		if errors.Is(err, parser.ErrIgnoredNotification) {
+			res.Success = true
+			res.Parsed = false
+			res.IsIgnored = true
+			res.IgnoreReason = "Informational, security or promotional notification ignored"
+			bytes, _ := json.Marshal(res)
+			return string(bytes)
+		}
 		res.ErrorMessage = fmt.Sprintf("Parser error: %v", err)
 		bytes, _ := json.Marshal(res)
 		return string(bytes)
@@ -185,6 +218,21 @@ func ParseNotificationJSON(packageName, title, text string, timestampMs int64) s
 
 	if parsedTx == nil {
 		res.ErrorMessage = "Notification does not match supported bank transaction patterns"
+		bytes, _ := json.Marshal(res)
+		return string(bytes)
+	}
+
+	if parsedTx.IsInformational {
+		res.Success = true
+		res.Parsed = false
+		res.IsIgnored = true
+		res.IsBalance = (parsedTx.Type == models.TypeBalanceDigest || parsedTx.Category == models.CategoryBalanceDigest)
+		res.IgnoreReason = string(parsedTx.Category)
+		res.Bank = parsedTx.Bank
+		res.Amount = 0
+		res.TxType = string(parsedTx.Type)
+		res.Description = parsedTx.Description
+		res.Account = parsedTx.Account
 		bytes, _ := json.Marshal(res)
 		return string(bytes)
 	}

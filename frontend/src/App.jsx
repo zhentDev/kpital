@@ -2962,6 +2962,9 @@ export default function App() {
                       <MonteCarloCard
                         monteCarlo={navData?.monte_carlo}
                         activeInvested={summary.active_invested}
+                        currentValueUSD={summary.stock_value || summary.current_stock_value || summary.active_invested}
+                        beta={summary.beta_sp500 || 1.15}
+                        fxRate={mainFxData?.current || 4150}
                       />
                       <CorrelationHeatmap correlations={navData?.correlations} />
                       <RebalanceTimer rebalances={navData?.rebalances} holdings={navData?.holdings} />

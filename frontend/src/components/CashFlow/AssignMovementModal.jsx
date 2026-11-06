@@ -38,7 +38,39 @@ export default function AssignMovementModal({
   const [selectedPillarFilter, setSelectedPillarFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState(movement?.budgetItemId || "");
+  // Memorized merchant rule extraction
+  const cleanMerchant = useMemo(() => {
+    const desc = movement?.description || "";
+    if (!desc) return "";
+    let clean = desc.trim().replace(/^(?:compra(?:\s+aprobada)?\s+en\s+|compra(?:\s+aprobada)?\s+|pago(?:\s+aprobado)?\s+a\s+|pago(?:\s+aprobado)?\s+en\s+|pago(?:\s+aprobado)?\s+|transferencia\s+a\s+|env[ií]o\s+a\s+)/i, "");
+    const stopWords = new Set(["calle", "cra", "carrera", "av", "avenida", "no", "sa", "sas", "ltda", "en", "de", "con", "por"]);
+    const words = clean.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return "";
+    if (words.length === 1) return words[0];
+    if (!stopWords.has(words[1].toLowerCase())) {
+      return `${words[0]} ${words[1]}`;
+    }
+    return words[0];
+  }, [movement?.description]);
+
+  const existingMerchantRule = useMemo(() => {
+    if (!cleanMerchant) return null;
+    try {
+      const rules = JSON.parse(localStorage.getItem("kpital_merchant_rules") || "[]");
+      const descLower = (movement?.description || "").toLowerCase();
+      return rules.find((r) => r.keyword && descLower.includes(r.keyword.toLowerCase())) || null;
+    } catch {
+      return null;
+    }
+  }, [cleanMerchant, movement?.description]);
+
+  const [rememberMerchantRule, setRememberMerchantRule] = useState(() => Boolean(cleanMerchant));
+
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState(() => {
+    if (movement?.budgetItemId) return movement.budgetItemId;
+    if (existingMerchantRule?.envelopeId) return existingMerchantRule.envelopeId;
+    return "";
+  });
   const [selectedSubItem, setSelectedSubItem] = useState(() => {
     if (!movement?.budgetItemId) return null;
     const env = (budgetItems || []).find((b) => b.id === movement.budgetItemId);
@@ -75,6 +107,9 @@ export default function AssignMovementModal({
     }
     if (movement?.paymentSource?.targetId) {
       return `acc_${movement.paymentSource.targetId}`;
+    }
+    if (existingMerchantRule?.sourceKey) {
+      return existingMerchantRule.sourceKey;
     }
     return "acc_nu_debito";
   });
@@ -580,6 +615,25 @@ export default function AssignMovementModal({
         destOptions.find((o) => o.principal.id === selectedDestAccountId) ||
         (destOptions.length === 1 ? destOptions[0] : null);
       const chosenSource = allPaymentSources.find((s) => s.key === selectedSourceAccountKey) || allPaymentSources[0];
+      if (rememberMerchantRule && cleanMerchant && envelope?.id) {
+        try {
+          const rules = JSON.parse(localStorage.getItem("kpital_merchant_rules") || "[]");
+          const filtered = rules.filter((r) => r.keyword.toLowerCase() !== cleanMerchant.toLowerCase());
+          filtered.push({
+            keyword: cleanMerchant,
+            envelopeId: envelope.id,
+            envelopeName: envelope.name,
+            subItemId: selectedSubItem?.id || null,
+            subItemName: selectedSubItem?.name || null,
+            sourceKey: selectedSourceAccountKey,
+            updatedAt: new Date().toISOString(),
+          });
+          localStorage.setItem("kpital_merchant_rules", JSON.stringify(filtered));
+        } catch (e) {
+          console.warn("Could not save merchant rule:", e);
+        }
+      }
+
       onReclassify({
         movementId: movement.id,
         destinationType: "budget_envelope",
@@ -1600,6 +1654,29 @@ export default function AssignMovementModal({
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Memorized Rule Applied Banner */}
+        {existingMerchantRule && activeTab === "budget_envelope" && (
+          <div
+            style={{
+              padding: "9px 14px",
+              borderRadius: "10px",
+              marginBottom: 14,
+              background: isLight ? "#eff6ff" : "rgba(37, 99, 235, 0.15)",
+              border: isLight ? "1px solid #bfdbfe" : "1px solid rgba(59, 130, 246, 0.3)",
+              color: isLight ? "#1e40af" : "#93c5fd",
+              fontSize: "0.82rem",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>🧠</span>
+            <span>
+              <strong>Regla memorizada aplicada:</strong> Se autoseleccionó la categoría para <em>"{existingMerchantRule.keyword}"</em>.
+            </span>
           </div>
         )}
 
@@ -3438,6 +3515,34 @@ export default function AssignMovementModal({
           </div>
         )}
         </div>
+
+        {/* Remember Merchant Rule Checkbox */}
+        {cleanMerchant && activeTab === "budget_envelope" && (
+          <div
+            style={{
+              padding: "10px 24px",
+              background: isLight ? "#f8fafc" : "rgba(30, 41, 59, 0.7)",
+              borderTop: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              fontSize: "0.82rem",
+              flexShrink: 0,
+            }}
+          >
+            <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", color: isLight ? "#334155" : "#cbd5e1", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={rememberMerchantRule}
+                onChange={(e) => setRememberMerchantRule(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: "#2563eb", cursor: "pointer" }}
+              />
+              <span>
+                🧠 <strong>Recordar regla:</strong> Asignar siempre futuros movimientos de <em>"{cleanMerchant}"</em> a esta categoría y cuenta
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* Modal Actions - Fixed at Bottom */}
         <div

@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrNoAmountFound = errors.New("no numeric amount found in notification")
-	ErrUnrecognized  = errors.New("notification text does not match any known bank format")
+	ErrNoAmountFound       = errors.New("no numeric amount found in notification")
+	ErrUnrecognized        = errors.New("notification text does not match any known bank format")
+	ErrIgnoredNotification = errors.New("notification is informational, security, or promotional and ignored")
 )
 
 // Common extraction regular expressions compiled once for zero-allocation performance.
@@ -21,18 +22,36 @@ var (
 	genericAmt  = regexp.MustCompile(`(?i)(?:\$|COP\s*)\s*([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)`)
 	balanceReg  = regexp.MustCompile(`(?i)(?:saldo|disponible|saldo nuevo|nuevo saldo)\s*(?:es|de)?:?\s*\$?\s*([\d\.,]+)`)
 
+	// Contextual transaction verbs regex to avoid picking up the resulting balance as the transaction amount
+	txAmountRegex = regexp.MustCompile(`(?i)(?:por\s*\$?\s*|pagaste\s*\$?\s*|pago\s*(?:por|de|para)\s*\$?\s*|enviaste\s*\$?\s*|env[ií]o\s*(?:por)?\s*\$?\s*|transferiste\s*\$?\s*|recibiste\s*(?:por)?\s*\$?\s*|retiro\s*(?:por)?\s*\$?\s*|abono\s*(?:de|por)?\s*\$?\s*)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]{3,}(?:,[0-9]{2})?)`)
+
+	// Security, OTP, and Dynamic Keys
+	securityOtpRegex = regexp.MustCompile(`(?i)(?:clave\s+din[aá]mica|c[oó]digo\s+de\s+(?:seguridad|verificaci[oó]n|confirmaci[oó]n)|token|tu\s+c[oó]digo|no\s+compartas|inicio\s+de\s+sesi[oó]n|acceso\s+exitoso|bienvenido\s+a\s+su\s+portal|cambio\s+de\s+clave|c[oó]digo\s+para\s+(?:entrar|ingresar)|se\s+ha\s+generado\s+tu\s+c[oó]digo)`)
+
+	// Marketing, pre-approved loans, credit card limit offers
+	marketingRegex = regexp.MustCompile(`(?i)(?:preaprobado|cupo\s+preaprobado|cr[eé]dito\s+preaprobado|pide\s+tu\s+pr[eé]stamo|solicita\s+tu\s+(?:tarjeta|cr[eé]dito)|avance\s+disponible|te\s+prestamos|abre\s+tu\s+cdt|disfruta\s+de\s+beneficios|conoce\s+nuestros\s+productos|salvavidas|propulsor|tienes\s+un\s+(?:cr[eé]dito|cupo)\s+(?:preaprobado|disponible\s+para\s+ti)|cupo\s+disponible\s+de\s+\$|tu\s+cupo\s+disponible\s+es)`)
+
+	// Declined or rejected transactions
+	declinedRegex = regexp.MustCompile(`(?i)(?:rechazad[oa]|declinad[oa]|fallid[oa]|no\s+exitos[oa]|fondos\s+insuficientes|saldo\s+insuficiente|transacci[oó]n\s+cancelada|no\s+pudimos\s+procesar)`)
+
+	// Informational balance indicators (Banco Caja Social daily notifications, Bancolombia, etc.)
+	balanceIndicatorRegex = regexp.MustCompile(`(?i)(?:tu\s+saldo(?:\s+en\s+cuenta(?:\s+de\s+ahorros)?)?|saldo\s+disponible|saldo\s+en\s+cuenta|su\s+saldo(?:\s+disponible)?|saldo\s+actual|saldo\s+nuevo|nuevo\s+saldo|saldo\s+al|saldo\s+a\s+la\s+fecha|consulta\s+de\s+saldo|tienes\s+un\s+saldo|saldo\s+total|tu\s+dinero\s+creci[oó]|disponible\s+en\s+(?:tu|su|la)\s+cuenta|tu\s+saldo\s+es|saldo\s+al\s+[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})`)
+
+	// Transactional action verbs that prove money actually moved
+	transactionActionRegex = regexp.MustCompile(`(?i)\b(?:compra|compras|compraste|pagaste|pago\s+(?:de|por|para|a)|debito\s+(?:por|de)|d[eé]bito\s+(?:por|de)|transferiste|enviaste|env[ií]o\s+(?:por|a|de)|retiro\s+(?:por|en|de)|retiraste|sacaste|cargo\s+a|descuento\s+de|recibiste|te\s+transfirieron|te\s+pasaron|te\s+enviaron|te\s+lleg[oó]\s+plata|consignaci[oó]n|n[oó]mina|devoluci[oó]n|pago\s+recibido|cashback|reembolso|rendimiento|rendimientos|intereses\s+generados)\b`)
+
 	// Nu Colombia
-	nuSentRecipientRegex = regexp.MustCompile(`(?i)Le enviaste a\s+([^.]+?)(?:\s+en su cuenta|\s+con tu|\.|$|\.\.\.)`)
-	nuPurchaseRegex      = regexp.MustCompile(`(?i)Compra (?:aprobada )?en\s+([^.]+?)(?:\s+por|\s+con|\.|$)`)
-	nuReceivedRegex      = regexp.MustCompile(`(?i)Recibiste\s+.*?de\s+([^.]+?)(?:\s+en (?:su|tu) cuenta|\.|$)`)
+	nuSentRecipientRegex = regexp.MustCompile(`(?i)Le enviaste a\s+([^.]+?)(?:\s+en su cuenta|\s+con tu|\.|\$|\.\.\.)`)
+	nuPurchaseRegex      = regexp.MustCompile(`(?i)Compra (?:aprobada )?en\s+([^.]+?)(?:\s+por|\s+con|\.|\$)`)
+	nuReceivedRegex      = regexp.MustCompile(`(?i)Recibiste\s+.*?de\s+([^.]+?)(?:\s+en (?:su|tu) cuenta|\.|\$)`)
 
 	// RappiPay
-	rappiViaRegex      = regexp.MustCompile(`(?i)a través de\s+([A-Za-z0-9\-\s]+?)(?:fue exitoso|\.|\.\.\.|$)`)
-	rappiPurchaseRegex = regexp.MustCompile(`(?i)Compraste (?:por \$?[\d\.,]+ )?en\s+([^.]+?)(?:\s+con tu|\.|$)`)
+	rappiViaRegex      = regexp.MustCompile(`(?i)a través de\s+([A-Za-z0-9\-\s]+?)(?:fue exitoso|\.|\.\.\.|\$)`)
+	rappiPurchaseRegex = regexp.MustCompile(`(?i)Compraste (?:por \$?[\d\.,]+ )?en\s+([^.]+?)(?:\s+con tu|\.|\$)`)
 
 	// Bancolombia / Caja Social / Davivienda
-	bancoPurchaseRegex = regexp.MustCompile(`(?i)(?:compra por \$?[\d\.,]+ )?en\s+([A-Za-z0-9\s\.\*\-]+?)(?:\s+con tarjeta|\s+por|\.|$)`)
-	transferFromRegex  = regexp.MustCompile(`(?i)desde cuenta (?:nequi |de )?de\s+([A-Za-z0-9\s]+?)(?:\.|\.\.\.|$)`)
+	bancoPurchaseRegex = regexp.MustCompile(`(?i)(?:compra por \$?[\d\.,]+ )?en\s+([A-Za-z0-9\s\.\*\-]+?)(?:\s+con tarjeta|\s+por|\.|\$)`)
+	transferFromRegex  = regexp.MustCompile(`(?i)desde cuenta (?:nequi |de )?de\s+([A-Za-z0-9\s]+?)(?:\.|\.\.\.|\$)`)
 )
 
 // Engine is the central regex and bank parsing engine.
@@ -51,6 +70,64 @@ func (e *Engine) Parse(n models.RawNotification) (*models.ParsedTransaction, err
 	}
 
 	bank := e.DetectBank(n)
+
+	// 1. Filter Security, OTP, and Dynamic Keys
+	if securityOtpRegex.MatchString(combined) {
+		return &models.ParsedTransaction{
+			Bank:            bank,
+			Category:        models.CategorySecurityOTP,
+			IsInformational: true,
+			MatchedRule:     "security_otp",
+		}, ErrIgnoredNotification
+	}
+
+	// 2. Filter Marketing, Pre-approved Loans, Credit Card Limit Offers
+	if marketingRegex.MatchString(combined) {
+		return &models.ParsedTransaction{
+			Bank:            bank,
+			Category:        models.CategoryMarketing,
+			IsInformational: true,
+			MatchedRule:     "marketing_offer",
+		}, ErrIgnoredNotification
+	}
+
+	// 3. Filter Declined or Failed transactions
+	if declinedRegex.MatchString(combined) {
+		return &models.ParsedTransaction{
+			Bank:            bank,
+			Category:        models.CategoryDeclined,
+			IsInformational: true,
+			MatchedRule:     "declined_tx",
+		}, ErrIgnoredNotification
+	}
+
+	// 4. Pure Informational Balance Notification Check (e.g. Banco Caja Social daily push)
+	if balanceIndicatorRegex.MatchString(combined) && !transactionActionRegex.MatchString(combined) {
+		bal := e.ExtractBalance(n)
+		if bal == 0 {
+			if m := genericAmt.FindStringSubmatch(combined); len(m) > 1 {
+				bal, _ = ParseCOPAmount(m[1])
+			}
+		}
+
+		account := e.DetectAccount(n, bank)
+		return &models.ParsedTransaction{
+			Bank:             bank,
+			Account:          account,
+			Amount:           0.0, // Strictly zero so no expense/movement is registered
+			Type:             models.TypeBalanceDigest,
+			Category:         models.CategoryBalanceDigest,
+			IsInformational:  true,
+			Description:      fmt.Sprintf("Saldo disponible %s", bank),
+			RawText:          combined,
+			ResultingBalance: bal,
+			Currency:         "COP",
+			Confidence:       0.99,
+			MatchedRule:      fmt.Sprintf("%s:balance_digest", bank),
+		}, nil
+	}
+
+	// 5. Real Financial Movement (Debit, Credit, Yield Payout)
 	txType := e.DetectType(n)
 	amount, err := e.ExtractAmount(n)
 	if err != nil {
@@ -66,6 +143,8 @@ func (e *Engine) Parse(n models.RawNotification) (*models.ParsedTransaction, err
 		Account:          account,
 		Amount:           amount,
 		Type:             txType,
+		Category:         models.CategoryTransaction,
+		IsInformational:  false,
 		Description:      description,
 		RawText:          combined,
 		ResultingBalance: resultingBal,
@@ -82,9 +161,6 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 	pkg := strings.ToLower(strings.TrimSpace(n.PackageName))
 	app := strings.ToLower(strings.TrimSpace(n.AppName))
 
-	// 1. PRIMARY SOURCE OF TRUTH: Package name of the official bank application.
-	// The emitting app is authoritative: e.g. a transfer sent from Nu to a Nequi account
-	// must be identified as Nu Colombia, NOT Nequi Colombia.
 	switch {
 	case strings.Contains(pkg, "nu.production") || strings.Contains(pkg, "nubank") || strings.Contains(pkg, "nu.colombia") || strings.Contains(pkg, "com.nu.") || strings.Contains(pkg, "co.nu."):
 		return "Nu Colombia"
@@ -130,7 +206,6 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 		return "Google Wallet"
 	}
 
-	// 2. SECONDARY: App Name check
 	switch {
 	case strings.Contains(app, "nu") || strings.Contains(app, "nubank"):
 		return "Nu Colombia"
@@ -150,7 +225,6 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 		return "Lulo Bank"
 	}
 
-	// 3. TERTIARY: Content inspection (SMS or generic messaging apps)
 	combinedLower := strings.ToLower(n.Title + " " + n.Text)
 	switch {
 	case strings.Contains(combinedLower, "rappicuenta") || strings.Contains(combinedLower, "rappipay") || strings.Contains(combinedLower, "rappi"):
@@ -202,9 +276,10 @@ func (e *Engine) DetectType(n models.RawNotification) models.TransactionType {
 
 	// Credit / Inflow keywords
 	creditWords := []string{
-		"recibiste", "te transfirieron", "abono", "consignacion",
-		"consignación", "nomina", "nómina", "devolucion", "devolución",
-		"pago recibido", "aporte exitoso", "pasaplata recibido",
+		"recibiste", "te transfirieron", "te pasaron", "te enviaron", "te llego plata",
+		"te llegó plata", "abono", "consignacion", "consignación", "nomina", "nómina",
+		"devolucion", "devolución", "pago recibido", "aporte exitoso", "pasaplata recibido",
+		"cashback", "reembolso",
 	}
 	for _, word := range creditWords {
 		if strings.Contains(combinedLower, word) {
@@ -216,12 +291,20 @@ func (e *Engine) DetectType(n models.RawNotification) models.TransactionType {
 	return models.TypeDebit
 }
 
-// ExtractAmount parses the monetary amount, prioritizing Title if present (as in Nu).
+// ExtractAmount parses the monetary amount, prioritizing contextual transaction verbs over balance notices.
 func (e *Engine) ExtractAmount(n models.RawNotification) (float64, error) {
 	combined := n.Title + " " + n.Text
 	hasCurrencySymbol := strings.Contains(combined, "$") || strings.Contains(strings.ToLower(combined), "cop")
 
-	// 1. Try Title first (Nu Colombia puts "Enviaste $33.500,00" in Title).
+	// 1. Contextual transaction verb matching (e.g. "compra por $45.000 ... saldo disponible $850.000")
+	// Guarantees we extract the movement amount and NOT the resulting balance!
+	if m := txAmountRegex.FindStringSubmatch(combined); len(m) > 1 {
+		if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
+			return amt, nil
+		}
+	}
+
+	// 2. Try Title (Nu Colombia puts "Enviaste $33.500,00" in Title)
 	if n.Title != "" && (strings.Contains(n.Title, "$") || strings.Contains(strings.ToLower(n.Title), "cop")) {
 		if m := genericAmt.FindStringSubmatch(n.Title); len(m) > 1 {
 			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
@@ -230,14 +313,14 @@ func (e *Engine) ExtractAmount(n models.RawNotification) (float64, error) {
 		}
 	}
 
-	// 2. Try contextual regex on Text (e.g. "por $43.427,99", "pagaste $15.000", "de $20.000")
+	// 3. Try contextual regex on Text
 	if m := amountRegex.FindStringSubmatch(n.Text); len(m) > 1 {
 		if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
 			return amt, nil
 		}
 	}
 
-	// 3. Try generic amount pattern on Text ONLY if text contains '$' or 'cop'
+	// 4. Try generic amount pattern on Text ONLY if text contains '$' or 'cop'
 	if hasCurrencySymbol {
 		if m := genericAmt.FindStringSubmatch(n.Text); len(m) > 1 {
 			if amt, err := ParseCOPAmount(m[1]); err == nil && amt > 0 && amt < 100000000 {
@@ -254,7 +337,6 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 	text := n.Text
 	title := n.Title
 
-	// Google Wallet puts the merchant name directly in Title
 	if (strings.Contains(strings.ToLower(n.AppName), "billetera") || strings.Contains(strings.ToLower(n.AppName), "google")) &&
 		title != "" && !strings.EqualFold(title, "Billetera de Google") && !strings.EqualFold(title, "Google Wallet") {
 		return strings.TrimSpace(title)
@@ -294,19 +376,19 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 
 	case "Nequi Colombia":
 		if strings.Contains(strings.ToLower(text), "pagaste") {
-			re := regexp.MustCompile(`(?i)pagaste\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|$)`)
+			re := regexp.MustCompile(`(?i)pagaste\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|\$)`)
 			if m := re.FindStringSubmatch(text); len(m) > 1 {
 				return "Compra " + strings.TrimSpace(m[1])
 			}
 		}
-		if strings.Contains(strings.ToLower(text), "transfirieron") || strings.Contains(strings.ToLower(text), "recibiste") {
+		if strings.Contains(strings.ToLower(text), "transfirieron") || strings.Contains(strings.ToLower(text), "recibiste") || strings.Contains(strings.ToLower(text), "llegó plata") || strings.Contains(strings.ToLower(text), "llego plata") {
 			return "Transferencia recibida Nequi"
 		}
 		return "Movimiento Nequi"
 
 	case "Davivienda / Daviplata":
 		if strings.Contains(strings.ToLower(text), "pagaste") {
-			re := regexp.MustCompile(`(?i)pagaste\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|$)`)
+			re := regexp.MustCompile(`(?i)pagaste\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|\$)`)
 			if m := re.FindStringSubmatch(text); len(m) > 1 {
 				return "Compra " + strings.TrimSpace(m[1])
 			}
@@ -317,7 +399,7 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 		return "Movimiento Daviplata"
 
 	case "Banco Caja Social":
-		rePayment := regexp.MustCompile(`(?i)para\s+([^.]+?)\s+(?:quedo|quedó|por|\.|$)`)
+		rePayment := regexp.MustCompile(`(?i)para\s+([^.]+?)\s+(?:quedo|quedó|por|\.|\$)`)
 		if m := rePayment.FindStringSubmatch(text); len(m) > 1 {
 			return "Pago " + strings.TrimSpace(m[1])
 		}
@@ -327,7 +409,6 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 		return "Pago Banco Caja Social"
 	}
 
-	// Generic purchase / merchant matching
 	if m := bancoPurchaseRegex.FindStringSubmatch(text); len(m) > 1 {
 		return "Compra " + strings.TrimSpace(m[1])
 	}
@@ -335,7 +416,6 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 		return "Transferencia de " + strings.TrimSpace(m[1])
 	}
 
-	// Fallback to title if descriptive, or general action
 	if title != "" && !strings.EqualFold(title, bank) && !strings.HasPrefix(strings.ToLower(title), "enviaste") {
 		return strings.TrimSpace(title)
 	}
@@ -353,7 +433,6 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 func (e *Engine) DetectAccount(n models.RawNotification, bank string) string {
 	combinedLower := strings.ToLower(n.Title + " " + n.Text)
 
-	// Check specific Nu pockets and accounts
 	if bank == "Nu Colombia" {
 		if strings.Contains(combinedLower, "cajita viaje") || strings.Contains(combinedLower, "viaje") {
 			return "Cajita Viaje"
@@ -370,7 +449,6 @@ func (e *Engine) DetectAccount(n models.RawNotification, bank string) string {
 		return "Cuenta Nu Débito (Nómina)"
 	}
 
-	// Check Rappi pockets
 	if strings.Contains(combinedLower, "impresora") {
 		return "Impresora"
 	}
@@ -378,17 +456,14 @@ func (e *Engine) DetectAccount(n models.RawNotification, bank string) string {
 		return "Fondo de emergencia"
 	}
 
-	// Check Plenti pockets
 	if strings.Contains(combinedLower, "bolsillo a la vista") || strings.Contains(combinedLower, "bolsillo") {
 		return "Bolsillo a la vista"
 	}
 
-	// Check Finandina
 	if strings.Contains(combinedLower, "flexi") {
 		return "Flexi Digital +"
 	}
 
-	// Default accounts based on bank
 	switch bank {
 	case "Nu Colombia":
 		return "Cuenta Nu Débito (Nómina)"
@@ -407,7 +482,8 @@ func (e *Engine) DetectAccount(n models.RawNotification, bank string) string {
 
 // ExtractBalance extracts the resulting account balance if present in the text.
 func (e *Engine) ExtractBalance(n models.RawNotification) float64 {
-	if m := balanceReg.FindStringSubmatch(n.Text); len(m) > 1 {
+	combined := n.Title + " " + n.Text
+	if m := balanceReg.FindStringSubmatch(combined); len(m) > 1 {
 		if val, err := ParseCOPAmount(m[1]); err == nil {
 			return val
 		}

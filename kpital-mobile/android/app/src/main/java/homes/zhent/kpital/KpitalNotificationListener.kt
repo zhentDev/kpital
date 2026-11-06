@@ -103,6 +103,55 @@ class KpitalNotificationListener : NotificationListenerService() {
             "falabella", "scotiabank", "colpatria", "bbva", "nequi", "nu colombia", "nubank",
             "rappi", "rappipay", "rappicuenta", "rappicard", "lulo", "lulobank", "mercado pago"
         )
+
+        /**
+         * Identifica si una notificación es puramente informativa de saldo diario (ej. Banco Caja Social),
+         * oferta comercial de préstamos/tarjetas, o código de seguridad, para no crear movimientos falsos.
+         */
+        fun isInformationalOrIgnored(lower: String): Boolean {
+            // A. Marketing, ofertas o créditos preaprobados
+            val isMarketing = listOf(
+                "preaprobado", "cupo preaprobado", "crédito preaprobado", "credito preaprobado",
+                "pide tu préstamo", "pide tu prestamo", "solicita tu crédito", "solicita tu tarjeta",
+                "avance disponible", "te prestamos", "abre tu cdt", "salvavidas", "propulsor",
+                "cupo disponible de"
+            ).any { lower.contains(it) }
+            if (isMarketing) return true
+
+            // B. Seguridad, claves dinámicas, tokens
+            val isSecurity = listOf(
+                "clave dinamica", "clave dinámica", "código de seguridad", "codigo de seguridad",
+                "token", "código de verificación", "codigo de verificacion", "inicio de sesion",
+                "inicio de sesión", "acceso exitoso", "no compartas tu clave", "se ha generado tu código"
+            ).any { lower.contains(it) }
+            if (isSecurity) return true
+
+            // C. Transacciones fallidas o declinadas
+            val isDeclined = listOf(
+                "rechazad", "declinad", "fallid", "no exitos", "fondos insuficientes", "saldo insuficiente"
+            ).any { lower.contains(it) }
+            if (isDeclined) return true
+
+            // D. Saldo diario puramente informativo (Caja Social, Bancolombia, Davivienda, etc.)
+            val hasTxVerb = listOf(
+                "compra", "compraste", "pagaste", "pago de", "pago por", "pago para", "debito por",
+                "débito por", "transferiste", "enviaste", "envío", "envio", "retiro", "retiraste",
+                "sacaste", "recibiste", "te transfirieron", "te pasaron", "te enviaron", "te llego plata",
+                "te llegó plata", "consignacion", "consignación", "nomina", "nómina", "devolucion",
+                "devolución", "pago recibido", "cashback", "reembolso", "rendimiento", "rendimientos"
+            ).any { lower.contains(it) }
+
+            if (!hasTxVerb) {
+                val hasBalanceIndicator = listOf(
+                    "tu saldo", "saldo disponible", "saldo en cuenta", "su saldo", "saldo actual",
+                    "saldo nuevo", "nuevo saldo", "saldo al", "consulta de saldo", "tienes un saldo",
+                    "saldo total", "tu dinero creció"
+                ).any { lower.contains(it) }
+                if (hasBalanceIndicator) return true
+            }
+
+            return false
+        }
     }
 
     override fun onCreate() {
@@ -237,6 +286,12 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         // 2. FILTRADO DE CONTENIDO FINANCIERO Y SEGURIDAD:
         val lower = (title + " " + textToProcess).lowercase()
+
+        // 2.0 Descarte preventivo de saldos informativos diarios (Caja Social, Bancolombia, etc.) y promociones
+        if (isInformationalOrIgnored(lower)) {
+            Log.i(TAG, "[$eventType] Notificación descartada por ser informativa de saldo, oferta o seguridad: '$title - $textToProcess'")
+            return
+        }
         if (isFromSmsApp) {
             // A. Debe mencionar explícitamente a un banco o billetera colombiana
             val mentionsBank = KNOWN_BANK_NAMES.any { lower.contains(it) }
@@ -283,6 +338,11 @@ class KpitalNotificationListener : NotificationListenerService() {
             val parsedJson = Core.parseNotificationJSON(packageName, title, textToProcess, postTime)
             Log.d(TAG, "Parseo Go Core: $parsedJson")
             val obj = JSONObject(parsedJson)
+
+            if (obj.optBoolean("isBalance", false) || obj.optBoolean("isIgnored", false) || obj.optString("txType") == "balance_digest") {
+                Log.i(TAG, "Notificación informativa/descartada ($packageName): ${obj.optString("ignoreReason", "informativa")}. Ignorando.")
+                return
+            }
 
             if (obj.optBoolean("parsed", false)) {
                 bank = obj.optString("bank", "Banco")

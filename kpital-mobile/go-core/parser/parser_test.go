@@ -251,3 +251,147 @@ func TestParserEngineRealWorldCases(t *testing.T) {
 		})
 	}
 }
+
+
+func TestInformationalBalanceAndFilteringCases(t *testing.T) {
+	engine := NewEngine()
+
+	// 1. Informational Daily Balance notifications (Must NOT generate expense/debit)
+	balanceCases := []struct {
+		name            string
+		notification    models.RawNotification
+		expectedBank    string
+		expectedBalance float64
+	}{
+		{
+			name: "Banco Caja Social - Daily account balance push",
+			notification: models.RawNotification{
+				AppName: "Banco Caja Social",
+				Title:   "Banco Caja Social",
+				Text:    "Tu saldo en cuenta de ahorros No. ****1234 es de $1.250.000",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedBalance: 1250000.0,
+		},
+		{
+			name: "Banco Caja Social - BCS Informa saldo disponible",
+			notification: models.RawNotification{
+				AppName: "Banco Caja Social",
+				Title:   "BCS Informa",
+				Text:    "Tu saldo disponible es $850.000",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedBalance: 850000.0,
+		},
+		{
+			name: "Banco Caja Social - Saldo a la fecha",
+			notification: models.RawNotification{
+				AppName: "Banco Caja Social",
+				Title:   "BCS",
+				Text:    "Saldo disponible al 05/11/2026 es $450.000 COP",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedBalance: 450000.0,
+		},
+		{
+			name: "Bancolombia - Informative balance notification",
+			notification: models.RawNotification{
+				AppName: "Bancolombia",
+				Title:   "Bancolombia",
+				Text:    "Bancolombia le informa que su saldo disponible en la cuenta *1234 es $1.500.000",
+			},
+			expectedBank:    "Bancolombia",
+			expectedBalance: 1500000.0,
+		},
+		{
+			name: "Daviplata - Consulta de saldo informativa",
+			notification: models.RawNotification{
+				AppName: "Daviplata",
+				Title:   "Daviplata",
+				Text:    "Daviplata informa: Tu saldo disponible es de $350.000",
+			},
+			expectedBank:    "Davivienda / Daviplata",
+			expectedBalance: 350000.0,
+		},
+	}
+
+	for _, bc := range balanceCases {
+		t.Run(bc.name, func(t *testing.T) {
+			parsed, err := engine.Parse(bc.notification)
+			if err != nil {
+				t.Fatalf("unexpected error parsing balance notification: %v", err)
+			}
+			if !parsed.IsInformational {
+				t.Errorf("expected IsInformational to be true for %s", bc.name)
+			}
+			if parsed.Type != models.TypeBalanceDigest {
+				t.Errorf("expected Type to be TypeBalanceDigest, got %q", parsed.Type)
+			}
+			if parsed.Amount != 0.0 {
+				t.Errorf("expected Amount to be 0.0 (NO expense), got %f", parsed.Amount)
+			}
+			if parsed.ResultingBalance != bc.expectedBalance {
+				t.Errorf("expected ResultingBalance %f, got %f", bc.expectedBalance, parsed.ResultingBalance)
+			}
+			if parsed.Bank != bc.expectedBank {
+				t.Errorf("expected Bank %q, got %q", bc.expectedBank, parsed.Bank)
+			}
+		})
+	}
+
+	// 2. Security, OTP, and Marketing notifications (Must be ignored/filtered with ErrIgnoredNotification)
+	filteredCases := []struct {
+		name         string
+		notification models.RawNotification
+	}{
+		{
+			name: "Bancolombia - Clave dinámica OTP",
+			notification: models.RawNotification{
+				AppName: "Bancolombia",
+				Title:   "Clave Dinámica",
+				Text:    "Tu clave dinámica es 849201. Válida por 5 minutos. No la compartas con nadie.",
+			},
+		},
+		{
+			name: "Banco Caja Social - Token digital",
+			notification: models.RawNotification{
+				AppName: "Banco Caja Social",
+				Title:   "Seguridad BCS",
+				Text:    "Token de seguridad: 349102 para inicio de sesión en tu portal.",
+			},
+		},
+		{
+			name: "Bancolombia - Crédito preaprobado comercial",
+			notification: models.RawNotification{
+				AppName: "Bancolombia",
+				Title:   "Bancolombia",
+				Text:    "Tienes un crédito preaprobado por $15.000.000. Solicítalo en tu App.",
+			},
+		},
+		{
+			name: "Nu Colombia - Cupo disponible en tarjeta de crédito",
+			notification: models.RawNotification{
+				AppName: "Nubank",
+				Title:   "Nu",
+				Text:    "Tu tarjeta de crédito tiene un cupo disponible de $3.000.000",
+			},
+		},
+		{
+			name: "Banco Falabella - Transacción rechazada",
+			notification: models.RawNotification{
+				AppName: "Banco Falabella",
+				Title:   "Transacción Declinada",
+				Text:    "Compra por $120.000 fue rechazada por fondos insuficientes.",
+			},
+		},
+	}
+
+	for _, fc := range filteredCases {
+		t.Run(fc.name, func(t *testing.T) {
+			_, err := engine.Parse(fc.notification)
+			if err == nil {
+				t.Errorf("expected ErrIgnoredNotification for %s, but got nil", fc.name)
+			}
+		})
+	}
+}

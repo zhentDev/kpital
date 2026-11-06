@@ -43,6 +43,25 @@ export default function ExpensesLogSection({
   const [filterDatePreset, setFilterDatePreset] = useState("all");
   const [filterDateStart, setFilterDateStart] = useState("");
   const [filterDateEnd, setFilterDateEnd] = useState("");
+
+  // Memorized merchant rules from local storage
+  const merchantRules = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("kpital_merchant_rules") || "[]");
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const getMatchingMerchantRule = (item) => {
+    if (!item?.description || item.budgetItemId || item.isLoan || item.isDebtCollection || item.isDebtPayment || item.itemType === "card_payment") return null;
+    const descLower = item.description.toLowerCase();
+    const matched = merchantRules.find((r) => r.keyword && descLower.includes(r.keyword.toLowerCase()));
+    if (!matched) return null;
+    const env = (budgetItems || []).find((b) => b.id === matched.envelopeId);
+    if (!env) return null;
+    return { rule: matched, envelope: env };
+  };
   const [settlingTransaction, setSettlingTransaction] = useState(null);
   const [assignModalItem, setAssignModalItem] = useState(null);
   const [expandedDeductions, setExpandedDeductions] = useState({});
@@ -1738,14 +1757,47 @@ export default function ExpensesLogSection({
                   )}
 
                   {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
-                    <button
-                      type="button"
-                      onClick={() => setAssignModalItem(item)}
-                      className="expense-action-pill"
-                      title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
-                    >
-                      <span>🏷️</span> Asignar Movimiento
-                    </button>
+                    <>
+                      {(() => {
+                        const match = getMatchingMerchantRule(item);
+                        if (!match || !onReclassifyMovement) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onReclassifyMovement({
+                                movementId: item.id,
+                                destinationType: "budget_envelope",
+                                targetId: match.envelope.id,
+                                targetItem: match.envelope,
+                                subItem: match.rule.subItemId ? { id: match.rule.subItemId, name: match.rule.subItemName } : null,
+                                destinationAccount: null,
+                                paymentSource: item.paymentSource,
+                              });
+                              toast.success(`Movimiento asignado a ${match.envelope.name} (${match.rule.keyword})`);
+                            }}
+                            className="expense-action-pill"
+                            style={{
+                              background: isLight ? "#eff6ff" : "rgba(37, 99, 235, 0.15)",
+                              color: isLight ? "#1d4ed8" : "#93c5fd",
+                              border: isLight ? "1px solid #bfdbfe" : "1px solid rgba(59, 130, 246, 0.3)",
+                              fontWeight: 600,
+                            }}
+                            title={`Asignar automáticamente a "${match.envelope.name}" según regla para "${match.rule.keyword}"`}
+                          >
+                            <span>✨</span> Auto: {match.envelope.name}
+                          </button>
+                        );
+                      })()}
+                      <button
+                        type="button"
+                        onClick={() => setAssignModalItem(item)}
+                        className="expense-action-pill"
+                        title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
+                      >
+                        <span>🏷️</span> Asignar Movimiento
+                      </button>
+                    </>
                   )}
 
                   {!isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
