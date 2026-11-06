@@ -73,6 +73,7 @@ export default function FixedIncomeHub() {
   // Automated Rate Tracker State
   const [rateTrackerAlerts, setRateTrackerAlerts] = useState([]);
   const [isCheckingRates, setIsCheckingRates] = useState(false);
+  const [applyingRateAccountId, setApplyingRateAccountId] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -92,8 +93,13 @@ export default function FixedIncomeHub() {
 
   const handleCheckRatesNow = async () => {
     setIsCheckingRates(true);
+    const start = Date.now();
     try {
       const data = await fetchRateTrackerAlerts();
+      const elapsed = Date.now() - start;
+      if (elapsed < 500) {
+        await new Promise((r) => setTimeout(r, 500 - elapsed));
+      }
       setRateTrackerAlerts(data?.alerts || []);
       if ((data?.alerts || []).length === 0) {
         toast.success("¡Todas tus cuentas están al día con las tasas de mercado!", { icon: "✅" });
@@ -107,8 +113,13 @@ export default function FixedIncomeHub() {
 
   const handleFlashRateTest = async () => {
     setIsCheckingRates(true);
+    const start = Date.now();
     try {
       const data = await fetchRateTrackerAlerts(true);
+      const elapsed = Date.now() - start;
+      if (elapsed < 400) {
+        await new Promise((r) => setTimeout(r, 400 - elapsed));
+      }
       setRateTrackerAlerts(data?.alerts || []);
       toast.success("¡Prueba Flash ejecutada! Alerta de mercado generada en vivo ⚡", { icon: "🧪" });
     } catch {
@@ -119,6 +130,7 @@ export default function FixedIncomeHub() {
   };
 
   const handleApplyRateUpdate = async (alert) => {
+    setApplyingRateAccountId(alert.accountId);
     try {
       await applyUpdatedAccountRate({
         accountId: alert.accountId,
@@ -132,6 +144,8 @@ export default function FixedIncomeHub() {
       }
     } catch {
       toast.error("Error al aplicar la nueva tasa");
+    } finally {
+      setApplyingRateAccountId(null);
     }
   };
   const [editItem, setEditItem] = useState(null);
@@ -869,8 +883,9 @@ export default function FixedIncomeHub() {
   return (
     <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* ── AUTOMATED WEEKLY RATE TRACKER ALERTS BANNER ──────── */}
-      {rateTrackerAlerts.length > 0 && (
+      {(rateTrackerAlerts.length > 0 || isCheckingRates) && (
         <div
+          className={isCheckingRates ? "kpital-rate-loading-banner" : ""}
           style={{
             background: isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(14, 165, 233, 0.12)",
             border: "1px solid rgba(14, 165, 233, 0.35)",
@@ -878,18 +893,23 @@ export default function FixedIncomeHub() {
             padding: "14px 18px",
             display: "flex",
             flexDirection: "column",
-            gap: 10,
+            gap: 12,
+            transition: "all 0.3s ease",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: "1.4rem" }}>🔔</span>
+              <span style={{ fontSize: "1.4rem" }}>{isCheckingRates ? "⏳" : "🔔"}</span>
               <div>
                 <strong style={{ fontSize: "0.92rem", color: "var(--text-primary)" }}>
-                  Seguimiento Semanal de Tasas de Mercado ({rateTrackerAlerts.length} detectadas)
+                  {isCheckingRates
+                    ? "Consultando Tasas de Mercado en Vivo..."
+                    : `Seguimiento Semanal de Tasas de Mercado (${rateTrackerAlerts.length} detectadas)`}
                 </strong>
                 <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>
-                  Verificado con fuentes oficiales del sistema financiero colombiano y USD. Solo afecta cálculos desde la fecha de vigencia sin alterar tus rendimientos históricos pasados.
+                  {isCheckingRates
+                    ? "Comparando tus bolsillos y cajitas activas contra Nu Colombia, RappiPay, Banco Finandina, Lulo Bank, Pibank y Plenti."
+                    : "Verificado con fuentes oficiales del sistema financiero colombiano y USD. Solo afecta cálculos desde la fecha de vigencia sin alterar tus rendimientos históricos pasados."}
                 </span>
               </div>
             </div>
@@ -907,7 +927,11 @@ export default function FixedIncomeHub() {
                   padding: "6px 12px",
                   fontSize: "0.76rem",
                   fontWeight: 700,
-                  cursor: "pointer",
+                  cursor: isCheckingRates ? "not-allowed" : "pointer",
+                  opacity: isCheckingRates ? 0.6 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
                 title="Genera una alerta de prueba en vivo para verificar el flujo de actualización"
               >
@@ -926,78 +950,154 @@ export default function FixedIncomeHub() {
                   padding: "6px 12px",
                   fontSize: "0.76rem",
                   fontWeight: 700,
-                  cursor: "pointer",
+                  cursor: isCheckingRates ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {isCheckingRates ? "Verificando..." : "🔄 Re-verificar Ahora"}
+                {isCheckingRates ? (
+                  <>
+                    <span
+                      className="kpital-spin"
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        border: "2px solid rgba(14, 165, 233, 0.3)",
+                        borderTopColor: "#0ea5e9",
+                        display: "inline-block",
+                      }}
+                    />
+                    <span>Verificando...</span>
+                  </>
+                ) : (
+                  "🔄 Re-verificar Ahora"
+                )}
               </button>
             </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {rateTrackerAlerts.map((alert) => (
-              <div
-                key={alert.accountId}
+          {isCheckingRates && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "12px 16px",
+                background: isLight ? "rgba(255, 255, 255, 0.9)" : "rgba(13, 18, 38, 0.8)",
+                borderRadius: "10px",
+                border: "1px solid rgba(14, 165, 233, 0.25)",
+              }}
+            >
+              <span
+                className="kpital-spin"
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  background: isLight ? "#ffffff" : "var(--bg-surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "10px",
-                  padding: "10px 14px",
-                  flexWrap: "wrap",
-                  gap: 10,
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  border: "2px solid rgba(14, 165, 233, 0.2)",
+                  borderTopColor: "#0ea5e9",
+                  display: "inline-block",
+                  flexShrink: 0,
                 }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 240px" }}>
-                  <span style={{ fontSize: "1.1rem" }}>{alert.direction === "up" ? "📈" : "📉"}</span>
-                  <div>
-                    <strong style={{ fontSize: "0.86rem", color: "var(--text-primary)", display: "block" }}>
-                      {alert.entityName} • {alert.accountName}
-                    </strong>
-                    <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                      Tasa actual: <span style={{ color: "#f43f5e", fontWeight: 700 }}>{alert.currentRateEA.toFixed(2)}% E.A.</span> ➔ Mercado: <span style={{ color: "#10b981", fontWeight: 700 }}>{alert.marketRateEA.toFixed(2)}% E.A.</span> ({alert.diff > 0 ? `+${alert.diff.toFixed(2)}%` : `${alert.diff.toFixed(2)}%`})
-                    </span>
+              />
+              <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                Analizando rendimientos en Supabase y comparando contra tasas vigentes de ahorro a la vista...
+              </span>
+            </div>
+          )}
+
+          {!isCheckingRates && rateTrackerAlerts.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {rateTrackerAlerts.map((alert) => (
+                <div
+                  key={alert.accountId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: isLight ? "#ffffff" : "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "10px",
+                    padding: "10px 14px",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 240px" }}>
+                    <span style={{ fontSize: "1.1rem" }}>{alert.direction === "up" ? "📈" : "📉"}</span>
+                    <div>
+                      <strong style={{ fontSize: "0.86rem", color: "var(--text-primary)", display: "block" }}>
+                        {alert.entityName} • {alert.accountName}
+                      </strong>
+                      <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                        Tasa actual: <span style={{ color: "#f43f5e", fontWeight: 700 }}>{alert.currentRateEA.toFixed(2)}% E.A.</span> ➔ Mercado: <span style={{ color: "#10b981", fontWeight: 700 }}>{alert.marketRateEA.toFixed(2)}% E.A.</span> ({alert.diff > 0 ? `+${alert.diff.toFixed(2)}%` : `${alert.diff.toFixed(2)}%`})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyRateUpdate(alert)}
+                      disabled={applyingRateAccountId === alert.accountId}
+                      style={{
+                        background: applyingRateAccountId === alert.accountId
+                          ? "rgba(16, 185, 129, 0.5)"
+                          : "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                        border: "none",
+                        color: "#fff",
+                        borderRadius: "8px",
+                        padding: "6px 12px",
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        cursor: applyingRateAccountId === alert.accountId ? "not-allowed" : "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {applyingRateAccountId === alert.accountId ? (
+                        <>
+                          <span
+                            className="kpital-spin"
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: "50%",
+                              border: "2px solid rgba(255, 255, 255, 0.4)",
+                              borderTopColor: "#ffffff",
+                              display: "inline-block",
+                            }}
+                          />
+                          <span>Actualizando...</span>
+                        </>
+                      ) : (
+                        `⚡ Actualizar a ${alert.marketRateEA.toFixed(2)}%`
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRateTrackerAlerts((prev) => prev.filter((a) => a.accountId !== alert.accountId))}
+                      disabled={applyingRateAccountId === alert.accountId}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid var(--border)",
+                        color: "var(--text-muted)",
+                        borderRadius: "8px",
+                        padding: "6px 10px",
+                        fontSize: "0.76rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Descartar
+                    </button>
                   </div>
                 </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => handleApplyRateUpdate(alert)}
-                    style={{
-                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                      border: "none",
-                      color: "#fff",
-                      borderRadius: "8px",
-                      padding: "6px 12px",
-                      fontSize: "0.78rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ⚡ Actualizar a {alert.marketRateEA.toFixed(2)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRateTrackerAlerts((prev) => prev.filter((a) => a.accountId !== alert.accountId))}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-muted)",
-                      borderRadius: "8px",
-                      padding: "6px 10px",
-                      fontSize: "0.76rem",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Descartar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* ── ENTITY VIEW SELECTOR TABS ─────────────────────────── */}
@@ -1301,6 +1401,7 @@ export default function FixedIncomeHub() {
               fontWeight: 700,
               fontSize: "0.8rem",
               cursor: isCheckingRates ? "not-allowed" : "pointer",
+              opacity: isCheckingRates ? 0.6 : 1,
             }}
             title="Genera una alerta de prueba en vivo para verificar el flujo de actualización de tasas"
           >
@@ -1325,7 +1426,26 @@ export default function FixedIncomeHub() {
             }}
             title="Consultar tasas de mercado de bancos colombianos y USD"
           >
-            <span>🔔</span> Radar de Tasas {rateTrackerAlerts.length > 0 ? `(${rateTrackerAlerts.length})` : ""}
+            {isCheckingRates ? (
+              <>
+                <span
+                  className="kpital-spin"
+                  style={{
+                    width: 13,
+                    height: 13,
+                    borderRadius: "50%",
+                    border: "2px solid rgba(14, 165, 233, 0.3)",
+                    borderTopColor: "#0ea5e9",
+                    display: "inline-block",
+                  }}
+                />
+                <span>Verificando Tasas...</span>
+              </>
+            ) : (
+              <>
+                <span>🔔</span> Radar de Tasas {rateTrackerAlerts.length > 0 ? `(${rateTrackerAlerts.length})` : ""}
+              </>
+            )}
           </button>
 
           <button

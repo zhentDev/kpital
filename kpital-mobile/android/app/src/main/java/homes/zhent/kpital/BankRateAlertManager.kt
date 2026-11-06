@@ -124,13 +124,27 @@ object BankRateAlertManager {
             val entityId = acc.optString("entity_id", extra.optString("entityId", "")).lowercase(Locale.US)
             val currency = acc.optString("currency", extra.optString("currency", "COP"))
 
-            // 1. Omitir cuentas transaccionales o sin rentabilidad
+            val accType = acc.optString("type", extra.optString("type", "")).lowercase(Locale.US)
+
+            // 1. Omitir cuentas transaccionales o sin rentabilidad (Nómina, débito, efectivo)
             if (category in listOf("payroll", "digital_wallet", "cash") ||
                 accNameLower.contains("(nómina)") || accNameLower.contains("(nomina)") ||
                 accNameLower.contains("(principal)") || accNameLower.contains("principal") ||
                 accNameLower.contains("transaccional") || accNameLower.contains("billetera") ||
                 accNameLower.contains("efectivo") || accNameLower.contains("disponible nequi") ||
                 accNameLower.contains("daviplata")
+            ) {
+                continue
+            }
+
+            // 2. Omitir productos a plazo fijo (CDTs, Bóvedas, Cajitas Congeladas)
+            // Tasa pactada contractual fija e inmutable mientras estén abiertas; no varían con el mercado
+            if (category in listOf("cdt", "term_deposit", "fixed_term") ||
+                accType in listOf("cdt", "term_deposit") ||
+                accNameLower.contains("cdt") || accNameLower.contains("bóveda") ||
+                accNameLower.contains("boveda") || accNameLower.contains("congelada") ||
+                accNameLower.contains("plazo fijo") || accNameLower.contains("a término") ||
+                accNameLower.contains("a termino")
             ) {
                 continue
             }
@@ -146,29 +160,19 @@ object BankRateAlertManager {
             var productName = "Cuenta de Ahorros"
             var sourceUrl = "https://www.superfinanciera.gov.co/"
 
-            // Nu Colombia
+            // Nu Colombia: Cajitas a la vista
             if (entityId.contains("nu") || accNameLower.contains("nu")) {
                 entityName = "Nu Colombia"
                 sourceUrl = "https://nu.com.co/cf/cuenta/"
-                if (accNameLower.contains("congelada") || accNameLower.contains("cdt")) {
-                    marketRate = 10.50
-                    productName = "Cajita Congelada Nu (CDT)"
-                } else {
-                    marketRate = 9.35
-                    productName = "Cajitas Nu (A la vista)"
-                }
+                marketRate = 9.35
+                productName = "Cajitas Nu (A la vista)"
             }
-            // RappiPay
+            // RappiPay: Bolsillos a la vista
             else if (entityId.contains("rappi") || accNameLower.contains("rappi") || entityId == "ent_1789616750396") {
                 entityName = "RappiPay"
                 sourceUrl = "https://rappipay.co/rappicuenta/"
-                if (accNameLower.contains("boveda") || accNameLower.contains("bóveda") || accNameLower.contains("cdt")) {
-                    marketRate = 10.00
-                    productName = "Bóvedas RappiPay (Plazo fijo / CDT)"
-                } else {
-                    marketRate = 9.00
-                    productName = "Bolsillos RappiCuenta (A la vista)"
-                }
+                marketRate = 9.00
+                productName = "Bolsillos RappiCuenta (A la vista)"
             }
             // Finandina
             else if (entityId.contains("finandina") || accNameLower.contains("flexi") || entityId == "ent_1786771791285") {

@@ -1093,6 +1093,19 @@ export async function fetchRateTrackerAlerts(simulate = false) {
       return;
     }
 
+    // 2. Skip fixed-term investments (CDTs, Bóvedas, Cajitas Congeladas)
+    // Tasa pactada contractual fija e inmutable mientras estén abiertas; no varían con el mercado
+    const accType = (acc.type || "").toLowerCase();
+    if (
+      cat === "cdt" || cat === "term_deposit" || cat === "fixed_term" ||
+      accType === "cdt" || accType === "term_deposit" ||
+      accName.includes("cdt") || accName.includes("bóveda") || accName.includes("boveda") ||
+      accName.includes("congelada") || accName.includes("plazo fijo") ||
+      accName.includes("a término") || accName.includes("a termino")
+    ) {
+      return;
+    }
+
     const preset = (BANK_PRESETS || []).find(
       (p) => p.id === entityId || entityId.includes(p.id) || p.name.toLowerCase().includes(accName) || accName.includes(p.name.toLowerCase())
     );
@@ -1101,23 +1114,13 @@ export async function fetchRateTrackerAlerts(simulate = false) {
       let marketRate = preset.defaultRateEA;
       let productName = preset.suggestedProducts?.[0] || preset.name;
 
-      // Granular product tier distinctions:
+      // Granular demand savings tier distinctions (cuentas y bolsillos a la vista):
       if (entityId.includes("nu") || accName.includes("nu")) {
-        if (accName.includes("congelada") || accName.includes("cdt")) {
-          marketRate = 10.50;
-          productName = "Cajita Congelada Nu (CDT)";
-        } else {
-          marketRate = 9.35;
-          productName = "Cajitas Nu (A la vista)";
-        }
+        marketRate = 9.35;
+        productName = "Cajitas Nu (A la vista)";
       } else if (entityId.includes("rappi") || accName.includes("rappi") || entityId === "ent_1789616750396") {
-        if (accName.includes("boveda") || accName.includes("bóveda") || accName.includes("cdt")) {
-          marketRate = 10.00;
-          productName = "Bóvedas RappiPay (Plazo fijo / CDT)";
-        } else {
-          marketRate = 9.00;
-          productName = "Bolsillos RappiCuenta (A la vista)";
-        }
+        marketRate = 9.00;
+        productName = "Bolsillos RappiCuenta (A la vista)";
       } else if (entityId.includes("finandina") || accName.includes("flexi") || entityId === "ent_1786771791285") {
         if (accName.includes("flexi") || accName.includes("emergencia") || accName.includes("bolsillo")) {
           marketRate = 10.50;

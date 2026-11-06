@@ -215,7 +215,13 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
         if cat in ("payroll", "digital_wallet", "cash") or any(k in acc_name_lower for k in ("(nómina)", "(nomina)", "(principal)", "principal", "transaccional", "billetera", "efectivo", "disponible nequi", "daviplata")):
             continue
 
-        # 2. Match preset and determine specific product rate
+        # 2. Skip fixed-term investments (CDTs, Bóvedas, Cajitas Congeladas)
+        # Contractual rates remain fixed for their active term; tracking market rate fluctuations does not apply!
+        acc_type = (acc.get("type") or "").lower()
+        if cat in ("cdt", "term_deposit", "fixed_term") or acc_type in ("cdt", "term_deposit") or any(k in acc_name_lower for k in ("cdt", "bóveda", "boveda", "bóvedas", "bovedas", "congelada", "congeladas", "plazo fijo", "a término", "a termino")):
+            continue
+
+        # 3. Match preset and determine specific product rate
         matched_preset = None
         for key, preset in KNOWN_MARKET_ENTITIES.items():
             if key == entity_id or key in entity_id.lower() or preset["name"].lower() in entity_name.lower() or preset["name"].lower() in acc_name_lower:
@@ -229,23 +235,15 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
         market_rate = float(matched_preset["currentMarketRateEA"])
         product_name = matched_preset["productName"]
 
-        # Granular product tier distinctions:
-        # Nu Colombia: Cajitas (9.35%) vs Cajitas Congeladas / CDT (10.50%)
+        # Granular product tier distinctions for demand savings (a la vista):
+        # Nu Colombia: Cajitas a la vista (9.35%)
         if "nu" in entity_id.lower() or "nu" in acc_name_lower:
-            if any(k in acc_name_lower for k in ("congelada", "congeladas", "cdt")):
-                market_rate = 10.50
-                product_name = "Cajita Congelada Nu (CDT)"
-            else:
-                market_rate = 9.35
-                product_name = "Cajitas Nu (A la vista)"
-        # RappiPay: Bolsillos a la vista (9.00%) vs Bóvedas CDT (10.00%)
+            market_rate = 9.35
+            product_name = "Cajitas Nu (A la vista)"
+        # RappiPay: Bolsillos a la vista (9.00%)
         elif "rappi" in entity_id.lower() or "rappi" in acc_name_lower or entity_id == "ent_1789616750396":
-            if any(k in acc_name_lower for k in ("boveda", "bóveda", "bovedas", "bóvedas", "cdt")):
-                market_rate = 10.00
-                product_name = "Bóvedas RappiPay (Plazo fijo / CDT)"
-            else:
-                market_rate = 9.00
-                product_name = "Bolsillos RappiCuenta (A la vista)"
+            market_rate = 9.00
+            product_name = "Bolsillos RappiCuenta (A la vista)"
         # Finandina: FlexiDigital + (10.50%) vs Tradicional (0.15%)
         elif "finandina" in entity_id.lower() or "flexi" in acc_name_lower or entity_id == "ent_1786771791285":
             if any(k in acc_name_lower for k in ("flexi", "emergencia", "bolsillo")):
