@@ -4,6 +4,7 @@ import GlassModalWrapper from "../Common/GlassModalWrapper";
 import LoanSettlementModal from "./LoanSettlementModal";
 import AssignMovementModal from "./AssignMovementModal";
 import InfoTooltip from "../Common/InfoTooltip";
+import toast from "react-hot-toast";
 import { toastConfirm, toastPrompt } from "../../utils/toastAlerts";
 import { useTheme } from "../../context/ThemeContext";
 import { useCashFlowStore } from "../../store/cashFlowStore";
@@ -46,6 +47,66 @@ export default function ExpensesLogSection({
   const [assignModalItem, setAssignModalItem] = useState(null);
   const [expandedDeductions, setExpandedDeductions] = useState({});
   const toggleDeductions = (id) => setExpandedDeductions((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // Multi-Selection Checkbox & Dynamic Sum State
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
+
+  const toggleSelection = (id) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allFilteredIds = filteredActivities.map((a) => a.id);
+    const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedItemIds.has(id));
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allFilteredIds.forEach((id) => next.delete(id));
+      } else {
+        allFilteredIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedItemIds(new Set());
+  };
+
+  const selectedItems = useMemo(() => {
+    if (selectedItemIds.size === 0) return [];
+    return combinedActivities.filter((item) => selectedItemIds.has(item.id));
+  }, [combinedActivities, selectedItemIds]);
+
+  const selectedMetrics = useMemo(() => {
+    let expenseSum = 0;
+    let incomeSum = 0;
+    selectedItems.forEach((item) => {
+      const amt = Number(item.amount) || 0;
+      if (item.itemType === "income") {
+        incomeSum += amt;
+      } else {
+        expenseSum += amt;
+      }
+    });
+    const net = incomeSum - expenseSum;
+    return {
+      count: selectedItems.length,
+      expenseSum,
+      incomeSum,
+      net,
+      hasIncomes: incomeSum > 0,
+      hasExpenses: expenseSum > 0,
+    };
+  }, [selectedItems]);
   const toggleMovementAsBudgetInflow = useCashFlowStore((s) => s.toggleMovementAsBudgetInflow);
 
   const isAnyFilterActive = Boolean(
@@ -811,6 +872,98 @@ export default function ExpensesLogSection({
         })}
       </div>
 
+      {/* Control Bar: Selección Múltiple y Contador */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "8px 14px",
+          borderRadius: "10px",
+          background: isLight ? "rgba(0, 0, 0, 0.02)" : "rgba(255, 255, 255, 0.02)",
+          border: isLight ? "1px solid rgba(0, 0, 0, 0.06)" : "1px solid rgba(255, 255, 255, 0.05)",
+          marginBottom: 10,
+          flexWrap: "wrap",
+          gap: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={handleSelectAllFiltered}
+            style={{
+              background: isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.06)",
+              border: isLight ? "1px solid rgba(0, 0, 0, 0.12)" : "1px solid rgba(255, 255, 255, 0.12)",
+              color: "var(--text-primary)",
+              borderRadius: "8px",
+              padding: "5px 12px",
+              fontSize: "0.76rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              transition: "all 0.15s ease",
+            }}
+            title="Seleccionar o deseleccionar todos los movimientos mostrados con el filtro actual"
+          >
+            <span>
+              {filteredActivities.length > 0 && filteredActivities.every((a) => selectedItemIds.has(a.id))
+                ? "☑️ Deseleccionar todos"
+                : "⬜ Seleccionar todos"}
+            </span>
+          </button>
+
+          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            Mostrando <strong>{filteredActivities.length}</strong> movimientos
+          </span>
+        </div>
+
+        {selectedMetrics.count > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span
+              style={{
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                color: isLight ? "#0284c7" : "#00e5ff",
+                background: isLight ? "rgba(2, 132, 199, 0.1)" : "rgba(0, 229, 255, 0.12)",
+                border: isLight ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid rgba(0, 229, 255, 0.35)",
+                padding: "3px 10px",
+                borderRadius: "6px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              ✓ {selectedMetrics.count} seleccionados • Total:{" "}
+              <strong style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                {selectedMetrics.hasExpenses && !selectedMetrics.hasIncomes
+                  ? `-${formatMoney(selectedMetrics.expenseSum, currency)}`
+                  : selectedMetrics.hasIncomes && !selectedMetrics.hasExpenses
+                  ? `+${formatMoney(selectedMetrics.incomeSum, currency)}`
+                  : `${selectedMetrics.net >= 0 ? "+" : "-"}${formatMoney(Math.abs(selectedMetrics.net), currency)}`}
+              </strong>
+            </span>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: isLight ? "#dc2626" : "#f87171",
+                fontSize: "0.76rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                padding: "2px 6px",
+                textDecoration: "underline",
+              }}
+            >
+              Limpiar selección
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Transactions & Payments List */}
       {filteredActivities.length === 0 ? (
         <div style={{ textAlign: "center", padding: "28px 0", color: "#64748b", fontSize: "0.85rem" }}>
@@ -822,6 +975,8 @@ export default function ExpensesLogSection({
             const isDistributedExpense = Boolean(item.isDistributed) || (Array.isArray(item.budgetDeductions) && item.budgetDeductions.length > 0);
             const isPayment = item.itemType === "card_payment" || isDistributedExpense;
             const isWealth = item.itemType === "wealth_saving";
+
+            const isSelected = selectedItemIds.has(item.id);
 
             if (isPayment) {
               const hasDeductions = Array.isArray(item.budgetDeductions) && item.budgetDeductions.length > 0;
@@ -838,12 +993,19 @@ export default function ExpensesLogSection({
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    background: isDebt
+                    background: isSelected
+                      ? (isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.08)")
+                      : isDebt
                       ? (isLight ? "rgba(245, 158, 11, 0.08)" : "rgba(245, 158, 11, 0.1)")
                       : (isLight ? "rgba(16, 185, 129, 0.05)" : "rgba(16, 185, 129, 0.08)"),
-                    border: isDebt
+                    border: isSelected
+                      ? (isLight ? "1px solid #0284c7" : "1px solid #00e5ff")
+                      : isDebt
                       ? "1px solid rgba(245, 158, 11, 0.4)"
                       : "1px solid rgba(16, 185, 129, 0.25)",
+                    boxShadow: isSelected
+                      ? (isLight ? "0 0 12px rgba(2, 132, 199, 0.18)" : "0 0 14px rgba(0, 229, 255, 0.22)")
+                      : "none",
                     borderRadius: "12px",
                     padding: "12px 16px",
                     transition: "all 0.15s ease",
@@ -852,6 +1014,24 @@ export default function ExpensesLogSection({
                   <div className="expense-log-row-card" style={{ width: "100%" }}>
                     <div className="expense-log-row-left">
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleSelection(item.id);
+                          }}
+                          style={{
+                            cursor: "pointer",
+                            width: 17,
+                            height: 17,
+                            accentColor: isLight ? "#0284c7" : "#00e5ff",
+                            borderRadius: "4px",
+                            marginRight: 2,
+                            flexShrink: 0,
+                          }}
+                          title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                        />
                         <span style={{ fontSize: "1rem" }}>{isDebt ? "🤝" : isCard ? "💳" : "📋"}</span>
                         <strong className="expense-log-row-title">
                           {isCard ? `${item.cardName} • ${item.description || "Abono a tarjeta"}` : item.description}
@@ -1151,8 +1331,15 @@ export default function ExpensesLogSection({
                   key={item.id}
                   className="expense-log-row-card"
                   style={{
-                    background: cardBg,
-                    border: cardBorder,
+                    background: isSelected
+                      ? (isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.08)")
+                      : cardBg,
+                    border: isSelected
+                      ? (isLight ? "1px solid #0284c7" : "1px solid #00e5ff")
+                      : cardBorder,
+                    boxShadow: isSelected
+                      ? (isLight ? "0 0 12px rgba(2, 132, 199, 0.18)" : "0 0 14px rgba(0, 229, 255, 0.22)")
+                      : "none",
                     borderRadius: "12px",
                     padding: "12px 16px",
                     transition: "all 0.15s ease",
@@ -1160,6 +1347,24 @@ export default function ExpensesLogSection({
                 >
                   <div className="expense-log-row-left">
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelection(item.id);
+                        }}
+                        style={{
+                          cursor: "pointer",
+                          width: 17,
+                          height: 17,
+                          accentColor: isLight ? "#0284c7" : "#00e5ff",
+                          borderRadius: "4px",
+                          marginRight: 2,
+                          flexShrink: 0,
+                        }}
+                        title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                      />
                       <span style={{ fontSize: "1rem" }}>{isCardPayoffEmergency ? "💳" : "💎"}</span>
                       <strong style={{ fontSize: "0.9rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
                         {item.description}
@@ -1345,20 +1550,27 @@ export default function ExpensesLogSection({
                 key={item.id}
                 className="expense-log-row-card"
                 style={{
-                  background: isLoan
+                  background: isSelected
+                    ? (isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.08)")
+                    : isLoan
                     ? isSettled
                       ? "rgba(16, 185, 129, 0.06)"
                       : "rgba(245, 158, 11, 0.08)"
                     : isIncome
                     ? "rgba(16, 185, 129, 0.05)"
                     : "var(--bg-card)",
-                  border: isLoan
+                  border: isSelected
+                    ? (isLight ? "1px solid #0284c7" : "1px solid #00e5ff")
+                    : isLoan
                     ? isSettled
                       ? "1px solid rgba(16, 185, 129, 0.35)"
                       : "1px solid rgba(245, 158, 11, 0.4)"
                     : isIncome
                     ? "1px solid rgba(16, 185, 129, 0.25)"
                     : "1px solid var(--border)",
+                  boxShadow: isSelected
+                    ? (isLight ? "0 0 12px rgba(2, 132, 199, 0.18)" : "0 0 14px rgba(0, 229, 255, 0.22)")
+                    : "none",
                   borderRadius: "12px",
                   padding: "12px 16px",
                   transition: "all 0.15s ease",
@@ -1366,6 +1578,24 @@ export default function ExpensesLogSection({
               >
                 <div className="expense-log-row-left">
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleSelection(item.id);
+                      }}
+                      style={{
+                        cursor: "pointer",
+                        width: 17,
+                        height: 17,
+                        accentColor: isLight ? "#0284c7" : "#00e5ff",
+                        borderRadius: "4px",
+                        marginRight: 2,
+                        flexShrink: 0,
+                      }}
+                      title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                    />
                     <strong className="expense-log-row-title">
                       {item.description}
                     </strong>
@@ -1779,6 +2009,152 @@ export default function ExpensesLogSection({
             }
           }}
         />
+      )}
+
+      {/* Cajita Flotante de Movimientos Seleccionados y Suma Total Dinámica */}
+      {selectedMetrics.count > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            padding: "10px 18px",
+            borderRadius: "16px",
+            background: isLight ? "rgba(255, 255, 255, 0.96)" : "rgba(10, 16, 32, 0.94)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border: isLight ? "1px solid rgba(2, 132, 199, 0.4)" : "1px solid rgba(0, 229, 255, 0.5)",
+            boxShadow: isLight
+              ? "0 10px 30px rgba(0, 0, 0, 0.12), 0 0 16px rgba(2, 132, 199, 0.15)"
+              : "0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px rgba(0, 229, 255, 0.25)",
+            animation: "fadeInUp 0.25s ease-out",
+            maxWidth: "92vw",
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Indicador y Conteo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: "10px",
+                background: isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(0, 229, 255, 0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "1.15rem",
+              }}
+            >
+              🧮
+            </div>
+            <div>
+              <div
+                style={{
+                  fontSize: "0.72rem",
+                  color: isLight ? "#475569" : "#94a3b8",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {selectedMetrics.count} {selectedMetrics.count === 1 ? "movimiento seleccionado" : "movimientos seleccionados"}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 1 }}>
+                <span style={{ fontSize: "0.80rem", color: "var(--text-muted)", fontWeight: 600 }}>Suma total:</span>
+                <span
+                  style={{
+                    fontFamily: "JetBrains Mono, monospace",
+                    fontSize: "1.25rem",
+                    fontWeight: 800,
+                    color: isLight ? "#0284c7" : "#00e5ff",
+                    letterSpacing: "-0.5px",
+                  }}
+                >
+                  {selectedMetrics.hasExpenses && !selectedMetrics.hasIncomes
+                    ? `-${formatMoney(selectedMetrics.expenseSum, currency)}`
+                    : selectedMetrics.hasIncomes && !selectedMetrics.hasExpenses
+                    ? `+${formatMoney(selectedMetrics.incomeSum, currency)}`
+                    : `${selectedMetrics.net >= 0 ? "+" : "-"}${formatMoney(Math.abs(selectedMetrics.net), currency)}`}
+                </span>
+                {selectedMetrics.hasExpenses && selectedMetrics.hasIncomes && (
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginLeft: 4 }}>
+                    (-{formatMoney(selectedMetrics.expenseSum, currency)} / +{formatMoney(selectedMetrics.incomeSum, currency)})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Separador vertical */}
+          <div
+            style={{
+              width: 1,
+              height: 34,
+              background: isLight ? "rgba(0, 0, 0, 0.1)" : "rgba(255, 255, 255, 0.12)",
+            }}
+          />
+
+          {/* Botones de acción */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => {
+                const formattedText = selectedMetrics.hasExpenses && !selectedMetrics.hasIncomes
+                  ? `-${formatMoney(selectedMetrics.expenseSum, currency)}`
+                  : selectedMetrics.hasIncomes && !selectedMetrics.hasExpenses
+                  ? `+${formatMoney(selectedMetrics.incomeSum, currency)}`
+                  : `${selectedMetrics.net >= 0 ? "+" : "-"}${formatMoney(Math.abs(selectedMetrics.net), currency)}`;
+                navigator.clipboard.writeText(formattedText);
+                toast.success(`Copiado al portapapeles: ${formattedText}`);
+              }}
+              style={{
+                background: isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.1)",
+                border: isLight ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid rgba(0, 229, 255, 0.35)",
+                color: isLight ? "#0284c7" : "#00e5ff",
+                borderRadius: "8px",
+                padding: "6px 12px",
+                fontSize: "0.76rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                transition: "all 0.15s ease",
+              }}
+              title="Copiar suma total al portapapeles"
+            >
+              <span>📋</span> Copiar
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              style={{
+                background: isLight ? "rgba(239, 68, 68, 0.08)" : "rgba(239, 68, 68, 0.14)",
+                border: isLight ? "1px solid rgba(239, 68, 68, 0.25)" : "1px solid rgba(239, 68, 68, 0.35)",
+                color: isLight ? "#dc2626" : "#f87171",
+                borderRadius: "8px",
+                padding: "6px 10px",
+                fontSize: "0.76rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                transition: "all 0.15s ease",
+              }}
+              title="Deseleccionar todos los movimientos"
+            >
+              <span>✕</span> Limpiar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
