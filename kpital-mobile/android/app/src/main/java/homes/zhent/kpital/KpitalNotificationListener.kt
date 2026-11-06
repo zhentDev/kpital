@@ -98,7 +98,7 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         // Entidades financieras reconocidas en SMS bancarios
         private val KNOWN_BANK_NAMES = listOf(
-            "caja social", "bcs", "bancolombia", "davivienda", "daviplata",
+            "caja social", "bcs", "87227", "bancolombia", "davivienda", "daviplata",
             "banco de bogota", "banco de bogotá", "banco de occidente",
             "falabella", "scotiabank", "colpatria", "bbva", "nequi", "nu colombia", "nubank",
             "rappi", "rappipay", "rappicuenta", "rappicard", "lulo", "lulobank", "mercado pago"
@@ -109,12 +109,21 @@ class KpitalNotificationListener : NotificationListenerService() {
          * oferta comercial de préstamos/tarjetas, o código de seguridad, para no crear movimientos falsos.
          */
         fun isInformationalOrIgnored(lower: String): Boolean {
-            // A. Marketing, ofertas o créditos preaprobados
+            // A. Marketing, ofertas, promociones de delivery o cupones comerciales (Rappi, etc.)
             val isMarketing = listOf(
                 "preaprobado", "cupo preaprobado", "crédito preaprobado", "credito preaprobado",
                 "pide tu préstamo", "pide tu prestamo", "solicita tu crédito", "solicita tu tarjeta",
                 "avance disponible", "te prestamos", "abre tu cdt", "salvavidas", "propulsor",
-                "cupo disponible de"
+                "cupo disponible de",
+                // Promociones comerciales de delivery, cupones y descuentos (Rappi, etc.)
+                " off", "% off", "$ off", "off!", "off.", "descuento", "descuentos",
+                "cupón", "cupon", "cupones", "código promo", "codigo promo", "promo", "promos",
+                "promoción", "promocion", "aplica t&c", "aplican t&c", "t&c",
+                "términos y condiciones", "terminos y condiciones",
+                "pide en rappi", "pide ya", "te llega de una", "envío gratis", "envio gratis",
+                "2x1", "3x2", "consiente al", "consiente a", "válido también en", "valido tambien en",
+                "solo por hoy", "imperdible", "no te pierdas", "aprovecha", "te regalamos",
+                "hasta 40%", "hasta 50%", "hasta 30%", "hasta 20%", "hasta 70%"
             ).any { lower.contains(it) }
             if (isMarketing) return true
 
@@ -145,7 +154,11 @@ class KpitalNotificationListener : NotificationListenerService() {
                 val hasBalanceIndicator = listOf(
                     "tu saldo", "saldo disponible", "saldo en cuenta", "su saldo", "saldo actual",
                     "saldo nuevo", "nuevo saldo", "saldo al", "consulta de saldo", "tienes un saldo",
-                    "saldo total", "tu dinero creció"
+                    "saldo total", "tu dinero creció",
+                    // Saldo diario informativo Caja Social y bancos colombianos
+                    "al final del", "el saldo de su cuenta", "el saldo de tu cuenta", "el saldo de la cuenta",
+                    "saldo de su cuenta", "saldo de tu cuenta", "saldo de la cuenta", "saldo de su",
+                    "saldo de tu", "saldo al corte", "saldo al cierre", "saldo al final"
                 ).any { lower.contains(it) }
                 if (hasBalanceIndicator) return true
             }

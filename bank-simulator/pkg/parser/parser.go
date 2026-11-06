@@ -91,7 +91,7 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 	case strings.Contains(combinedLower, "bancolombia"):
 		return "Bancolombia"
 
-	case strings.Contains(combinedLower, "caja social") || strings.Contains(combinedLower, "banco caja social") || strings.Contains(combinedLower, "bcs"):
+	case strings.Contains(combinedLower, "caja social") || strings.Contains(combinedLower, "banco caja social") || strings.Contains(combinedLower, "bcs") || strings.Contains(combinedLower, "87227"):
 		return "Banco Caja Social"
 
 	case strings.Contains(combinedLower, "finandina"):

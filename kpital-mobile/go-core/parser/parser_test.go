@@ -313,6 +313,17 @@ func TestInformationalBalanceAndFilteringCases(t *testing.T) {
 			expectedBank:    "Davivienda / Daviplata",
 			expectedBalance: 350000.0,
 		},
+		{
+			name: "Banco Caja Social - SMS daily closing balance via 87227",
+			notification: models.RawNotification{
+				AppName:     "CLARO DIGITAL",
+				PackageName: "com.google.android.apps.messaging",
+				Title:       "87227",
+				Text:        "Al final del 20261105 el saldo de su cuenta de ahorros No. ****1234 es $1.500.000 COP.",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedBalance: 1500000.0,
+		},
 	}
 
 	for _, bc := range balanceCases {
@@ -382,6 +393,24 @@ func TestInformationalBalanceAndFilteringCases(t *testing.T) {
 				AppName: "Banco Falabella",
 				Title:   "Transacción Declinada",
 				Text:    "Compra por $120.000 fue rechazada por fondos insuficientes.",
+			},
+		},
+		{
+			name: "Rappi - Marketing promo discount $13500 OFF",
+			notification: models.RawNotification{
+				AppName:     "Rappi",
+				PackageName: "com.grability.rappi",
+				Title:       "Consiente al peludo: $13500 OFF 🐱",
+				Text:        "Válido también en súper o farmacia. Pide en Rappi y te llega de una. Aplican T&C",
+			},
+		},
+		{
+			name: "Rappi - Marketing discount 40% OFF skincare",
+			notification: models.RawNotification{
+				AppName:     "Rappi",
+				PackageName: "com.grability.rappi",
+				Title:       "💖 Skincare coreano hasta 40%!",
+				Text:        "Dale a tu piel el cuidado que merece. En Línea Estética todo para tu piel con hasta 40% OFF. Aplican T&C",
 			},
 		},
 	}
