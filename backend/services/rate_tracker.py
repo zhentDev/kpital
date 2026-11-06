@@ -288,15 +288,45 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
             sim_rate = round(curr_rate + 0.90, 2) if curr_rate < 12.0 else round(curr_rate - 0.50, 2)
             diff = round(sim_rate - curr_rate, 2)
             acc_name = target_acc.get("name", "Cajita de Ahorro")
-            is_rappi = "rappi" in target_acc.get("entityId", "").lower() or target_acc.get("entityId") == "ent_1789616750396"
-            ent_name = "RappiPay" if is_rappi else "Nu Colombia"
-            prod_name = "Bolsillos RappiCuenta (A la vista)" if is_rappi else "Cajitas Nu (A la vista)"
-            source_url = "https://rappipay.co/rappicuenta/" if is_rappi else "https://nu.com.co/cf/cuenta/"
+            acc_name_lower = acc_name.lower()
+            target_ent_id = target_acc.get("entityId", "")
+            target_ent_obj = entity_map.get(target_ent_id, {})
+            ent_name = target_ent_obj.get("name")
+            if not ent_name:
+                if "rappi" in target_ent_id.lower() or "rappi" in acc_name_lower:
+                    ent_name = "RappiPay"
+                    prod_name = "Bolsillos RappiCuenta (A la vista)"
+                    source_url = "https://rappipay.co/rappicuenta/"
+                elif "finandina" in target_ent_id.lower() or "flexi" in acc_name_lower or target_ent_id == "ent_1786771791285":
+                    ent_name = "Banco Finandina"
+                    prod_name = "FlexiDigital + (Bolsillo Ahorro)"
+                    source_url = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital"
+                elif "nu" in target_ent_id.lower() or "nu" in acc_name_lower:
+                    ent_name = "Nu Colombia"
+                    prod_name = "Cajitas Nu (A la vista)"
+                    source_url = "https://nu.com.co/cf/cuenta/"
+                else:
+                    ent_name = "Banco"
+                    prod_name = "Cuenta de Ahorros"
+                    source_url = "https://www.superfinanciera.gov.co/"
+            else:
+                if "rappi" in ent_name.lower():
+                    prod_name = "Bolsillos RappiCuenta (A la vista)"
+                    source_url = "https://rappipay.co/rappicuenta/"
+                elif "finandina" in ent_name.lower() or "flexi" in acc_name_lower:
+                    prod_name = "FlexiDigital + (Bolsillo Ahorro)"
+                    source_url = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital"
+                elif "nu" in ent_name.lower():
+                    prod_name = "Cajitas Nu (A la vista)"
+                    source_url = "https://nu.com.co/cf/cuenta/"
+                else:
+                    prod_name = "Cuenta de Ahorros"
+                    source_url = "https://www.superfinanciera.gov.co/"
 
             alerts.insert(0, {
                 "accountId": target_acc.get("id"),
                 "accountName": acc_name,
-                "entityId": target_acc.get("entityId", "ent_nu"),
+                "entityId": target_ent_id or "ent_mock",
                 "entityName": ent_name,
                 "currency": target_acc.get("currency", "COP"),
                 "currentRateEA": curr_rate,
@@ -307,7 +337,7 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
                 "sourceUrl": source_url,
                 "suggestedEffectiveDate": now.strftime("%Y-%m-%d"),
                 "isSimulated": True,
-                "message": f"🧪 [Prueba Flash] {ent_name} reportó ajuste de rentabilidad en {prod_name} a {sim_rate:.2f}% E.A. (tu bolsillo '{acc_name}' tiene {curr_rate:.2f}% E.A.)."
+                "message": f"🧪 [Prueba Flash Simulada] {ent_name} simuló ajuste de rentabilidad en {prod_name} a {sim_rate:.2f}% E.A. (tu cuenta tiene {curr_rate:.2f}% E.A.)."
             })
 
     next_check = (now + timedelta(days=7)).strftime("%Y-%m-%d")

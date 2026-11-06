@@ -403,10 +403,29 @@ object BankRateAlertManager {
                 val simRate = if (currRate < 12.0) round((currRate + 0.90) * 100) / 100.0 else round((currRate - 0.50) * 100) / 100.0
                 val diff = round((simRate - currRate) * 100) / 100.0
 
-                val isRappi = accName.lowercase(Locale.US).contains("impresora") || accName.lowercase(Locale.US).contains("rappi")
-                val entityName = if (isRappi) "RappiPay" else "Nu Colombia"
-                val productName = if (isRappi) "Bolsillos RappiCuenta (A la vista)" else "Cajitas Nu (A la vista)"
-                val sourceUrl = if (isRappi) "https://rappipay.co/rappicuenta/" else "https://nu.com.co/cf/cuenta/"
+                val accNameLower = accName.lowercase(Locale.US)
+                val entIdLower = (targetAcc?.optString("entity_id") ?: "").lowercase(Locale.US)
+                val entityName: String
+                val productName: String
+                val sourceUrl: String
+
+                if (entIdLower.contains("rappi") || accNameLower.contains("rappi")) {
+                    entityName = "RappiPay"
+                    productName = "Bolsillos RappiCuenta (A la vista)"
+                    sourceUrl = "https://rappipay.co/rappicuenta/"
+                } else if (entIdLower.contains("finandina") || accNameLower.contains("flexi") || entIdLower == "ent_1786771791285") {
+                    entityName = "Banco Finandina"
+                    productName = "FlexiDigital + (Bolsillo Ahorro)"
+                    sourceUrl = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital"
+                } else if (entIdLower.contains("nu") || accNameLower.contains("nu")) {
+                    entityName = "Nu Colombia"
+                    productName = "Cajitas Nu (A la vista)"
+                    sourceUrl = "https://nu.com.co/cf/cuenta/"
+                } else {
+                    entityName = "Banco"
+                    productName = "Cuenta de Ahorros"
+                    sourceUrl = "https://www.superfinanciera.gov.co/"
+                }
 
                 val simAlert = BankRateAlert(
                     accountId = accId,

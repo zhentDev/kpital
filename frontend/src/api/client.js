@@ -1166,10 +1166,41 @@ export async function fetchRateTrackerAlerts(simulate = false) {
       const simRate = currRate < 12.0 ? Math.round((currRate + 0.90) * 100) / 100 : Math.round((currRate - 0.50) * 100) / 100;
       const diff = Math.round((simRate - currRate) * 100) / 100;
       const accName = targetAcc.name || "Cajita de Ahorro";
-      const isRappi = (targetAcc.entityId || "").toLowerCase().includes("rappi") || targetAcc.entityId === "ent_1789616750396";
-      const entName = isRappi ? "RappiPay" : "Nu Colombia";
-      const prodName = isRappi ? "Bolsillos RappiCuenta (A la vista)" : "Cajitas Nu (A la vista)";
-      const sourceUrl = isRappi ? "https://rappipay.co/rappicuenta/" : "https://nu.com.co/cf/cuenta/";
+      const accNameLower = accName.toLowerCase();
+      const entIdLower = (targetAcc.entityId || "").toLowerCase();
+      const entObj = (entities || []).find((e) => e.id === targetAcc.entityId) || {};
+      let entName = entObj.name;
+      let prodName = "Cuenta de Ahorros";
+      let sourceUrl = "https://www.superfinanciera.gov.co/";
+
+      if (!entName) {
+        if (entIdLower.includes("rappi") || accNameLower.includes("rappi")) {
+          entName = "RappiPay";
+          prodName = "Bolsillos RappiCuenta (A la vista)";
+          sourceUrl = "https://rappipay.co/rappicuenta/";
+        } else if (entIdLower.includes("finandina") || accNameLower.includes("flexi") || targetAcc.entityId === "ent_1786771791285") {
+          entName = "Banco Finandina";
+          prodName = "FlexiDigital + (Bolsillo Ahorro)";
+          sourceUrl = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital";
+        } else if (entIdLower.includes("nu") || accNameLower.includes("nu")) {
+          entName = "Nu Colombia";
+          prodName = "Cajitas Nu (A la vista)";
+          sourceUrl = "https://nu.com.co/cf/cuenta/";
+        } else {
+          entName = "Banco";
+        }
+      } else {
+        if (entName.toLowerCase().includes("rappi")) {
+          prodName = "Bolsillos RappiCuenta (A la vista)";
+          sourceUrl = "https://rappipay.co/rappicuenta/";
+        } else if (entName.toLowerCase().includes("finandina") || accNameLower.includes("flexi")) {
+          prodName = "FlexiDigital + (Bolsillo Ahorro)";
+          sourceUrl = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital";
+        } else if (entName.toLowerCase().includes("nu")) {
+          prodName = "Cajitas Nu (A la vista)";
+          sourceUrl = "https://nu.com.co/cf/cuenta/";
+        }
+      }
 
       alerts.unshift({
         accountId: targetAcc.id,
@@ -1185,7 +1216,7 @@ export async function fetchRateTrackerAlerts(simulate = false) {
         sourceUrl,
         suggestedEffectiveDate: todayStr,
         isSimulated: true,
-        message: `🧪 [Prueba Flash] ${entName} reportó ajuste de rentabilidad en ${prodName} a ${simRate.toFixed(2)}% E.A. (tu bolsillo '${accName}' tiene ${currRate.toFixed(2)}% E.A.).`,
+        message: `🧪 [Prueba Flash Simulada] ${entName} simuló ajuste de rentabilidad en ${prodName} a ${simRate.toFixed(2)}% E.A. (tu bolsillo '${accName}' tiene ${currRate.toFixed(2)}% E.A.).`,
       });
     }
   }

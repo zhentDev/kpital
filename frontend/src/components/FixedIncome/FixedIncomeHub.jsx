@@ -1028,9 +1028,26 @@ export default function FixedIncomeHub() {
                   <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 240px" }}>
                     <span style={{ fontSize: "1.1rem" }}>{alert.direction === "up" ? "📈" : "📉"}</span>
                     <div>
-                      <strong style={{ fontSize: "0.86rem", color: "var(--text-primary)", display: "block" }}>
-                        {alert.entityName} • {alert.accountName}
-                      </strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: "0.86rem", color: "var(--text-primary)" }}>
+                          {alert.entityName} • {alert.accountName}
+                        </strong>
+                        {alert.isSimulated && (
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              fontWeight: 700,
+                              color: "#f59e0b",
+                              background: "rgba(245, 158, 11, 0.15)",
+                              border: "1px solid rgba(245, 158, 11, 0.4)",
+                              borderRadius: "4px",
+                              padding: "2px 6px",
+                            }}
+                          >
+                            🧪 Prueba Flash Simulada
+                          </span>
+                        )}
+                      </div>
                       <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
                         Tasa actual: <span style={{ color: "#f43f5e", fontWeight: 700 }}>{alert.currentRateEA.toFixed(2)}% E.A.</span> ➔ Mercado: <span style={{ color: "#10b981", fontWeight: 700 }}>{alert.marketRateEA.toFixed(2)}% E.A.</span> ({alert.diff > 0 ? `+${alert.diff.toFixed(2)}%` : `${alert.diff.toFixed(2)}%`})
                       </span>
