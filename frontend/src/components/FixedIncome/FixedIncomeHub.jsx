@@ -8,6 +8,7 @@ import { calculateAccountYield, getCDTAccruedYield } from "../../utils/yieldCalc
 import FixedIncomeModal from "./FixedIncomeModal";
 import FixedIncomeProjectionChart from "./FixedIncomeProjectionChart";
 import StatementImporterModal from "./StatementImporterModal";
+import RateRadarModal from "./RateRadarModal";
 import HourglassRangeSlider from "../Common/HourglassRangeSlider";
 import AffiliateBanner from "../Common/AffiliateBanner";
 import { getReferralForEntity } from "../../utils/referralLinks";
@@ -75,6 +76,8 @@ export default function FixedIncomeHub() {
   const [isCheckingRates, setIsCheckingRates] = useState(false);
   const [applyingRateAccountId, setApplyingRateAccountId] = useState(null);
   const [liveScrapedInfo, setLiveScrapedInfo] = useState(null);
+  const [allMarketRates, setAllMarketRates] = useState([]);
+  const [isRadarModalOpen, setIsRadarModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -83,6 +86,7 @@ export default function FixedIncomeHub() {
         if (isMounted) {
           if (Array.isArray(data?.alerts)) setRateTrackerAlerts(data.alerts);
           if (data?.liveScraped) setLiveScrapedInfo(data.liveScraped);
+          if (Array.isArray(data?.allMarketRates)) setAllMarketRates(data.allMarketRates);
         }
       })
       .catch((err) => {
@@ -105,6 +109,7 @@ export default function FixedIncomeHub() {
       }
       setRateTrackerAlerts(data?.alerts || []);
       if (data?.liveScraped) setLiveScrapedInfo(data.liveScraped);
+      if (Array.isArray(data?.allMarketRates)) setAllMarketRates(data.allMarketRates);
       if ((data?.alerts || []).length === 0) {
         toast.success("¡Todas tus cuentas están al día con las tasas de mercado!", { icon: "✅" });
       }
@@ -125,6 +130,8 @@ export default function FixedIncomeHub() {
         await new Promise((r) => setTimeout(r, 400 - elapsed));
       }
       setRateTrackerAlerts(data?.alerts || []);
+      if (Array.isArray(data?.allMarketRates)) setAllMarketRates(data.allMarketRates);
+      if (data?.liveScraped) setLiveScrapedInfo(data.liveScraped);
       toast.success("¡Prueba Flash ejecutada! Alerta de mercado generada en vivo ⚡", { icon: "🧪" });
     } catch {
       toast.error("Error al ejecutar prueba flash");
@@ -981,6 +988,26 @@ export default function FixedIncomeHub() {
                   "🔄 Re-verificar Ahora"
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsRadarModalOpen(true)}
+                style={{
+                  background: isLight ? "#f1f5f9" : "rgba(255, 255, 255, 0.1)",
+                  border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.15)",
+                  color: isLight ? "#0f172a" : "#f8fafc",
+                  borderRadius: "8px",
+                  padding: "6px 12px",
+                  fontSize: "0.76rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                📡 Ver Radar Completo
+              </button>
             </div>
           </div>
 
@@ -1432,7 +1459,7 @@ export default function FixedIncomeHub() {
           </button>
           <button
             type="button"
-            onClick={handleCheckRatesNow}
+            onClick={() => setIsRadarModalOpen(true)}
             disabled={isCheckingRates}
             style={{
               display: "flex",
@@ -1445,9 +1472,9 @@ export default function FixedIncomeHub() {
               borderRadius: 8,
               fontWeight: 700,
               fontSize: "0.8rem",
-              cursor: isCheckingRates ? "not-allowed" : "pointer",
+              cursor: "pointer",
             }}
-            title="Consultar tasas de mercado de bancos colombianos y USD"
+            title="Abre el Radar en Tiempo Real con las tasas oficiales de Nu, RappiPay, Pibank, Finandina, etc."
           >
             {isCheckingRates ? (
               <>
@@ -1462,11 +1489,11 @@ export default function FixedIncomeHub() {
                     display: "inline-block",
                   }}
                 />
-                <span>Verificando Tasas...</span>
+                <span>Rastreando Tasas...</span>
               </>
             ) : (
               <>
-                <span>🔔</span> Radar de Tasas {rateTrackerAlerts.length > 0 ? `(${rateTrackerAlerts.length})` : ""}
+                <span>📡</span> Radar de Tasas {rateTrackerAlerts.length > 0 ? `(${rateTrackerAlerts.length})` : ""}
               </>
             )}
           </button>
@@ -4463,6 +4490,21 @@ export default function FixedIncomeHub() {
 
       {/* ── MODAL DE IMPORTACIÓN INTELIGENTE DE EXTRACTOS (PDF) ── */}
       <StatementImporterModal isOpen={importerOpen} onClose={() => setImporterOpen(false)} />
+
+      {/* ── MODAL DE RADAR DE TASAS BANCARIAS EN TIEMPO REAL ── */}
+      <RateRadarModal
+        isOpen={isRadarModalOpen}
+        onClose={() => setIsRadarModalOpen(false)}
+        alerts={rateTrackerAlerts}
+        allMarketRates={allMarketRates}
+        liveScrapedInfo={liveScrapedInfo}
+        isCheckingRates={isCheckingRates}
+        onRecheckRates={handleCheckRatesNow}
+        onFlashTest={handleFlashRateTest}
+        onApplyRate={handleApplyRateUpdate}
+        applyingRateAccountId={applyingRateAccountId}
+        onDismissAlert={(accId) => setRateTrackerAlerts((prev) => prev.filter((a) => a.accountId !== accId))}
+      />
     </div>
   );
 }
