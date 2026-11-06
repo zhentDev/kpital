@@ -1284,6 +1284,50 @@ export default function FixedIncomeHub() {
         }}
       >
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/* Rate Tracker Flash Test & Check Buttons */}
+          <button
+            type="button"
+            onClick={handleFlashRateTest}
+            disabled={isCheckingRates}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(16, 185, 129, 0.15)",
+              color: "#10b981",
+              border: "1px solid #10b981",
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: "0.8rem",
+              cursor: isCheckingRates ? "not-allowed" : "pointer",
+            }}
+            title="Genera una alerta de prueba en vivo para verificar el flujo de actualización de tasas"
+          >
+            <span>🧪</span> Probar Tasas (Flash)
+          </button>
+          <button
+            type="button"
+            onClick={handleCheckRatesNow}
+            disabled={isCheckingRates}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: rateTrackerAlerts.length > 0 ? "rgba(14, 165, 233, 0.2)" : (isLight ? "#f1f5f9" : "rgba(255, 255, 255, 0.08)"),
+              color: rateTrackerAlerts.length > 0 ? "#0ea5e9" : (isLight ? "#0f172a" : "#f1f5f9"),
+              border: rateTrackerAlerts.length > 0 ? "1px solid #0ea5e9" : (isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.15)"),
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: "0.8rem",
+              cursor: isCheckingRates ? "not-allowed" : "pointer",
+            }}
+            title="Consultar tasas de mercado de bancos colombianos y USD"
+          >
+            <span>🔔</span> Radar de Tasas {rateTrackerAlerts.length > 0 ? `(${rateTrackerAlerts.length})` : ""}
+          </button>
+
           <button
             onClick={() => setImporterOpen(true)}
             style={{

@@ -2,7 +2,7 @@
  * API client — wraps fetch calls to the FastAPI backend.
  * Automatically falls back to static pre-calculated JSON data on GitHub Pages or when backend is offline!
  */
-import { getBankPreset } from "../utils/bankPresets";
+import { BANK_PRESETS, getBankPreset } from "../utils/bankPresets";
 import {
   directSupabaseLogin,
   directSupabaseFetchMe,
@@ -1058,20 +1058,133 @@ export async function confirmStatementImportApi(
 }
 
 export async function fetchRateTrackerAlerts(simulate = false) {
-  const query = simulate ? "?simulate=true" : "";
-  const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker${query}`);
-  if (!res.ok) throw new Error("Error al obtener seguimiento de tasas");
-  return res.json();
+  try {
+    const query = simulate ? "?simulate=true" : "";
+    const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker${query}`);
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn("[RateTracker] Backend unreachable, evaluating locally:", err);
+  }
+
+  // Client-side fallback evaluation
+  const localData = await directFetchFixedIncome();
+  const accounts = localData?.accounts || [];
+  
+  const alerts = [];
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  accounts.forEach((acc) => {
+    const rateVal = Number(acc.interestRateEA || 0);
+    const accName = (acc.name || "").toLowerCase();
+    const entityId = (acc.entityId || "").toLowerCase();
+
+    const preset = (BANK_PRESETS || []).find(
+      (p) => p.id === entityId || entityId.includes(p.id) || p.name.toLowerCase().includes(accName) || accName.includes(p.name.toLowerCase())
+    );
+
+    if (preset && typeof preset.defaultRateEA === "number") {
+      const marketRate = preset.defaultRateEA;
+      const diff = Math.round((marketRate - rateVal) * 100) / 100;
+      if (Math.abs(diff) >= 0.05) {
+        alerts.push({
+          accountId: acc.id,
+          accountName: acc.name,
+          entityId: acc.entityId,
+          entityName: preset.name,
+          currency: acc.currency || preset.currency,
+          currentRateEA: rateVal,
+          marketRateEA: marketRate,
+          diff,
+          direction: diff > 0 ? "up" : "down",
+          productName: preset.suggestedProducts?.[0] || preset.name,
+          sourceUrl: preset.sourceUrl || "https://nu.com.co/cf/cuenta/",
+          suggestedEffectiveDate: todayStr,
+          message: `Tasa de ${preset.name} actualizada en mercado a ${marketRate.toFixed(2)}% E.A. (tu cuenta tiene ${rateVal.toFixed(2)}% E.A.).`,
+        });
+      }
+    }
+  });
+
+  if (simulate) {
+    const targetAcc = accounts.find((a) => (a.entityId || "").toLowerCase().includes("nu") || (a.name || "").toLowerCase().includes("nu")) || accounts[0];
+    if (targetAcc) {
+      const currRate = Number(targetAcc.interestRateEA || 9.35);
+      const simRate = currRate < 10.0 ? 10.25 : 9.35;
+      const diff = Math.round((simRate - currRate) * 100) / 100;
+      alerts.unshift({
+        accountId: targetAcc.id,
+        accountName: targetAcc.name || "Cajita Nu",
+        entityId: targetAcc.entityId || "ent_nu",
+        entityName: "Nu Colombia",
+        currency: targetAcc.currency || "COP",
+        currentRateEA: currRate,
+        marketRateEA: simRate,
+        diff,
+        direction: diff > 0 ? "up" : "down",
+        productName: "Cajitas Nu (Cuenta de Ahorros)",
+        sourceUrl: "https://nu.com.co/cf/cuenta/",
+        suggestedEffectiveDate: todayStr,
+        isSimulated: true,
+        message: `🧪 [Prueba Flash] Nu Colombia reportó ajuste de rentabilidad a ${simRate.toFixed(2)}% E.A. (tu cuenta tiene ${currRate.toFixed(2)}% E.A.).`,
+      });
+    }
+  }
+
+  return {
+    status: "success",
+    lastChecked: now.toISOString(),
+    monitoredAccounts: accounts.length,
+    alertsCount: alerts.length,
+    alerts,
+    allMarketRates: BANK_PRESETS || [],
+  };
 }
 
 export async function applyUpdatedAccountRate({ accountId, newRate, effectiveDate }) {
-  const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker/apply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accountId, newRate, effectiveDate }),
+  try {
+    const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, newRate, effectiveDate }),
+    });
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn("[RateTracker] Backend apply failed, applying via direct Supabase:", err);
+  }
+
+  // Direct Supabase fallback
+  const localData = await directFetchFixedIncome();
+  const accounts = [...(localData?.accounts || [])];
+  const targetAcc = accounts.find((a) => a.id === accountId);
+  if (!targetAcc) throw new Error("Cuenta no encontrada");
+
+  const oldRate = Number(targetAcc.interestRateEA || 0);
+  const effDate = effectiveDate || new Date().toISOString().slice(0, 10);
+  const rateHistory = Array.isArray(targetAcc.rateHistory) ? [...targetAcc.rateHistory] : [];
+
+  if (rateHistory.length === 0 && oldRate > 0) {
+    rateHistory.push({
+      rate: oldRate,
+      effectiveDate: (targetAcc.createdAt || "2026-01-01").slice(0, 10),
+    });
+  }
+
+  rateHistory.push({
+    rate: Number(newRate),
+    effectiveDate: effDate,
+    updatedAt: new Date().toISOString(),
   });
-  if (!res.ok) throw new Error("Error al actualizar la tasa de la cuenta");
-  return res.json();
+
+  targetAcc.interestRateEA = Number(newRate);
+  targetAcc.rateHistory = rateHistory;
+
+  await directSaveFixedIncome({
+    ...localData,
+    accounts,
+  });
+
+  return { success: true, updatedAccount: targetAcc };
 }
 
 // ── Cash Flow & Budget Allocation API ────────────────────────────
