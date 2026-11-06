@@ -202,17 +202,23 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
     monitored_accounts_count = 0
 
     for acc in (user_accounts or []):
-        # Only evaluate active savings accounts (skip zero-rate payroll if designated)
         rate_val = float(acc.get("interestRateEA") or 0.0)
         account_name = acc.get("name", "Cuenta")
+        acc_name_lower = account_name.lower()
+        cat = (acc.get("accountCategory") or "").lower()
         entity_id = acc.get("entityId", "")
         entity_obj = entity_map.get(entity_id, {})
         entity_name = entity_obj.get("name", "")
 
-        # Find matching market preset by entityId or name
+        # 1. Skip non-yield categories (payroll, digital wallet, cash)
+        # Checking/payroll accounts naturally yield 0.0% and should never be flagged as an error!
+        if cat in ("payroll", "digital_wallet", "cash") or any(k in acc_name_lower for k in ("(nómina)", "(nomina)", "(principal)", "principal", "transaccional", "billetera", "efectivo", "disponible nequi", "daviplata")):
+            continue
+
+        # 2. Match preset and determine specific product rate
         matched_preset = None
         for key, preset in KNOWN_MARKET_ENTITIES.items():
-            if key == entity_id or key in entity_id.lower() or preset["name"].lower() in entity_name.lower() or preset["name"].lower() in account_name.lower():
+            if key == entity_id or key in entity_id.lower() or preset["name"].lower() in entity_name.lower() or preset["name"].lower() in acc_name_lower:
                 matched_preset = preset
                 break
 
@@ -221,6 +227,34 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
 
         monitored_accounts_count += 1
         market_rate = float(matched_preset["currentMarketRateEA"])
+        product_name = matched_preset["productName"]
+
+        # Granular product tier distinctions:
+        # Nu Colombia: Cajitas (9.35%) vs Cajitas Congeladas / CDT (10.50%)
+        if "nu" in entity_id.lower() or "nu" in acc_name_lower:
+            if any(k in acc_name_lower for k in ("congelada", "congeladas", "cdt")):
+                market_rate = 10.50
+                product_name = "Cajita Congelada Nu (CDT)"
+            else:
+                market_rate = 9.35
+                product_name = "Cajitas Nu (A la vista)"
+        # RappiPay: Bolsillos a la vista (9.00%) vs Bóvedas CDT (10.00%)
+        elif "rappi" in entity_id.lower() or "rappi" in acc_name_lower or entity_id == "ent_1789616750396":
+            if any(k in acc_name_lower for k in ("boveda", "bóveda", "bovedas", "bóvedas", "cdt")):
+                market_rate = 10.00
+                product_name = "Bóvedas RappiPay (Plazo fijo / CDT)"
+            else:
+                market_rate = 9.00
+                product_name = "Bolsillos RappiCuenta (A la vista)"
+        # Finandina: FlexiDigital + (10.50%) vs Tradicional (0.15%)
+        elif "finandina" in entity_id.lower() or "flexi" in acc_name_lower or entity_id == "ent_1786771791285":
+            if any(k in acc_name_lower for k in ("flexi", "emergencia", "bolsillo")):
+                market_rate = 10.50
+                product_name = "FlexiDigital + (Bolsillo Ahorro)"
+            else:
+                market_rate = 0.15
+                product_name = "Cuenta Tradicional Finandina"
+
         diff = round(market_rate - rate_val, 2)
 
         # If there is a meaningful discrepancy (>= 0.05% EA)
@@ -235,34 +269,47 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
                 "marketRateEA": market_rate,
                 "diff": diff,
                 "direction": "up" if diff > 0 else "down",
-                "productName": matched_preset["productName"],
+                "productName": product_name,
                 "sourceUrl": matched_preset["sourceUrl"],
                 "suggestedEffectiveDate": now.strftime("%Y-%m-%d"),
-                "message": f"Tasa de {matched_preset['name']} actualizada en mercado a {market_rate:.2f}% E.A. (tu cuenta tiene {rate_val:.2f}% E.A.)."
+                "message": f"Tasa de {matched_preset['name']} ({product_name}) actualizada en mercado a {market_rate:.2f}% E.A. (tu cuenta tiene {rate_val:.2f}% E.A.)."
             })
 
     if simulate:
-        # Generate an instant live flash test alert for the user's active account
-        target_acc = next((a for a in (user_accounts or []) if "nu" in a.get("entityId", "").lower() or "nu" in a.get("name", "").lower()), (user_accounts[0] if user_accounts else None))
+        # Generate an instant live flash test alert targeting a real yielding pocket (e.g. Cajita Viaje, Impresora, etc.)
+        valid_pockets = [
+            a for a in (user_accounts or [])
+            if (a.get("accountCategory") or "").lower() == "high_yield"
+            and not any(k in (a.get("name") or "").lower() for k in ("nómina", "nomina", "principal"))
+        ]
+        target_acc = valid_pockets[0] if valid_pockets else (user_accounts[0] if user_accounts else None)
+
         if target_acc:
             curr_rate = float(target_acc.get("interestRateEA") or 9.35)
-            sim_rate = 10.25 if curr_rate < 10.0 else 9.35
+            # Simulate a realistic market movement (+0.90% E.A. or -0.50%)
+            sim_rate = round(curr_rate + 0.90, 2) if curr_rate < 12.0 else round(curr_rate - 0.50, 2)
             diff = round(sim_rate - curr_rate, 2)
+            acc_name = target_acc.get("name", "Cajita de Ahorro")
+            is_rappi = "rappi" in target_acc.get("entityId", "").lower() or target_acc.get("entityId") == "ent_1789616750396"
+            ent_name = "RappiPay" if is_rappi else "Nu Colombia"
+            prod_name = "Bolsillos RappiCuenta (A la vista)" if is_rappi else "Cajitas Nu (A la vista)"
+            source_url = "https://rappipay.co/rappicuenta/" if is_rappi else "https://nu.com.co/cf/cuenta/"
+
             alerts.insert(0, {
                 "accountId": target_acc.get("id"),
-                "accountName": target_acc.get("name", "Cajita Nu"),
+                "accountName": acc_name,
                 "entityId": target_acc.get("entityId", "ent_nu"),
-                "entityName": "Nu Colombia",
+                "entityName": ent_name,
                 "currency": target_acc.get("currency", "COP"),
                 "currentRateEA": curr_rate,
                 "marketRateEA": sim_rate,
                 "diff": diff,
                 "direction": "up" if diff > 0 else "down",
-                "productName": "Cajitas Nu (Cuenta de Ahorros)",
-                "sourceUrl": "https://nu.com.co/cf/cuenta/",
+                "productName": prod_name,
+                "sourceUrl": source_url,
                 "suggestedEffectiveDate": now.strftime("%Y-%m-%d"),
                 "isSimulated": True,
-                "message": f"🧪 [Prueba Flash] Nu Colombia reportó ajuste de rentabilidad a {sim_rate:.2f}% E.A. (tu cuenta tiene {curr_rate:.2f}% E.A.)."
+                "message": f"🧪 [Prueba Flash] {ent_name} reportó ajuste de rentabilidad en {prod_name} a {sim_rate:.2f}% E.A. (tu bolsillo '{acc_name}' tiene {curr_rate:.2f}% E.A.)."
             })
 
     next_check = (now + timedelta(days=7)).strftime("%Y-%m-%d")

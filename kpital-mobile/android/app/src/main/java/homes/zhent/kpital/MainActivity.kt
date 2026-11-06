@@ -64,6 +64,7 @@ class MainActivity : Activity() {
     // Contenedores de la sección de Alertas de Bolsa y Deudas
     private lateinit var alertsCardsContainer: LinearLayout
     private lateinit var containerDebtAlerts: LinearLayout
+    private lateinit var containerRateAlerts: LinearLayout
     private lateinit var emptyAlertsView: LinearLayout
     private lateinit var alertsMetricActive: TextView
     private lateinit var alertsMetricNear: TextView
@@ -71,9 +72,11 @@ class MainActivity : Activity() {
     private lateinit var alertsLastUpdatedText: TextView
     private lateinit var btnRefreshAlerts: Button
     private lateinit var btnTestAlertNotification: Button
+    private lateinit var btnTestRateAlert: Button
 
     // Estados de colapso de acordeones en alertas de bolsa y deudas
     private var isDebtAlertsExpanded: Boolean = true
+    private var isRateAlertsExpanded: Boolean = true
     private var isTriggeredStockAlertsExpanded: Boolean = true
     private var isNearStockAlertsExpanded: Boolean = true
     private var isActiveStockAlertsExpanded: Boolean = true
@@ -93,6 +96,7 @@ class MainActivity : Activity() {
         isCompletedHistoryExpanded = prefs.getBoolean("pref_completed_history_expanded", false)
         isDiscardedHistoryExpanded = prefs.getBoolean("pref_discarded_history_expanded", false)
         isDebtAlertsExpanded = prefs.getBoolean("pref_debt_alerts_expanded", true)
+        isRateAlertsExpanded = prefs.getBoolean("pref_rate_alerts_expanded", true)
         isTriggeredStockAlertsExpanded = prefs.getBoolean("pref_triggered_stock_expanded", true)
         isNearStockAlertsExpanded = prefs.getBoolean("pref_near_stock_expanded", true)
         isActiveStockAlertsExpanded = prefs.getBoolean("pref_active_stock_expanded", true)
@@ -182,6 +186,18 @@ class MainActivity : Activity() {
             }
         }
 
+        // Monitoreo de alertas de tasas de interés bancarias (Nu, RappiPay, Finandina, etc.)
+        BankRateAlertManager.setOnRateAlertsUpdatedListener { rateAlerts ->
+            runOnUiThread {
+                renderBankRateAlertsUI(rateAlerts)
+            }
+        }
+        BankRateAlertManager.fetchRateAlertsAsync(this) { rateAlerts ->
+            runOnUiThread {
+                renderBankRateAlertsUI(rateAlerts)
+            }
+        }
+
         // Programar alarma diaria de recordatorios de cobro a las 8:00 PM
         DebtAlertManager.scheduleDaily8PmAlarm(this)
 
@@ -205,6 +221,10 @@ class MainActivity : Activity() {
             if (ticker.isNotBlank()) {
                 Toast.makeText(this, "🚨 Alerta disparada para $ticker", Toast.LENGTH_LONG).show()
             }
+            val rateAccountId = intent.getStringExtra("RATE_ALERT_ACCOUNT_ID") ?: ""
+            if (rateAccountId.isNotBlank()) {
+                Toast.makeText(this, "📈 Tasa de mercado disponible para sincronizar", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -220,6 +240,9 @@ class MainActivity : Activity() {
             }
             DebtAlertManager.fetchDebtAlertsAsync(this) { debtAlerts ->
                 renderDebtAlertsUI(debtAlerts)
+            }
+            BankRateAlertManager.fetchRateAlertsAsync(this) { rateAlerts ->
+                renderBankRateAlertsUI(rateAlerts)
             }
         }
     }
@@ -672,11 +695,18 @@ class MainActivity : Activity() {
             if (cachedDebts.isNotEmpty()) {
                 renderDebtAlertsUI(cachedDebts)
             }
+            val cachedRates = BankRateAlertManager.latestRateAlerts
+            if (cachedRates.isNotEmpty()) {
+                renderBankRateAlertsUI(cachedRates)
+            }
             StockAlertManager.fetchLiveAlertsAsync(this) { res ->
                 if (res != null) renderStockAlertsUI(res)
             }
             DebtAlertManager.fetchDebtAlertsAsync(this) { debtAlerts ->
                 renderDebtAlertsUI(debtAlerts)
+            }
+            BankRateAlertManager.fetchRateAlertsAsync(this) { rateAlerts ->
+                renderBankRateAlertsUI(rateAlerts)
             }
         }
     }
@@ -1473,9 +1503,9 @@ class MainActivity : Activity() {
         }
         headerRow.addView(titleView)
 
-        // Botón Probar Alerta Sonora
+        // Botón Probar Alerta Sonora de Bolsa
         btnTestAlertNotification = Button(this).apply {
-            text = "🧪 Probar"
+            text = "🧪 Bolsa"
             textSize = 11f
             isAllCaps = false
             setTextColor(Color.parseColor("#f43f5e"))
@@ -1491,6 +1521,32 @@ class MainActivity : Activity() {
             }
         }
         headerRow.addView(btnTestAlertNotification)
+
+        // Botón Probar Alerta Sonora de Tasas
+        btnTestRateAlert = Button(this).apply {
+            text = "⚡ Tasa"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#10b981"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#062419"))
+                setStroke(1, Color.parseColor("#10b981"))
+            }
+            setPadding(16, 8, 16, 8)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(8, 0, 0, 0)
+            }
+            layoutParams = p
+            setOnClickListener {
+                BankRateAlertManager.simulateFlashRateTest(this@MainActivity)
+                Toast.makeText(this@MainActivity, "⚡ Prueba flash de tasa emitida con sonido", Toast.LENGTH_SHORT).show()
+            }
+        }
+        headerRow.addView(btnTestRateAlert)
 
         // Botón Actualizar Cotizaciones
         btnRefreshAlerts = Button(this).apply {
@@ -1519,6 +1575,11 @@ class MainActivity : Activity() {
                         renderDebtAlertsUI(debtAlerts)
                     }
                 }
+                BankRateAlertManager.fetchRateAlertsAsync(this@MainActivity) { rateAlerts ->
+                    runOnUiThread {
+                        renderBankRateAlertsUI(rateAlerts)
+                    }
+                }
                 StockAlertManager.fetchLiveAlertsAsync(this@MainActivity) { res ->
                     isEnabled = true
                     text = "🔄 Actualizar"
@@ -1544,6 +1605,14 @@ class MainActivity : Activity() {
             setPadding(0, 6, 0, 12)
         }
         sectionStockAlerts.addView(subDesc)
+
+        // Contenedor de Alertas de Tasas Bancarias de Mercado
+        containerRateAlerts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 0, 0, 14)
+        }
+        sectionStockAlerts.addView(containerRateAlerts)
 
         // Contenedor de Vencimientos de Deudas y Préstamos
         containerDebtAlerts = LinearLayout(this).apply {
@@ -1710,6 +1779,155 @@ class MainActivity : Activity() {
         }
 
         return header
+    }
+
+    private fun renderBankRateAlertsUI(alerts: List<BankRateAlert>) {
+        if (!::containerRateAlerts.isInitialized) return
+        containerRateAlerts.removeAllViews()
+
+        if (alerts.isEmpty()) {
+            containerRateAlerts.visibility = View.GONE
+            return
+        }
+        containerRateAlerts.visibility = View.VISIBLE
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (isRateAlertsExpanded) View.VISIBLE else View.GONE
+        }
+
+        val header = createAccordionHeader(
+            title = "🔔 Tasas de Mercado (${alerts.size} detectadas)",
+            count = alerts.size,
+            badgeColor = "#38bdf8",
+            isExpanded = isRateAlertsExpanded
+        ) { exp ->
+            isRateAlertsExpanded = exp
+            listContainer.visibility = if (exp) View.VISIBLE else View.GONE
+            prefs.edit().putBoolean("pref_rate_alerts_expanded", exp).apply()
+        }
+        containerRateAlerts.addView(header)
+
+        for (alert in alerts) {
+            listContainer.addView(createBankRateAlertCardView(alert))
+        }
+        containerRateAlerts.addView(listContainer)
+    }
+
+    private fun createBankRateAlertCardView(alert: BankRateAlert): View {
+        val isUp = alert.direction == "up"
+        val accentColor = if (isUp) "#10b981" else "#ef4444"
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(26, 20, 26, 20)
+            background = GradientDrawable().apply {
+                cornerRadius = 18f
+                setColor(Color.parseColor("#0c111e"))
+                setStroke(1, Color.parseColor(accentColor))
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 12)
+            }
+            layoutParams = params
+        }
+
+        // Fila 1: Entidad / Cuenta + Badge de variación
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val titleView = TextView(this).apply {
+            text = "${alert.entityName} • ${alert.accountName}"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row1.addView(titleView)
+
+        val badgeText = if (alert.isSimulated) "🧪 Simulación" else "${String.format(Locale.US, "%+.2f", alert.diff)}% E.A."
+        val badgeView = TextView(this).apply {
+            text = badgeText
+            textSize = 10f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor(accentColor))
+            background = GradientDrawable().apply {
+                cornerRadius = 8f
+                setColor(adjustAlpha(Color.parseColor(accentColor), 0.16f))
+                setStroke(1, Color.parseColor(accentColor))
+            }
+            setPadding(12, 4, 12, 4)
+        }
+        row1.addView(badgeView)
+        card.addView(row1)
+
+        // Fila 2: Comparación de tasas: Actual vs Mercado
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 8)
+        }
+
+        val ratesDesc = TextView(this).apply {
+            val currFormatted = String.format(Locale.US, "%.2f", alert.currentRateEA)
+            val mktFormatted = String.format(Locale.US, "%.2f", alert.marketRateEA)
+            text = "Tasa actual: $currFormatted% E.A.  ➔  Mercado: $mktFormatted% E.A."
+            textSize = 12f
+            setTextColor(Color.parseColor("#cbd5e1"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row2.addView(ratesDesc)
+        card.addView(row2)
+
+        // Fila 3: Producto oficial y Botón de Actualizar con 1 Toque
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val prodText = TextView(this).apply {
+            text = alert.productName
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748b"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row3.addView(prodText)
+
+        val btnUpdate = Button(this).apply {
+            text = "⚡ Actualizar a ${String.format(Locale.US, "%.2f", alert.marketRateEA)}%"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#059669"))
+            }
+            setPadding(16, 6, 16, 6)
+            setOnClickListener {
+                isEnabled = false
+                text = "⏳ Guardando..."
+                BankRateAlertManager.applyRateUpdateAsync(this@MainActivity, alert) { success ->
+                    runOnUiThread {
+                        if (success) {
+                            Toast.makeText(this@MainActivity, "✅ Tasa actualizada a ${String.format(Locale.US, "%.2f", alert.marketRateEA)}% E.A. en Supabase", Toast.LENGTH_SHORT).show()
+                        } else {
+                            isEnabled = true
+                            text = "⚡ Actualizar a ${String.format(Locale.US, "%.2f", alert.marketRateEA)}%"
+                            Toast.makeText(this@MainActivity, "❌ Error al actualizar tasa en Supabase", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+        row3.addView(btnUpdate)
+        card.addView(row3)
+
+        return card
     }
 
     private fun renderDebtAlertsUI(alerts: List<DebtDueAlert>) {

@@ -57,8 +57,8 @@ export const BANK_PRESETS = [
     color: "#ff441f",
     icon: "🧡",
     payoutFrequency: "daily",
-    defaultRateEA: 10.00,
-    suggestedProducts: ["Cuenta RappiPay (Principal)", "Impresora (Bolsillo)", "Fondo de emergencia", "Bóveda RappiCuenta"],
+    defaultRateEA: 9.00,
+    suggestedProducts: ["Bolsillos RappiCuenta (A la vista 9%)", "Bóvedas RappiCuenta (Plazo fijo / CDT 10%)", "Impresora (Bolsillo)", "Fondo de emergencia", "Cuenta RappiPay (Principal 0%)"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#ff441f"/><path d="M28 35h24c8 0 14 5 14 13s-6 13-14 13H40v13H28V35zm12 18h11c3.5 0 6-2 6-5s-2.5-5-6-5H40v10z" fill="#ffffff"/></svg>`,
   },
   {

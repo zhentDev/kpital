@@ -1077,14 +1077,57 @@ export async function fetchRateTrackerAlerts(simulate = false) {
   accounts.forEach((acc) => {
     const rateVal = Number(acc.interestRateEA || 0);
     const accName = (acc.name || "").toLowerCase();
+    const cat = (acc.accountCategory || "").toLowerCase();
     const entityId = (acc.entityId || "").toLowerCase();
+
+    // 1. Skip non-yield categories (payroll, digital wallet, cash)
+    // Checking/payroll accounts naturally yield 0.0% and should never be flagged as an error!
+    if (
+      cat === "payroll" || cat === "digital_wallet" || cat === "cash" ||
+      accName.includes("(nómina)") || accName.includes("(nomina)") ||
+      accName.includes("(principal)") || accName.includes("principal") ||
+      accName.includes("transaccional") || accName.includes("billetera") ||
+      accName.includes("efectivo") || accName.includes("disponible nequi") ||
+      accName.includes("daviplata")
+    ) {
+      return;
+    }
 
     const preset = (BANK_PRESETS || []).find(
       (p) => p.id === entityId || entityId.includes(p.id) || p.name.toLowerCase().includes(accName) || accName.includes(p.name.toLowerCase())
     );
 
     if (preset && typeof preset.defaultRateEA === "number") {
-      const marketRate = preset.defaultRateEA;
+      let marketRate = preset.defaultRateEA;
+      let productName = preset.suggestedProducts?.[0] || preset.name;
+
+      // Granular product tier distinctions:
+      if (entityId.includes("nu") || accName.includes("nu")) {
+        if (accName.includes("congelada") || accName.includes("cdt")) {
+          marketRate = 10.50;
+          productName = "Cajita Congelada Nu (CDT)";
+        } else {
+          marketRate = 9.35;
+          productName = "Cajitas Nu (A la vista)";
+        }
+      } else if (entityId.includes("rappi") || accName.includes("rappi") || entityId === "ent_1789616750396") {
+        if (accName.includes("boveda") || accName.includes("bóveda") || accName.includes("cdt")) {
+          marketRate = 10.00;
+          productName = "Bóvedas RappiPay (Plazo fijo / CDT)";
+        } else {
+          marketRate = 9.00;
+          productName = "Bolsillos RappiCuenta (A la vista)";
+        }
+      } else if (entityId.includes("finandina") || accName.includes("flexi") || entityId === "ent_1786771791285") {
+        if (accName.includes("flexi") || accName.includes("emergencia") || accName.includes("bolsillo")) {
+          marketRate = 10.50;
+          productName = "FlexiDigital + (Bolsillo Ahorro)";
+        } else {
+          marketRate = 0.15;
+          productName = "Cuenta Tradicional Finandina";
+        }
+      }
+
       const diff = Math.round((marketRate - rateVal) * 100) / 100;
       if (Math.abs(diff) >= 0.05) {
         alerts.push({
@@ -1097,36 +1140,49 @@ export async function fetchRateTrackerAlerts(simulate = false) {
           marketRateEA: marketRate,
           diff,
           direction: diff > 0 ? "up" : "down",
-          productName: preset.suggestedProducts?.[0] || preset.name,
+          productName,
           sourceUrl: preset.sourceUrl || "https://nu.com.co/cf/cuenta/",
           suggestedEffectiveDate: todayStr,
-          message: `Tasa de ${preset.name} actualizada en mercado a ${marketRate.toFixed(2)}% E.A. (tu cuenta tiene ${rateVal.toFixed(2)}% E.A.).`,
+          message: `Tasa de ${preset.name} (${productName}) actualizada en mercado a ${marketRate.toFixed(2)}% E.A. (tu cuenta tiene ${rateVal.toFixed(2)}% E.A.).`,
         });
       }
     }
   });
 
   if (simulate) {
-    const targetAcc = accounts.find((a) => (a.entityId || "").toLowerCase().includes("nu") || (a.name || "").toLowerCase().includes("nu")) || accounts[0];
+    // Target a real yielding pocket for flash test
+    const validPockets = accounts.filter(
+      (a) => (a.accountCategory || "").toLowerCase() === "high_yield" &&
+        !(a.name || "").toLowerCase().includes("nómina") &&
+        !(a.name || "").toLowerCase().includes("principal")
+    );
+    const targetAcc = validPockets[0] || accounts[0];
+
     if (targetAcc) {
       const currRate = Number(targetAcc.interestRateEA || 9.35);
-      const simRate = currRate < 10.0 ? 10.25 : 9.35;
+      const simRate = currRate < 12.0 ? Math.round((currRate + 0.90) * 100) / 100 : Math.round((currRate - 0.50) * 100) / 100;
       const diff = Math.round((simRate - currRate) * 100) / 100;
+      const accName = targetAcc.name || "Cajita de Ahorro";
+      const isRappi = (targetAcc.entityId || "").toLowerCase().includes("rappi") || targetAcc.entityId === "ent_1789616750396";
+      const entName = isRappi ? "RappiPay" : "Nu Colombia";
+      const prodName = isRappi ? "Bolsillos RappiCuenta (A la vista)" : "Cajitas Nu (A la vista)";
+      const sourceUrl = isRappi ? "https://rappipay.co/rappicuenta/" : "https://nu.com.co/cf/cuenta/";
+
       alerts.unshift({
         accountId: targetAcc.id,
-        accountName: targetAcc.name || "Cajita Nu",
+        accountName: accName,
         entityId: targetAcc.entityId || "ent_nu",
-        entityName: "Nu Colombia",
+        entityName: entName,
         currency: targetAcc.currency || "COP",
         currentRateEA: currRate,
         marketRateEA: simRate,
         diff,
         direction: diff > 0 ? "up" : "down",
-        productName: "Cajitas Nu (Cuenta de Ahorros)",
-        sourceUrl: "https://nu.com.co/cf/cuenta/",
+        productName: prodName,
+        sourceUrl,
         suggestedEffectiveDate: todayStr,
         isSimulated: true,
-        message: `🧪 [Prueba Flash] Nu Colombia reportó ajuste de rentabilidad a ${simRate.toFixed(2)}% E.A. (tu cuenta tiene ${currRate.toFixed(2)}% E.A.).`,
+        message: `🧪 [Prueba Flash] ${entName} reportó ajuste de rentabilidad en ${prodName} a ${simRate.toFixed(2)}% E.A. (tu bolsillo '${accName}' tiene ${currRate.toFixed(2)}% E.A.).`,
       });
     }
   }
