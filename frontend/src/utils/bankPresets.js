@@ -33,8 +33,8 @@ export const BANK_PRESETS = [
     color: "#00e575",
     icon: "🟢",
     payoutFrequency: "daily",
-    defaultRateEA: 13.00,
-    suggestedProducts: ["Lulo Cuenta", "Bolsillo Lulo", "Lulo Pro"],
+    defaultRateEA: 10.00,
+    suggestedProducts: ["Lulo Cuenta", "Bolsillo Lulo (9.5% - 10.0%)", "Lulo Pro"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#0f172a"/><circle cx="50" cy="50" r="32" fill="#00e575"/><text x="50" y="58" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="28" fill="#0f172a" text-anchor="middle">L</text></svg>`,
   },
   {
@@ -45,8 +45,8 @@ export const BANK_PRESETS = [
     color: "#002d72",
     icon: "🔵",
     payoutFrequency: "daily",
-    defaultRateEA: 12.00,
-    suggestedProducts: ["Cuenta Remunerada Pibank", "CDT Pibank"],
+    defaultRateEA: 11.00,
+    suggestedProducts: ["Cuenta Remunerada Pibank (11.00%)", "CDT Pibank (13.00%)"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#002d72"/><text x="50" y="60" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="32" fill="#ffffff" text-anchor="middle">π</text></svg>`,
   },
   {

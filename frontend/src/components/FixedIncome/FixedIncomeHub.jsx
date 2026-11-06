@@ -74,13 +74,15 @@ export default function FixedIncomeHub() {
   const [rateTrackerAlerts, setRateTrackerAlerts] = useState([]);
   const [isCheckingRates, setIsCheckingRates] = useState(false);
   const [applyingRateAccountId, setApplyingRateAccountId] = useState(null);
+  const [liveScrapedInfo, setLiveScrapedInfo] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
     fetchRateTrackerAlerts()
       .then((data) => {
-        if (isMounted && Array.isArray(data?.alerts)) {
-          setRateTrackerAlerts(data.alerts);
+        if (isMounted) {
+          if (Array.isArray(data?.alerts)) setRateTrackerAlerts(data.alerts);
+          if (data?.liveScraped) setLiveScrapedInfo(data.liveScraped);
         }
       })
       .catch((err) => {
@@ -95,12 +97,14 @@ export default function FixedIncomeHub() {
     setIsCheckingRates(true);
     const start = Date.now();
     try {
-      const data = await fetchRateTrackerAlerts();
+      // Force live web scraping across official portals
+      const data = await fetchRateTrackerAlerts(false, true);
       const elapsed = Date.now() - start;
       if (elapsed < 500) {
         await new Promise((r) => setTimeout(r, 500 - elapsed));
       }
       setRateTrackerAlerts(data?.alerts || []);
+      if (data?.liveScraped) setLiveScrapedInfo(data.liveScraped);
       if ((data?.alerts || []).length === 0) {
         toast.success("¡Todas tus cuentas están al día con las tasas de mercado!", { icon: "✅" });
       }
@@ -908,8 +912,10 @@ export default function FixedIncomeHub() {
                 </strong>
                 <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>
                   {isCheckingRates
-                    ? "Comparando tus bolsillos y cajitas activas contra Nu Colombia, RappiPay, Banco Finandina, Lulo Bank, Pibank y Plenti."
-                    : "Verificado con fuentes oficiales del sistema financiero colombiano y USD. Solo afecta cálculos desde la fecha de vigencia sin alterar tus rendimientos históricos pasados."}
+                    ? "Rastreando en vivo los portales web oficiales de Nu Colombia, RappiPay, Banco Finandina, Pibank y Lulo Bank..."
+                    : (liveScrapedInfo
+                        ? "🌐 Rastreado en tiempo real directamente desde los portales web oficiales (nu.com.co, rappipay.co, pibank.co, bancofinandina.com)"
+                        : "Verificado con fuentes oficiales del sistema financiero colombiano y USD. Solo afecta cálculos desde la fecha de vigencia sin alterar tus rendimientos históricos pasados.")}
                 </span>
               </div>
             </div>

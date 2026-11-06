@@ -9,9 +9,14 @@ historical compound interest calculations.
 
 from datetime import datetime, timedelta
 import logging
+import re
 from typing import Any, Dict, List, Optional
+import urllib.request
 
 logger = logging.getLogger(__name__)
+
+_last_scraped_at: Optional[datetime] = None
+_live_scrape_cache: Dict[str, Any] = {}
 
 # Complete catalog of all known financial institutions, their verified current market rates,
 # official rate portals, and official payout frequencies.
@@ -43,7 +48,7 @@ KNOWN_MARKET_ENTITIES = {
         "name": "Lulo Bank",
         "country": "🇨🇴",
         "currency": "COP",
-        "currentMarketRateEA": 13.00,
+        "currentMarketRateEA": 10.00,
         "productName": "Lulo Cuenta / Bolsillos Lulo",
         "payoutFrequency": "daily",
         "sourceUrl": "https://www.lulobank.com/",
@@ -54,10 +59,10 @@ KNOWN_MARKET_ENTITIES = {
         "name": "Pibank",
         "country": "🇨🇴",
         "currency": "COP",
-        "currentMarketRateEA": 12.00,
+        "currentMarketRateEA": 11.00,
         "productName": "Cuenta Remunerada Pibank",
-        "payoutFrequency": "daily",
-        "sourceUrl": "https://www.pibank.co/cuenta-remunerada/",
+        "payoutFrequency": "monthly",
+        "sourceUrl": "https://www.pibank.co/cuenta-pibank/",
         "searchQuery": "tasa cuenta remunerada pibank colombia",
     },
     "rappi": {
@@ -65,18 +70,18 @@ KNOWN_MARKET_ENTITIES = {
         "name": "RappiPay",
         "country": "🇨🇴",
         "currency": "COP",
-        "currentMarketRateEA": 10.00,
-        "productName": "RappiCuenta / Bóvedas",
+        "currentMarketRateEA": 9.00,
+        "productName": "RappiCuenta / Bolsillos",
         "payoutFrequency": "daily",
         "sourceUrl": "https://rappipay.co/rappicuenta/",
-        "searchQuery": "tasa bovedas rappicuenta rappipay efectiva anual",
+        "searchQuery": "tasa bolsillos rappicuenta rappipay efectiva anual",
     },
     "uala": {
         "id": "uala",
         "name": "Ualá Colombia",
         "country": "🇨🇴",
         "currency": "COP",
-        "currentMarketRateEA": 13.00,
+        "currentMarketRateEA": 10.50,
         "productName": "Cuenta Ualá Rendimientos",
         "payoutFrequency": "daily",
         "sourceUrl": "https://www.uala.com.co/",
@@ -189,13 +194,127 @@ def get_market_rates_summary() -> List[Dict[str, Any]]:
     return list(KNOWN_MARKET_ENTITIES.values())
 
 
-def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List[Dict[str, Any]], simulate: bool = False) -> Dict[str, Any]:
+def scrape_all_live_rates(force_refresh: bool = False) -> Dict[str, Any]:
+    """Scrapes official web portals of Colombian and global financial entities in real-time.
+
+    Updates KNOWN_MARKET_ENTITIES dynamically in memory and returns verified rates
+    with exact excerpt snippets and verification timestamps.
+    """
+    global _last_scraped_at, _live_scrape_cache
+    now = datetime.now()
+
+    # Reuse cache if within 1 hour and force_refresh is not requested
+    if not force_refresh and _last_scraped_at and (now - _last_scraped_at).total_seconds() < 3600 and _live_scrape_cache:
+        return _live_scrape_cache
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
+    }
+
+    scraped_results = {}
+
+    # 1. Nu Colombia (Cajitas a la vista)
+    try:
+        req = urllib.request.Request("https://nu.com.co/cf/cuenta/", headers=headers)
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            m = re.search(r"(\d+[\.,]\d+)\s*%\s*E\.?A(?:\s*en\s*Cajitas)?", html, re.IGNORECASE)
+            if m:
+                rate = float(m.group(1).replace(",", "."))
+                scraped_results["nu"] = {
+                    "rateEA": rate,
+                    "url": "https://nu.com.co/cf/cuenta/",
+                    "headline": m.group(0),
+                    "product": "Cajitas Nu (A la vista)",
+                    "verifiedAt": now.isoformat(),
+                }
+                KNOWN_MARKET_ENTITIES["nu"]["currentMarketRateEA"] = rate
+                KNOWN_MARKET_ENTITIES["nu"]["lastVerifiedAt"] = now.isoformat()
+    except Exception as e:
+        logger.warning(f"[RateTracker] Nu live scrape bypassed: {e}")
+
+    # 2. RappiPay (Bolsillos a la vista)
+    try:
+        req = urllib.request.Request("https://rappipay.co/rappicuenta/", headers=headers)
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            m = re.search(r"(\d+(?:[\.,]\d+)?)\s*%\s*E\.?A\.?\s*en\s*Bolsillos", html, re.IGNORECASE)
+            if m:
+                rate = float(m.group(1).replace(",", "."))
+                scraped_results["rappi"] = {
+                    "rateEA": rate,
+                    "url": "https://rappipay.co/rappicuenta/",
+                    "headline": m.group(0),
+                    "product": "Bolsillos RappiCuenta (A la vista)",
+                    "verifiedAt": now.isoformat(),
+                }
+                KNOWN_MARKET_ENTITIES["rappi"]["currentMarketRateEA"] = rate
+                KNOWN_MARKET_ENTITIES["rappi"]["lastVerifiedAt"] = now.isoformat()
+    except Exception as e:
+        logger.warning(f"[RateTracker] RappiPay live scrape bypassed: {e}")
+
+    # 3. Pibank (Cuenta Remunerada a la vista)
+    try:
+        req = urllib.request.Request("https://www.pibank.co/cuenta-pibank/", headers=headers)
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            m_super = re.search(r'class="super-text">(\d+(?:[\.,]\d+)?)\s*%', html)
+            if m_super:
+                rate = float(m_super.group(1).replace(",", "."))
+                scraped_results["pibank"] = {
+                    "rateEA": rate,
+                    "url": "https://www.pibank.co/cuenta-pibank/",
+                    "headline": f"{rate}% E.A. Cuenta Pibank",
+                    "product": "Cuenta Remunerada Pibank",
+                    "verifiedAt": now.isoformat(),
+                }
+                KNOWN_MARKET_ENTITIES["pibank"]["currentMarketRateEA"] = rate
+                KNOWN_MARKET_ENTITIES["pibank"]["lastVerifiedAt"] = now.isoformat()
+    except Exception as e:
+        logger.warning(f"[RateTracker] Pibank live scrape bypassed: {e}")
+
+    # 4. Banco Finandina (FlexiDigital + a la vista)
+    try:
+        req = urllib.request.Request("https://www.bancofinandina.com/", headers=headers)
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+            m = re.search(r"Gana\s*(\d+(?:[\.,]\d+)?)\s*%\s*E\.?A\.?", html, re.IGNORECASE)
+            if m:
+                rate = float(m.group(1).replace(",", "."))
+                scraped_results["finandina"] = {
+                    "rateEA": rate,
+                    "url": "https://www.bancofinandina.com/",
+                    "headline": m.group(0),
+                    "product": "FlexiDigital + (Bolsillo Ahorro)",
+                    "verifiedAt": now.isoformat(),
+                }
+                KNOWN_MARKET_ENTITIES["finandina"]["currentMarketRateEA"] = rate
+                KNOWN_MARKET_ENTITIES["finandina"]["lastVerifiedAt"] = now.isoformat()
+    except Exception as e:
+        logger.warning(f"[RateTracker] Finandina live scrape bypassed: {e}")
+
+    _last_scraped_at = now
+    _live_scrape_cache = scraped_results
+    return scraped_results
+
+
+def evaluate_user_rates(
+    user_accounts: List[Dict[str, Any]],
+    user_entities: List[Dict[str, Any]],
+    simulate: bool = False,
+    force_refresh: bool = False
+) -> Dict[str, Any]:
     """Compares the user's active accounts with official market rates and generates weekly alerts.
 
     Human-in-the-loop: Never changes historical numbers automatically. Returns pending
     suggestions for the user to review and apply with 1-click.
     """
     now = datetime.now()
+    # Trigger live web scraper for official rates
+    live_scraped = scrape_all_live_rates(force_refresh=force_refresh)
+
     entity_map = {e.get("id"): e for e in (user_entities or [])}
 
     alerts = []
@@ -345,6 +464,8 @@ def evaluate_user_rates(user_accounts: List[Dict[str, Any]], user_entities: List
     return {
         "status": "success",
         "lastChecked": now.isoformat(),
+        "liveScrapedCount": len(live_scraped),
+        "liveScraped": live_scraped,
         "nextScheduledCheck": next_check,
         "monitoredAccounts": monitored_accounts_count,
         "alertsCount": len(alerts),

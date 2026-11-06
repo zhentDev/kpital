@@ -885,13 +885,13 @@ class ApplyRatePayload(BaseModel):
 
 
 @router.get("/rates/tracker")
-async def get_rate_tracker(request: Request, simulate: bool = False):
+async def get_rate_tracker(request: Request, simulate: bool = False, force_refresh: bool = False):
     """Evaluates weekly market rates against active accounts across all financial institutions."""
     user = get_optional_current_user(request)
     user_id = user["sub"] if user else None
     db = load_fixed_income_db(user_id)
     from services.rate_tracker import evaluate_user_rates
-    result = evaluate_user_rates(db.get("accounts", []), db.get("entities", []), simulate=simulate)
+    result = evaluate_user_rates(db.get("accounts", []), db.get("entities", []), simulate=simulate, force_refresh=force_refresh)
     return result
 
 

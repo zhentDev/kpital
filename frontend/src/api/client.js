@@ -1057,10 +1057,13 @@ export async function confirmStatementImportApi(
   return res.json();
 }
 
-export async function fetchRateTrackerAlerts(simulate = false) {
+export async function fetchRateTrackerAlerts(simulate = false, forceRefresh = false) {
   try {
-    const query = simulate ? "?simulate=true" : "";
-    const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker${query}`);
+    const params = new URLSearchParams();
+    if (simulate) params.set("simulate", "true");
+    if (forceRefresh) params.set("force_refresh", "true");
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const res = await safeFetch(`${getBase()}/fixed-income/rates/tracker${query}`, { timeoutMs: 12000 });
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn("[RateTracker] Backend unreachable, evaluating locally:", err);
