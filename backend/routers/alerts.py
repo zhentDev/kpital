@@ -90,7 +90,7 @@ def get_live_alerts_status(request: Request, scope: Optional[str] = None, target
     except Exception:
         pass
 
-    lots_map = {str(p["id"]): p for p in purchases if p.get("id")}
+    lots_map = {str(p["id"]).strip().lower(): p for p in purchases if p.get("id")}
     wap_agg = {}
     for p in purchases:
         t = str(p.get("ticker") or "").upper().strip()
@@ -116,7 +116,7 @@ def get_live_alerts_status(request: Request, scope: Optional[str] = None, target
             continue
 
         clean_ticker = raw_ticker.split("::")[0].strip().upper()
-        lot_id = raw_ticker.split("::")[1].strip() if "::" in raw_ticker else None
+        lot_id = raw_ticker.split("::")[1].strip().lower() if "::" in raw_ticker else None
 
         # Resolve Entry Price (P0)
         entry_price = 0.0
@@ -133,6 +133,7 @@ def get_live_alerts_status(request: Request, scope: Optional[str] = None, target
 
         # Resolve Current Market Price
         quote = live_quotes.get(clean_ticker, {})
+        has_real_quote = bool(quote and float(quote.get("price") or 0.0) > 0.0)
         current_price = float(quote.get("price") or (entry_price if entry_price > 0 else 100.0))
         if entry_price <= 0:
             entry_price = current_price
@@ -144,23 +145,27 @@ def get_live_alerts_status(request: Request, scope: Optional[str] = None, target
         triggered_at = alert.get("triggered_at")
 
         # Calculations
-        current_return_pct = round(((current_price - entry_price) / entry_price * 100.0), 2) if entry_price > 0 else 0.0
+        current_return_pct = round(((current_price - entry_price) / entry_price * 100.0), 2) if (entry_price > 0 and has_real_quote) else 0.0
         target_price = round(entry_price * (1.0 + (target_val / 100.0)), 2)
 
         # Distance & trigger condition
-        is_condition_met = False
         if alert_type == "PROFIT_TARGET":
             distance_pct = round(target_val - current_return_pct, 2)
-            is_condition_met = (current_return_pct >= target_val)
         else: # STOP_LOSS
             distance_pct = round(current_return_pct - target_val, 2)
-            is_condition_met = (current_return_pct <= target_val)
+
+        is_condition_met = False
+        if has_real_quote and is_active and not triggered_at:
+            if alert_type == "PROFIT_TARGET":
+                is_condition_met = (current_return_pct >= target_val)
+            else: # STOP_LOSS
+                is_condition_met = (current_return_pct <= target_val)
 
         is_triggered_now = False
-        if triggered_at:
-            status = "TRIGGERED"
-        elif not is_active:
+        if not is_active:
             status = "PAUSED"
+        elif triggered_at:
+            status = "TRIGGERED"
         elif is_condition_met:
             status = "TRIGGERED"
             try:

@@ -20,6 +20,10 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -113,8 +117,28 @@ object StockAlertManager {
     private var scheduler: ScheduledExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Conjunto de IDs de alertas que ya emitieron sonido en esta sesión para evitar spam
-    private val alreadyNotifiedIds = mutableSetOf<String>()
+    private const val PREFS_NAME = "kpital_stock_alerts_prefs"
+    private const val KEY_NOTIFIED_IDS = "notified_alert_ids"
+
+    private fun getNotifiedAlertIds(context: Context): MutableSet<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_NOTIFIED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+    }
+
+    private fun addNotifiedAlertId(context: Context, id: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_NOTIFIED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(id)
+        prefs.edit().putStringSet(KEY_NOTIFIED_IDS, current).apply()
+    }
+
+    private fun addNotifiedAlertIds(context: Context, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_NOTIFIED_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.addAll(ids)
+        prefs.edit().putStringSet(KEY_NOTIFIED_IDS, current).apply()
+    }
 
     var latestResult: AlertsPollResult? = null
         private set
@@ -306,7 +330,7 @@ object StockAlertManager {
         val wapShares = mutableMapOf<String, Double>()
 
         for (p in purchases) {
-            val id = p.optString("id", "")
+            val id = p.optString("id", "").trim().lowercase()
             if (id.isNotBlank()) lotsMap[id] = p
 
             val t = p.optString("ticker", "").uppercase().trim()
@@ -348,7 +372,7 @@ object StockAlertManager {
             if (rawTicker.isBlank()) continue
 
             val cleanTicker = rawTicker.split("::")[0].trim().uppercase()
-            val lotId = if (rawTicker.contains("::")) rawTicker.split("::")[1].trim() else null
+            val lotId = if (rawTicker.contains("::")) rawTicker.split("::")[1].trim().lowercase() else null
 
             // Resolver precio de entrada (P₀)
             var entryPrice = 0.0
@@ -368,8 +392,9 @@ object StockAlertManager {
 
             // Resolver precio de mercado actual
             val quote = quotesMap[cleanTicker]
-            val currentPrice = quote?.optDouble("price", 0.0)?.takeIf { it > 0.0 }
-                ?: (if (entryPrice > 0.0) entryPrice else 100.0)
+            val hasValidMarketQuote = quote != null && quote.optDouble("price", 0.0) > 0.0
+            val currentPrice = if (hasValidMarketQuote) quote!!.optDouble("price", 0.0)
+                else (if (entryPrice > 0.0) entryPrice else 100.0)
 
             if (entryPrice <= 0.0) {
                 entryPrice = currentPrice
@@ -382,27 +407,33 @@ object StockAlertManager {
             val triggeredAt = if (alertObj.isNull("triggered_at")) null else alertObj.optString("triggered_at")
 
             // Cálculos porcentuales
-            val currentReturnPct = if (entryPrice > 0.0) {
+            val currentReturnPct = if (entryPrice > 0.0 && hasValidMarketQuote) {
                 round(((currentPrice - entryPrice) / entryPrice * 100.0) * 100.0) / 100.0
             } else 0.0
 
             val targetPrice = round((entryPrice * (1.0 + (targetVal / 100.0))) * 100.0) / 100.0
 
-            val isConditionMet: Boolean
             val distancePct: Double
-
             if (alertType == "PROFIT_TARGET") {
                 distancePct = round((targetVal - currentReturnPct) * 100.0) / 100.0
-                isConditionMet = (currentReturnPct >= targetVal)
             } else { // STOP_LOSS
                 distancePct = round((currentReturnPct - targetVal) * 100.0) / 100.0
-                isConditionMet = (currentReturnPct <= targetVal)
+            }
+
+            // Una condición SOLO puede cumplirse si hay cotización real de mercado,
+            // la alerta está ACTIVA y NO fue disparada previamente.
+            val isConditionMet: Boolean = if (!hasValidMarketQuote || !isActive || !triggeredAt.isNullOrBlank()) {
+                false
+            } else if (alertType == "PROFIT_TARGET") {
+                currentReturnPct >= targetVal
+            } else {
+                currentReturnPct <= targetVal
             }
 
             var isTriggeredNow = false
             val status = when {
-                !triggeredAt.isNullOrBlank() -> "TRIGGERED"
                 !isActive -> "PAUSED"
+                !triggeredAt.isNullOrBlank() -> "TRIGGERED"
                 isConditionMet -> {
                     isTriggeredNow = true
                     "TRIGGERED"
@@ -609,18 +640,73 @@ object StockAlertManager {
      * Emite notificaciones push locales y notifica a los listeners registrados en la UI.
      */
     private fun dispatchNotificationsAndCallback(context: Context, result: AlertsPollResult) {
+        val notifiedIds = getNotifiedAlertIds(context)
+        val historicalToIgnore = mutableSetOf<String>()
+
+        // 1. Silenciar y registrar en persistencia alertas históricas o pausadas para evitar falsas alarmas
         for (alert in result.alerts) {
-            val shouldNotify = (alert.isTriggeredNow || alert.status == "TRIGGERED") &&
-                    !alreadyNotifiedIds.contains(alert.id)
+            if (!alert.triggeredAt.isNullOrBlank() || !alert.isActive) {
+                if (!notifiedIds.contains(alert.id)) {
+                    historicalToIgnore.add(alert.id)
+                }
+            }
+        }
+        if (historicalToIgnore.isNotEmpty()) {
+            addNotifiedAlertIds(context, historicalToIgnore)
+            notifiedIds.addAll(historicalToIgnore)
+        }
+
+        // 2. Notificar ÚNICA y exclusivamente las alertas activas que acaban de dispararse en este ciclo
+        for (alert in result.alerts) {
+            val shouldNotify = alert.isTriggeredNow && alert.isActive && !notifiedIds.contains(alert.id)
 
             if (shouldNotify) {
-                alreadyNotifiedIds.add(alert.id)
+                addNotifiedAlertId(context, alert.id)
+                notifiedIds.add(alert.id)
                 sendAlertNotification(context, alert)
+                markAlertTriggeredInCloud(alert)
             }
         }
 
         mainHandler.post {
             onAlertsUpdatedListener?.invoke(result)
+        }
+    }
+
+    private fun markAlertTriggeredInCloud(alert: EnrichedStockAlert) {
+        Executors.newSingleThreadExecutor().execute {
+            try {
+                val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }.format(Date())
+
+                val jsonBody = JSONObject().apply {
+                    put("triggered_at", isoDate)
+                    put("last_checked_price", alert.currentPrice)
+                    put("is_active", false)
+                }
+
+                val encodedId = URLEncoder.encode(alert.id, "UTF-8")
+                val url = URL("$SUPABASE_REST_URL/rv_stock_alerts?id=eq.$encodedId")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "PATCH"
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("apikey", SUPABASE_ANON_KEY)
+                conn.setRequestProperty("Authorization", "Bearer $SUPABASE_ANON_KEY")
+
+                conn.outputStream.use { os ->
+                    os.write(jsonBody.toString().toByteArray(Charsets.UTF_8))
+                }
+
+                val code = conn.responseCode
+                Log.d(TAG, "Alerta ${alert.id} (${alert.ticker}) sincronizada en Supabase como disparada (HTTP $code)")
+                conn.disconnect()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error actualizando alerta en Supabase: ${e.message}")
+            }
         }
     }
 
