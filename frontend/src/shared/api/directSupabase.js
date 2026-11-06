@@ -688,10 +688,16 @@ export async function directSaveCashFlow(payload = {}) {
       needs_ratio: customRatios?.needs ?? 40.0,
       wants_ratio: customRatios?.wants ?? 20.0,
       savings_ratio: customRatios?.savings ?? 40.0,
-      emergency_fund_target_months: emergencyFundTargetMonths ?? 6,
-      extra_json: {
+      emergency_months: emergencyFundTargetMonths ?? 6,
+      payroll_account_json: {
         defaultFundingAccountId,
         payrollAccount,
+      },
+      deleted_ids_json: {
+        deletedExpenseIds: deletedExpenseIds || [],
+        deletedDebtIds: deletedDebtIds || [],
+        deletedCreditCardPaymentIds: deletedCreditCardPaymentIds || [],
+        deletedCreditPurchaseIds: deletedCreditPurchaseIds || [],
       },
       updated_at: new Date().toISOString(),
     };

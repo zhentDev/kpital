@@ -48,65 +48,6 @@ export default function ExpensesLogSection({
   const [expandedDeductions, setExpandedDeductions] = useState({});
   const toggleDeductions = (id) => setExpandedDeductions((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  // Multi-Selection Checkbox & Dynamic Sum State
-  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
-
-  const toggleSelection = (id) => {
-    setSelectedItemIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const handleSelectAllFiltered = () => {
-    const allFilteredIds = filteredActivities.map((a) => a.id);
-    const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedItemIds.has(id));
-    setSelectedItemIds((prev) => {
-      const next = new Set(prev);
-      if (allSelected) {
-        allFilteredIds.forEach((id) => next.delete(id));
-      } else {
-        allFilteredIds.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const handleClearSelection = () => {
-    setSelectedItemIds(new Set());
-  };
-
-  const selectedItems = useMemo(() => {
-    if (selectedItemIds.size === 0) return [];
-    return combinedActivities.filter((item) => selectedItemIds.has(item.id));
-  }, [combinedActivities, selectedItemIds]);
-
-  const selectedMetrics = useMemo(() => {
-    let expenseSum = 0;
-    let incomeSum = 0;
-    selectedItems.forEach((item) => {
-      const amt = Number(item.amount) || 0;
-      if (item.itemType === "income") {
-        incomeSum += amt;
-      } else {
-        expenseSum += amt;
-      }
-    });
-    const net = incomeSum - expenseSum;
-    return {
-      count: selectedItems.length,
-      expenseSum,
-      incomeSum,
-      net,
-      hasIncomes: incomeSum > 0,
-      hasExpenses: expenseSum > 0,
-    };
-  }, [selectedItems]);
   const toggleMovementAsBudgetInflow = useCashFlowStore((s) => s.toggleMovementAsBudgetInflow);
 
   const isAnyFilterActive = Boolean(
@@ -320,6 +261,66 @@ export default function ExpensesLogSection({
       return true;
     });
   }, [combinedActivities, filterSource, filterCategory, filterDatePreset, filterDateStart, filterDateEnd, searchQuery, activePeriod]);
+
+// Multi-Selection Checkbox & Dynamic Sum State
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
+
+  const toggleSelection = (id) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allFilteredIds = filteredActivities.map((a) => a.id);
+    const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedItemIds.has(id));
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allFilteredIds.forEach((id) => next.delete(id));
+      } else {
+        allFilteredIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelection = () => {
+    setSelectedItemIds(new Set());
+  };
+
+  const selectedItems = useMemo(() => {
+    if (selectedItemIds.size === 0) return [];
+    return combinedActivities.filter((item) => selectedItemIds.has(item.id));
+  }, [combinedActivities, selectedItemIds]);
+
+  const selectedMetrics = useMemo(() => {
+    let expenseSum = 0;
+    let incomeSum = 0;
+    selectedItems.forEach((item) => {
+      const amt = Number(item.amount) || 0;
+      if (item.itemType === "income") {
+        incomeSum += amt;
+      } else {
+        expenseSum += amt;
+      }
+    });
+    const net = incomeSum - expenseSum;
+    return {
+      count: selectedItems.length,
+      expenseSum,
+      incomeSum,
+      net,
+      hasIncomes: incomeSum > 0,
+      hasExpenses: expenseSum > 0,
+    };
+  }, [selectedItems]);
 
   // Only outflows actually executed from Payroll (Debit) account affect Saldo en Nómina.
   // Outflows from Cajitas (fixed_pocket), Credit Cards, or external savings do not touch Nómina.
