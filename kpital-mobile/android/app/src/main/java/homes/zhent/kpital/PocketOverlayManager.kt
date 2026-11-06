@@ -23,7 +23,8 @@ import kotlin.concurrent.thread
 /**
  * PocketOverlayManager:
  * Administra el diálogo flotante directo usando el WindowManager de Android (TYPE_APPLICATION_OVERLAY).
- * Esto salta 100% garantizado en pantalla sobre cualquier app sin depender de que Android permita o no startActivity.
+ * Estructurado con cabecera fija, scroll único central sin anidaciones conflictivas y pie de botones fijo
+ * para garantizar que todos los rubros, botones y acciones sean 100% visibles y accesibles en cualquier pantalla.
  */
 object PocketOverlayManager {
 
@@ -68,128 +69,176 @@ object PocketOverlayManager {
                     gravity = Gravity.CENTER
                 }
 
+                val screenHeight = appContext.resources.displayMetrics.heightPixels
+                val screenWidth = appContext.resources.displayMetrics.widthPixels
+                val sanitizedInitial = MovementHistoryManager.sanitizeStoredAmount(initialAmount)
+
                 // Contenedor semitransparente que cubre el fondo (click afuera para cerrar)
                 val backdrop = FrameLayout(appContext).apply {
-                    setBackgroundColor(Color.parseColor("#B3000000")) // Fondo oscuro translúcido 70%
+                    setBackgroundColor(Color.parseColor("#B3000000"))
                 }
 
-                // Tarjeta central flotante estilo diálogo
+                // Tarjeta central flotante con tamaño acotado
                 val cardLayout = LinearLayout(appContext).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(50, 45, 50, 45)
+                    setPadding(40, 36, 40, 36)
                     background = GradientDrawable().apply {
-                        cornerRadius = 35f
+                        cornerRadius = 32f
                         setColor(Color.parseColor("#0e1526"))
                         setStroke(2, Color.parseColor("#1e293b"))
                     }
                 }
 
                 val cardParams = FrameLayout.LayoutParams(
-                    (appContext.resources.displayMetrics.widthPixels * 0.90).toInt(),
+                    (screenWidth * 0.92).toInt(),
                     FrameLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
                     gravity = Gravity.CENTER
                 }
                 backdrop.addView(cardLayout, cardParams)
 
-                // 1. Título y banco
+                // ─────────────────────────────────────────────────────────────
+                // 1. CABECERA FIJA SUPERIOR
+                // ─────────────────────────────────────────────────────────────
+                val headerLayout = LinearLayout(appContext).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                cardLayout.addView(headerLayout)
+
                 val titleView = TextView(appContext).apply {
                     text = "💳 $desc"
-                    textSize = 19f
+                    textSize = 18f
                     setTextColor(Color.WHITE)
                     setTypeface(null, Typeface.BOLD)
                 }
-                cardLayout.addView(titleView)
+                headerLayout.addView(titleView)
 
-                // 2. Monto (o Input si vino en 0)
-                var amountInput: EditText? = null
-                if (initialAmount > 0) {
-                    val amountView = TextView(appContext).apply {
-                        val formatted = String.format("%,.0f", initialAmount)
-                        text = "$$formatted COP"
-                        textSize = 24f
-                        setTextColor(Color.parseColor("#00e5ff"))
-                        setTypeface(null, Typeface.BOLD)
-                        setPadding(0, 10, 0, 15)
-                    }
-                    cardLayout.addView(amountView)
-                } else {
-                    val manualLabel = TextView(appContext).apply {
-                        text = "Ingresa el valor del movimiento:"
-                        textSize = 13f
-                        setTextColor(Color.parseColor("#94a3b8"))
-                        setPadding(0, 10, 0, 8)
-                    }
-                    cardLayout.addView(manualLabel)
-
-                    val input = EditText(appContext).apply {
-                        hint = "Ej: 1000"
-                        setHintTextColor(Color.parseColor("#475569"))
-                        setTextColor(Color.WHITE)
-                        textSize = 20f
-                        inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                        background = GradientDrawable().apply {
-                            cornerRadius = 16f
-                            setColor(Color.parseColor("#090d16"))
-                            setStroke(2, Color.parseColor("#00e5ff"))
-                        }
-                        setPadding(30, 20, 30, 20)
-                    }
-                    amountInput = input
-                    cardLayout.addView(input)
+                val amountPrompt = TextView(appContext).apply {
+                    text = "Valor a registrar ($ COP) - Puedes editarlo:"
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#00e5ff"))
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, 10, 0, 4)
                 }
+                headerLayout.addView(amountPrompt)
 
-                // 3. Subtítulo cajitas
-                val subTitle = TextView(appContext).apply {
+                val amountInput = EditText(appContext).apply {
+                    if (sanitizedInitial > 0) {
+                        setText(String.format(Locale.US, "%.0f", sanitizedInitial))
+                    } else {
+                        hint = "Ej: 10000"
+                    }
+                    setHintTextColor(Color.parseColor("#475569"))
+                    setTextColor(Color.WHITE)
+                    textSize = 20f
+                    setTypeface(null, Typeface.BOLD)
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#090d16"))
+                        setStroke(2, Color.parseColor("#00e5ff"))
+                    }
+                    setPadding(26, 16, 26, 16)
+                }
+                headerLayout.addView(amountInput)
+
+                // Badge de resumen que se muestra en el Paso 2
+                val summaryBadge = TextView(appContext).apply {
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#38bdf8"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 10f
+                        setColor(Color.parseColor("#082f49"))
+                        setStroke(1, Color.parseColor("#0284c7"))
+                    }
+                    setPadding(14, 6, 14, 6)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 8, 0, 6)
+                    }
+                    layoutParams = p
+                    visibility = View.GONE
+                }
+                headerLayout.addView(summaryBadge)
+
+                val subTitleView = TextView(appContext).apply {
                     text = if (txType == "credit") {
                         "¿A qué cajita o cuenta entra este dinero en $bank?"
                     } else {
                         "¿De qué cajita o cuenta sale este dinero en $bank?"
                     }
-                    textSize = 13f
+                    textSize = 12f
                     setTextColor(Color.parseColor("#cbd5e1"))
-                    setPadding(0, 15, 0, 15)
+                    setPadding(0, 10, 0, 10)
                 }
-                cardLayout.addView(subTitle)
+                headerLayout.addView(subTitleView)
 
-                // 4. Contenedor de opciones
-                val scroll = ScrollView(appContext).apply {
+                // ─────────────────────────────────────────────────────────────
+                // 2. CUERPO CON SCROLLVIEW ÚNICO (Sin ScrollViews anidados)
+                // ─────────────────────────────────────────────────────────────
+                val scrollMaxHeight = (screenHeight * 0.44).toInt()
+                val bodyScroll = ScrollView(appContext).apply {
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        (appContext.resources.displayMetrics.heightPixels * 0.40).toInt()
+                        scrollMaxHeight
                     )
                 }
-                val optionsLayout = LinearLayout(appContext).apply {
+                val bodyContentLayout = LinearLayout(appContext).apply {
                     orientation = LinearLayout.VERTICAL
                 }
-                scroll.addView(optionsLayout)
-                cardLayout.addView(scroll)
+                bodyScroll.addView(bodyContentLayout)
+                cardLayout.addView(bodyScroll)
 
-                val loadingView = TextView(appContext).apply {
-                    text = "Cargando cajitas..."
-                    textSize = 14f
-                    setTextColor(Color.parseColor("#94a3b8"))
-                    setPadding(0, 20, 0, 20)
-                }
-                optionsLayout.addView(loadingView)
-
-                // 5. Botón descartar
-                val dismissBtn = Button(appContext).apply {
-                    text = "✕ Descartar"
-                    textSize = 13f
-                    setTextColor(Color.parseColor("#f87171"))
-                    background = GradientDrawable().apply {
-                        cornerRadius = 20f
-                        setColor(Color.parseColor("#1e1b2e"))
-                        setStroke(2, Color.parseColor("#ef4444"))
-                    }
-                    val btnParams = LinearLayout.LayoutParams(
+                // ─────────────────────────────────────────────────────────────
+                // 3. PIE DE BOTONES FIJO INFERIOR (Nunca se oculta ni sale de pantalla)
+                // ─────────────────────────────────────────────────────────────
+                val footerLayout = LinearLayout(appContext).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                    setPadding(0, 14, 0, 0)
+                    layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        setMargins(0, 15, 0, 0)
+                    )
+                }
+                cardLayout.addView(footerLayout)
+
+                val backBtn = Button(appContext).apply {
+                    text = "↩️ Volver"
+                    textSize = 12f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#38bdf8"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#0c2340"))
+                        setStroke(1, Color.parseColor("#0284c7"))
                     }
-                    layoutParams = btnParams
+                    setPadding(18, 10, 18, 10)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 10, 0)
+                    }
+                    layoutParams = p
+                    visibility = View.GONE
+                }
+                footerLayout.addView(backBtn)
+
+                val dismissBtn = Button(appContext).apply {
+                    text = "✕ Descartar"
+                    textSize = 12f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#f87171"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#1e1b2e"))
+                        setStroke(1, Color.parseColor("#ef4444"))
+                    }
+                    setPadding(20, 10, 20, 10)
                     setOnClickListener {
                         if (movementId != null) {
                             MovementHistoryManager.discardMovement(appContext, movementId)
@@ -197,209 +246,199 @@ object PocketOverlayManager {
                         dismiss()
                     }
                 }
-                cardLayout.addView(dismissBtn)
+                footerLayout.addView(dismissBtn)
+
+                // Cache de opciones para volver atrás
+                var cachedDisplayOptions = listOf<String>()
+                var cachedInternalNames = listOf<String>()
+
+                // Función para mostrar el Paso 1 (Selección de Cuentas / Cajitas)
+                fun showStep1() {
+                    titleView.text = "💳 $desc"
+                    amountPrompt.visibility = View.VISIBLE
+                    amountInput.visibility = View.VISIBLE
+                    summaryBadge.visibility = View.GONE
+                    subTitleView.text = if (txType == "credit") {
+                        "¿A qué cajita o cuenta entra este dinero en $bank?"
+                    } else {
+                        "¿De qué cajita o cuenta sale este dinero en $bank?"
+                    }
+                    backBtn.visibility = View.GONE
+
+                    bodyContentLayout.removeAllViews()
+
+                    if (cachedDisplayOptions.isEmpty()) {
+                        val loadingView = TextView(appContext).apply {
+                            text = "Cargando cajitas y cuentas..."
+                            textSize = 13f
+                            setTextColor(Color.parseColor("#94a3b8"))
+                            setPadding(0, 20, 0, 20)
+                        }
+                        bodyContentLayout.addView(loadingView)
+
+                        thread {
+                            try {
+                                val pocketsJsonStr = Core.fetchMobilePockets(bank, txType)
+                                val obj = JSONObject(pocketsJsonStr)
+                                val pocketsArray = obj.optJSONArray("pockets")
+                                val namesArray = obj.optJSONArray("pocket_names")
+
+                                val displayOpts = mutableListOf<String>()
+                                val internalNms = mutableListOf<String>()
+
+                                if (pocketsArray != null && namesArray != null && pocketsArray.length() > 0) {
+                                    for (i in 0 until pocketsArray.length()) {
+                                        displayOpts.add(pocketsArray.getString(i))
+                                        internalNms.add(namesArray.getString(i))
+                                    }
+                                } else {
+                                    displayOpts.add("⭐ Cuenta Principal")
+                                    internalNms.add("Principal")
+                                }
+
+                                cachedDisplayOptions = displayOpts
+                                cachedInternalNames = internalNms
+
+                                mainHandler.post {
+                                    showStep1()
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error cargando cajitas: ${e.message}", e)
+                                mainHandler.post {
+                                    loadingView.text = "Error: ${e.message}"
+                                }
+                            }
+                        }
+                    } else {
+                        for (i in cachedDisplayOptions.indices) {
+                            val label = cachedDisplayOptions[i]
+                            val internalName = cachedInternalNames.getOrNull(i) ?: label
+
+                            val btn = Button(appContext).apply {
+                                text = label
+                                textSize = 13f
+                                isAllCaps = false
+                                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                                setPadding(30, 22, 30, 22)
+
+                                background = GradientDrawable().apply {
+                                    cornerRadius = 16f
+                                    if (label.startsWith("⭐")) {
+                                        setColor(Color.parseColor("#082f49"))
+                                        setStroke(2, Color.parseColor("#00e5ff"))
+                                    } else {
+                                        setColor(Color.parseColor("#111827"))
+                                        setStroke(1, Color.parseColor("#334155"))
+                                    }
+                                }
+                                setTextColor(Color.WHITE)
+
+                                val p = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT
+                                ).apply {
+                                    setMargins(0, 6, 0, 6)
+                                }
+                                layoutParams = p
+
+                                setOnClickListener {
+                                    val entered = amountInput.text.toString().trim()
+                                    val parsed = MovementHistoryManager.parseAmount(entered)
+                                    val finalAmount = if (parsed > 0) parsed else sanitizedInitial
+
+                                    if (finalAmount <= 0) {
+                                        Toast.makeText(appContext, "Por favor ingresa un monto válido", Toast.LENGTH_SHORT).show()
+                                        return@setOnClickListener
+                                    }
+
+                                    // Avanzar al Paso 2
+                                    showOverlayRubroStep(
+                                        appContext = appContext,
+                                        titleView = titleView,
+                                        amountPrompt = amountPrompt,
+                                        amountInput = amountInput,
+                                        summaryBadge = summaryBadge,
+                                        subTitleView = subTitleView,
+                                        bodyContentLayout = bodyContentLayout,
+                                        backBtn = backBtn,
+                                        bank = bank,
+                                        selectedAccount = internalName,
+                                        desc = desc,
+                                        txType = txType,
+                                        finalAmount = finalAmount,
+                                        rawText = rawText,
+                                        movementId = movementId,
+                                        onBackRequested = { showStep1() }
+                                    )
+                                }
+                            }
+                            bodyContentLayout.addView(btn)
+                        }
+                    }
+                }
+
+                // Iniciar en el Paso 1
+                showStep1()
 
                 // Añadir a WindowManager
                 windowManager?.addView(backdrop, params)
                 currentOverlayView = backdrop
 
-                // Cargar cajitas en segundo plano
-                thread {
-                    try {
-                        val pocketsJsonStr = Core.fetchMobilePockets(bank, txType)
-                        val obj = JSONObject(pocketsJsonStr)
-                        val pocketsArray = obj.optJSONArray("pockets")
-                        val namesArray = obj.optJSONArray("pocket_names")
-
-                        val displayOptions = mutableListOf<String>()
-                        val internalNames = mutableListOf<String>()
-
-                        if (pocketsArray != null && namesArray != null && pocketsArray.length() > 0) {
-                            for (i in 0 until pocketsArray.length()) {
-                                displayOptions.add(pocketsArray.getString(i))
-                                internalNames.add(namesArray.getString(i))
-                            }
-                        } else {
-                            displayOptions.add("⭐ Cuenta Principal")
-                            internalNames.add("Principal")
-                        }
-
-                        mainHandler.post {
-                            loadingView.visibility = View.GONE
-                            renderOptions(
-                                appContext = appContext,
-                                container = optionsLayout,
-                                bank = bank,
-                                desc = desc,
-                                txType = txType,
-                                rawText = rawText,
-                                movementId = movementId,
-                                displayOptions = displayOptions,
-                                internalNames = internalNames,
-                                getFinalAmount = {
-                                    if (initialAmount > 0) {
-                                        initialAmount
-                                    } else {
-                                        MovementHistoryManager.parseAmount(amountInput?.text?.toString())
-                                    }
-                                }
-                            )
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error cargando cajitas: ${e.message}", e)
-                        mainHandler.post {
-                            loadingView.text = "Error: ${e.message}"
-                        }
-                    }
-                }
             } catch (e: Throwable) {
                 Log.e(TAG, "Fallo al mostrar overlay flotante: ${e.message}", e)
             }
         }
     }
 
-    private fun renderOptions(
-        appContext: Context,
-        container: LinearLayout,
-        bank: String,
-        desc: String,
-        txType: String,
-        rawText: String,
-        movementId: String?,
-        displayOptions: List<String>,
-        internalNames: List<String>,
-        getFinalAmount: () -> Double
-    ) {
-        val mainHandler = Handler(Looper.getMainLooper())
-
-        for (i in displayOptions.indices) {
-            val label = displayOptions[i]
-            val internalName = internalNames.getOrNull(i) ?: label
-
-            val btn = Button(appContext).apply {
-                text = label
-                textSize = 14f
-                isAllCaps = false
-                gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                setPadding(35, 28, 35, 28)
-
-                background = GradientDrawable().apply {
-                    cornerRadius = 20f
-                    if (label.startsWith("⭐")) {
-                        setColor(Color.parseColor("#082f49"))
-                        setStroke(2, Color.parseColor("#00e5ff"))
-                    } else {
-                        setColor(Color.parseColor("#111827"))
-                        setStroke(2, Color.parseColor("#334155"))
-                    }
-                }
-                setTextColor(Color.WHITE)
-
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 8, 0, 10)
-                }
-                layoutParams = params
-
-                setOnClickListener {
-                    val finalAmount = getFinalAmount()
-                    if (finalAmount <= 0) {
-                        Toast.makeText(appContext, "Por favor ingresa un monto válido", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-
-                    // Paso 2: Transición a Selección de Rubro Presupuestario
-                    showOverlayRubroStep(
-                        appContext = appContext,
-                        container = container,
-                        bank = bank,
-                        selectedAccount = internalName,
-                        desc = desc,
-                        txType = txType,
-                        finalAmount = finalAmount,
-                        rawText = rawText,
-                        movementId = movementId
-                    )
-                }
-            }
-            container.addView(btn)
-        }
-    }
-
     // ─────────────────────────────────────────────────────────────────────────────
-    // PASO 2: ASIGNACIÓN DE RUBRO EN OVERLAY FLOTANTE (CON SCROLLVIEW Y 3 PILARES)
+    // PASO 2: ASIGNACIÓN DE RUBRO EN OVERLAY FLOTANTE (SIN SCROLLVIEWS ANIDADOS)
     // ─────────────────────────────────────────────────────────────────────────────
 
     private fun showOverlayRubroStep(
         appContext: Context,
-        container: LinearLayout,
+        titleView: TextView,
+        amountPrompt: TextView,
+        amountInput: EditText,
+        summaryBadge: TextView,
+        subTitleView: TextView,
+        bodyContentLayout: LinearLayout,
+        backBtn: Button,
         bank: String,
         selectedAccount: String,
         desc: String,
         txType: String,
         finalAmount: Double,
         rawText: String,
-        movementId: String?
+        movementId: String?,
+        onBackRequested: () -> Unit
     ) {
         val mainHandler = Handler(Looper.getMainLooper())
-        container.removeAllViews()
 
-        // 1. Cabecera Paso 2
-        val titleView = TextView(appContext).apply {
-            text = "🎯 ¿A qué rubro pertenece?"
-            textSize = 17f
-            setTextColor(Color.WHITE)
-            setTypeface(null, Typeface.BOLD)
-        }
-        container.addView(titleView)
+        // Actualizar cabecera fija
+        titleView.text = "🎯 ¿A qué rubro pertenece?"
+        amountPrompt.visibility = View.GONE
+        amountInput.visibility = View.GONE
+        val formatted = String.format(Locale.US, "%,.0f", finalAmount)
+        summaryBadge.text = "💳 $selectedAccount • $$formatted COP"
+        summaryBadge.visibility = View.VISIBLE
+        subTitleView.text = "Selecciona el rubro presupuestario de Kpital:"
 
-        // Resumen de cuenta y monto
-        val summaryBadge = TextView(appContext).apply {
-            val formatted = String.format(Locale.US, "%,.0f", finalAmount)
-            text = "💳 $selectedAccount • $$formatted COP"
-            textSize = 11f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#38bdf8"))
-            background = GradientDrawable().apply {
-                cornerRadius = 10f
-                setColor(Color.parseColor("#082f49"))
-                setStroke(1, Color.parseColor("#0284c7"))
-            }
-            setPadding(14, 6, 14, 6)
-            val p = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(0, 6, 0, 10)
-            }
-            layoutParams = p
-        }
-        container.addView(summaryBadge)
-
-        // ScrollView contenedor con altura máxima proporcional
-        val scrollMaxH = (appContext.resources.displayMetrics.heightPixels * 0.48).toInt()
-        val scroll = ScrollView(appContext).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                scrollMaxH
-            )
+        // Activar botón volver en el pie fijo
+        backBtn.visibility = View.VISIBLE
+        backBtn.setOnClickListener {
+            onBackRequested()
         }
 
-        val rubrosLayout = LinearLayout(appContext).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        scroll.addView(rubrosLayout)
-        container.addView(scroll)
+        // Limpiar cuerpo y mostrar loader
+        bodyContentLayout.removeAllViews()
 
         val loadingRubros = TextView(appContext).apply {
-            text = "Cargando rubros..."
+            text = "Cargando rubros presupuestarios..."
             textSize = 12f
-            setTextColor(Color.parseColor("#64748b"))
-            setPadding(0, 10, 0, 10)
+            setTextColor(Color.parseColor("#94a3b8"))
+            setPadding(0, 16, 0, 16)
         }
-        rubrosLayout.addView(loadingRubros)
+        bodyContentLayout.addView(loadingRubros)
 
         thread {
             var wealthList = mutableListOf<Triple<String, String, String>>()
@@ -457,7 +496,7 @@ object PocketOverlayManager {
                 loadingRubros.visibility = View.GONE
                 renderOverlayRubroButtons(
                     appContext = appContext,
-                    layout = rubrosLayout,
+                    layout = bodyContentLayout,
                     wealthList = wealthList,
                     needsList = needsList,
                     wantsList = wantsList,
@@ -609,35 +648,25 @@ object PocketOverlayManager {
             layoutParams = p
         }
 
-        btnPillarNeeds.setOnClickListener {
-            selectedPillar = "needs"
-            btnPillarNeeds.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#0284c7")) }
-            btnPillarNeeds.setTextColor(Color.WHITE)
-            btnPillarWants.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarWants.setTextColor(Color.parseColor("#94a3b8"))
-            btnPillarWealth.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarWealth.setTextColor(Color.parseColor("#94a3b8"))
+        fun updatePillarSelection(active: String) {
+            selectedPillar = active
+            btnPillarNeeds.apply {
+                setTextColor(if (active == "needs") Color.WHITE else Color.parseColor("#94a3b8"))
+                (background as? GradientDrawable)?.setColor(if (active == "needs") Color.parseColor("#0284c7") else Color.parseColor("#1e293b"))
+            }
+            btnPillarWants.apply {
+                setTextColor(if (active == "wants") Color.WHITE else Color.parseColor("#94a3b8"))
+                (background as? GradientDrawable)?.setColor(if (active == "wants") Color.parseColor("#9333ea") else Color.parseColor("#1e293b"))
+            }
+            btnPillarWealth.apply {
+                setTextColor(if (active == "wealth") Color.WHITE else Color.parseColor("#94a3b8"))
+                (background as? GradientDrawable)?.setColor(if (active == "wealth") Color.parseColor("#10b981") else Color.parseColor("#1e293b"))
+            }
         }
 
-        btnPillarWants.setOnClickListener {
-            selectedPillar = "wants"
-            btnPillarWants.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#9333ea")) }
-            btnPillarWants.setTextColor(Color.WHITE)
-            btnPillarNeeds.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarNeeds.setTextColor(Color.parseColor("#94a3b8"))
-            btnPillarWealth.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarWealth.setTextColor(Color.parseColor("#94a3b8"))
-        }
-
-        btnPillarWealth.setOnClickListener {
-            selectedPillar = "wealth"
-            btnPillarWealth.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#059669")) }
-            btnPillarWealth.setTextColor(Color.WHITE)
-            btnPillarNeeds.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarNeeds.setTextColor(Color.parseColor("#94a3b8"))
-            btnPillarWants.background = GradientDrawable().apply { cornerRadius = 10f; setColor(Color.parseColor("#1e293b")) }
-            btnPillarWants.setTextColor(Color.parseColor("#94a3b8"))
-        }
+        btnPillarNeeds.setOnClickListener { updatePillarSelection("needs") }
+        btnPillarWants.setOnClickListener { updatePillarSelection("wants") }
+        btnPillarWealth.setOnClickListener { updatePillarSelection("wealth") }
 
         pillarSelectorLayout.addView(btnPillarNeeds)
         pillarSelectorLayout.addView(btnPillarWants)

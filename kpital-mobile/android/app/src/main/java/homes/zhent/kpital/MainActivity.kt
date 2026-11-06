@@ -1146,8 +1146,9 @@ class MainActivity : Activity() {
         }
         topRow.addView(spacerTop)
 
+        val sanitizedAmount = MovementHistoryManager.sanitizeStoredAmount(movement.amount)
         val amountView = TextView(this).apply {
-            text = "$${String.format(Locale.US, "%,.0f", movement.amount)} COP"
+            text = "$${String.format(Locale.US, "%,.0f", sanitizedAmount)} COP"
             textSize = 15f
             setTextColor(if (isDiscarded) Color.parseColor("#94a3b8") else Color.WHITE)
             setTypeface(null, Typeface.BOLD)
@@ -1173,13 +1174,17 @@ class MainActivity : Activity() {
         }
         card.addView(dateView)
 
-        // Fila 3: Estado y Botón de Acción
-        val bottomRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        // Fila 3: Contenedor vertical de Estado y Acciones para evitar overflow de botones
+        val bottomContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(0, 4, 0, 0)
         }
 
+        // Fila 3A: Estado / Cajita Asignada (Línea completa, texto nunca empuja a los botones fuera de la pantalla)
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         val statusView = TextView(this).apply {
             when {
                 isPending -> {
@@ -1215,12 +1220,19 @@ class MainActivity : Activity() {
             setTypeface(null, Typeface.BOLD)
             setPadding(14, 6, 14, 6)
         }
-        bottomRow.addView(statusView)
+        statusRow.addView(statusView)
+        bottomContainer.addView(statusRow)
 
-        val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        // Fila 3B: Botones de Acción (alineados a la derecha en su propia fila para que jamás se desborden)
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
-        bottomRow.addView(spacer)
 
         when {
             isPending -> {
@@ -1249,7 +1261,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Notificación eliminada", Toast.LENGTH_SHORT).show()
                     }
                 }
-                bottomRow.addView(deleteBtn)
+                actionsRow.addView(deleteBtn)
 
                 // Botón Descartar (rojo oscuro)
                 val discardBtn = Button(this).apply {
@@ -1276,7 +1288,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Movimiento movido a Descartadas", Toast.LENGTH_SHORT).show()
                     }
                 }
-                bottomRow.addView(discardBtn)
+                actionsRow.addView(discardBtn)
 
                 // Botón Asignar Cajita
                 val completeBtn = Button(this).apply {
@@ -1295,7 +1307,7 @@ class MainActivity : Activity() {
                         openPocketSelector(movement)
                     }
                 }
-                bottomRow.addView(completeBtn)
+                actionsRow.addView(completeBtn)
             }
             isDiscarded -> {
                 // Botón Rectificar (restaura a pendientes)
@@ -1323,7 +1335,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Movimiento devuelto a Pendientes", Toast.LENGTH_SHORT).show()
                     }
                 }
-                bottomRow.addView(rectifyBtn)
+                actionsRow.addView(rectifyBtn)
 
                 // Botón Eliminar Permanente
                 val deleteBtn = Button(this).apply {
@@ -1343,7 +1355,7 @@ class MainActivity : Activity() {
                         Toast.makeText(this@MainActivity, "Notificación eliminada", Toast.LENGTH_SHORT).show()
                     }
                 }
-                bottomRow.addView(deleteBtn)
+                actionsRow.addView(deleteBtn)
             }
             else -> {
                 // Completado: botón para eliminar del historial si se desea
@@ -1363,18 +1375,20 @@ class MainActivity : Activity() {
                         refreshHistoryUI()
                     }
                 }
-                bottomRow.addView(deleteBtn)
+                actionsRow.addView(deleteBtn)
             }
         }
 
-        card.addView(bottomRow)
+        bottomContainer.addView(actionsRow)
+        card.addView(bottomContainer)
         return card
     }
 
     private fun openPocketSelector(movement: CapturedMovement) {
+        val sanitized = MovementHistoryManager.sanitizeStoredAmount(movement.amount)
         val targetIntent = Intent(this, PocketSelectorActivity::class.java).apply {
             putExtra(PocketSelectorActivity.EXTRA_BANK, movement.bank)
-            putExtra(PocketSelectorActivity.EXTRA_AMOUNT, movement.amount)
+            putExtra(PocketSelectorActivity.EXTRA_AMOUNT, sanitized)
             putExtra(PocketSelectorActivity.EXTRA_DESC, movement.description)
             putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, movement.txType)
             putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, movement.rawText)

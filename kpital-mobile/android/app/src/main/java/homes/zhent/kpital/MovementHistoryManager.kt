@@ -41,10 +41,11 @@ data class CapturedMovement(
 
     companion object {
         fun fromJson(json: JSONObject): CapturedMovement {
+            val rawAmt = json.optDouble("amount", 0.0)
             return CapturedMovement(
                 id = json.optString("id", UUID.randomUUID().toString()),
                 bank = json.optString("bank", "Banco"),
-                amount = json.optDouble("amount", 0.0),
+                amount = MovementHistoryManager.sanitizeStoredAmount(rawAmt),
                 description = json.optString("description", "Movimiento bancario"),
                 txType = json.optString("txType", "debit"),
                 rawText = json.optString("rawText", ""),
@@ -87,6 +88,20 @@ object MovementHistoryManager {
     }
 
     /**
+     * Corrige y auto-sana montos en pesos colombianos (COP).
+     * En Colombia no existen los centavos. Si un monto guardado está entre 0 y 1000
+     * y tiene parte decimal no nula (ej. 24.845), fue debido a un parsing de separador
+     * de miles '.' como punto decimal inglés. Se multiplica por 1000 y se redondea a 24845.
+     */
+    fun sanitizeStoredAmount(amount: Double): Double {
+        return if (amount > 0.0 && amount < 1000.0 && (amount % 1.0 != 0.0)) {
+            Math.round(amount * 1000.0).toDouble()
+        } else {
+            amount
+        }
+    }
+
+    /**
      * Parsea montos en formato colombiano (ej. 24.845,00 o 24.845 o $ 24.845 o 7.200)
      * evitando que 24.845 sea interpretado como 24 punto 845 (que redondearía a 25 pesos).
      */
@@ -125,7 +140,8 @@ object MovementHistoryManager {
             }
             else -> s
         }
-        return clean.toDoubleOrNull() ?: 0.0
+        val parsed = clean.toDoubleOrNull() ?: 0.0
+        return sanitizeStoredAmount(parsed)
     }
 
     private fun getPrefs(context: Context): SharedPreferences {
@@ -206,15 +222,20 @@ object MovementHistoryManager {
             val index = list.indexOfFirst { it.id == id }
             if (index != -1) {
                 val current = list[index]
+                val effectiveAmount = if (newAmount != null && newAmount > 0) {
+                    sanitizeStoredAmount(newAmount)
+                } else {
+                    current.amount
+                }
                 val updated = current.copy(
                     status = newStatus,
                     pocketName = pocketName ?: current.pocketName,
-                    amount = if (newAmount != null && newAmount > 0) newAmount else current.amount,
+                    amount = effectiveAmount,
                     completedAt = if (newStatus == STATUS_COMPLETED) System.currentTimeMillis() else current.completedAt
                 )
                 list[index] = updated
                 saveMovementsInternal(context, list)
-                Log.d(TAG, "Movimiento $id actualizado a $newStatus (Cajita: $pocketName)")
+                Log.d(TAG, "Movimiento $id actualizado a $newStatus (Cajita: $pocketName, Monto: $effectiveAmount)")
                 notifyChanged()
             }
         }
@@ -286,9 +307,19 @@ object MovementHistoryManager {
         return try {
             val array = JSONArray(raw)
             val result = mutableListOf<CapturedMovement>()
+            var hadRepairs = false
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
-                result.add(CapturedMovement.fromJson(obj))
+                val originalAmt = obj.optDouble("amount", 0.0)
+                val movement = CapturedMovement.fromJson(obj)
+                if (movement.amount != originalAmt) {
+                    hadRepairs = true
+                }
+                result.add(movement)
+            }
+            if (hadRepairs) {
+                saveMovementsInternal(context, result)
+                Log.i(TAG, "Historial auto-sanado exitosamente: montos decimales COP corregidos a enteros.")
             }
             result
         } catch (e: Exception) {

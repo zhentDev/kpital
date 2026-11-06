@@ -55,7 +55,8 @@ class PocketSelectorActivity : Activity() {
         }
 
         val bank = intent.getStringExtra(EXTRA_BANK) ?: "Banco"
-        currentAmount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
+        val rawAmount = intent.getDoubleExtra(EXTRA_AMOUNT, 0.0)
+        currentAmount = MovementHistoryManager.sanitizeStoredAmount(rawAmount)
         val desc = intent.getStringExtra(EXTRA_DESC) ?: "Movimiento"
         val txType = intent.getStringExtra(EXTRA_TX_TYPE) ?: "debit"
         val rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
@@ -80,42 +81,35 @@ class PocketSelectorActivity : Activity() {
         }
         container.addView(titleView)
 
-        // Si el monto ya venía en la push (> 0), mostrarlo grande.
-        // Si no venía (== 0), mostrar un campo de texto para que el usuario lo ingrese.
-        lateinit var amountInput: EditText
-
-        if (currentAmount > 0) {
-            val amountView = TextView(this).apply {
-                val formatted = String.format("%,.0f", currentAmount)
-                text = "$$formatted COP"
-                textSize = 24f
-                setTextColor(Color.parseColor("#00e5ff"))
-                setTypeface(null, Typeface.BOLD)
-                setPadding(0, 10, 0, 10)
-            }
-            container.addView(amountView)
-        } else {
-            val amountPrompt = TextView(this).apply {
-                text = "Ingresa el valor del movimiento:"
-                textSize = 14f
-                setTextColor(Color.parseColor("#00e5ff"))
-                setTypeface(null, Typeface.BOLD)
-                setPadding(0, 15, 0, 5)
-            }
-            container.addView(amountPrompt)
-
-            amountInput = EditText(this).apply {
-                hint = "Ej: 1000"
-                setHintTextColor(Color.parseColor("#64748b"))
-                setTextColor(Color.WHITE)
-                textSize = 22f
-                setTypeface(null, Typeface.BOLD)
-                inputType = InputType.TYPE_CLASS_NUMBER
-                setBackgroundColor(Color.parseColor("#0f172a"))
-                setPadding(30, 20, 30, 20)
-            }
-            container.addView(amountInput)
+        // Campo de monto editable siempre disponible para que el usuario pueda rectificar o verificar el valor
+        val amountPrompt = TextView(this).apply {
+            text = "Valor a registrar ($ COP) - Puedes editarlo si lo deseas:"
+            textSize = 13f
+            setTextColor(Color.parseColor("#00e5ff"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, 16, 0, 6)
         }
+        container.addView(amountPrompt)
+
+        val amountInput = EditText(this).apply {
+            if (currentAmount > 0) {
+                setText(String.format(Locale.US, "%.0f", currentAmount))
+            } else {
+                hint = "Ej: 10000"
+            }
+            setHintTextColor(Color.parseColor("#64748b"))
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            inputType = InputType.TYPE_CLASS_NUMBER
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#0f172a"))
+                setStroke(2, Color.parseColor("#00e5ff"))
+            }
+            setPadding(30, 20, 30, 20)
+        }
+        container.addView(amountInput)
 
         val promptView = TextView(this).apply {
             text = "¿De qué cajita o cuenta sale este dinero en $bank?"
@@ -172,12 +166,9 @@ class PocketSelectorActivity : Activity() {
                         displayOptions = displayOptions,
                         internalNames = internalNames,
                         getFinalAmount = {
-                            if (currentAmount > 0) {
-                                currentAmount
-                            } else {
-                                val entered = amountInput.text.toString().trim()
-                                MovementHistoryManager.parseAmount(entered)
-                            }
+                            val entered = amountInput.text.toString().trim()
+                            val parsed = MovementHistoryManager.parseAmount(entered)
+                            if (parsed > 0) parsed else currentAmount
                         }
                     )
                 }
@@ -327,11 +318,36 @@ class PocketSelectorActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 10, 0, 15)
+                setMargins(0, 10, 0, 8)
             }
             layoutParams = p
         }
         container.addView(summaryBadge)
+
+        // Botón Volver a Selección de Cuentas
+        val backBtn = Button(this).apply {
+            text = "↩️ Volver a Elegir Cuenta"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.parseColor("#38bdf8"))
+            background = GradientDrawable().apply {
+                cornerRadius = 12f
+                setColor(Color.parseColor("#0c2340"))
+                setStroke(1, Color.parseColor("#0284c7"))
+            }
+            setPadding(20, 10, 20, 10)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, 14)
+            }
+            layoutParams = p
+            setOnClickListener {
+                recreate()
+            }
+        }
+        container.addView(backBtn)
 
         val promptView = TextView(this).apply {
             text = "Selecciona el rubro presupuestario de Kpital:"
