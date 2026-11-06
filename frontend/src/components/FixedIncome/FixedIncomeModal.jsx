@@ -12,6 +12,7 @@ import {
   CustomSelectDropdown,
 } from "../Common";
 import { useTheme } from "../../context/ThemeContext";
+import CdtComparatorWidget from "./CdtComparatorWidget";
 import "./FixedIncomeModal.css";
 
 export default function FixedIncomeModal({
@@ -27,8 +28,19 @@ export default function FixedIncomeModal({
   const backdropRef = useRef(null);
   const bodyRef = useRef(null);
 
-  const { entities, accounts, addEntity, updateEntity, addAccount, updateAccount, addCDT, updateCDT, addTransaction, updateTransaction } =
-    useFixedIncomeStore();
+  const {
+    entities,
+    accounts,
+    historicalRates,
+    addEntity,
+    updateEntity,
+    addAccount,
+    updateAccount,
+    addCDT,
+    updateCDT,
+    addTransaction,
+    updateTransaction,
+  } = useFixedIncomeStore();
   const [activeTab, setActiveTab] = useState(initialTab); // 'entity' | 'account' | 'cdt' | 'calculator' | 'transaction'
 
   // Entity Form State
@@ -469,6 +481,30 @@ export default function FixedIncomeModal({
       setCdtMaturityDate(d.toISOString().slice(0, 10));
     }
   }, [cdtStartDate, cdtTermDays]);
+
+  const handleSelectCdtOption = (option) => {
+    if (option.entityId) {
+      setSelectedEntityId(option.entityId);
+    }
+    if (option.suggestedName) {
+      setCdtName(option.suggestedName);
+    }
+    if (option.termDays) {
+      const days = Number(option.termDays);
+      setCdtTermDays(days);
+      if (cdtStartDate) {
+        const d = new Date(cdtStartDate);
+        d.setDate(d.getDate() + days);
+        setCdtMaturityDate(d.toISOString().slice(0, 10));
+      }
+    }
+    if (option.rateEA !== undefined) {
+      setCdtRateEA(String(option.rateEA));
+    }
+    toast.success(
+      `✨ Sugerencia aplicada: ${option.bankName} (${option.rateEA}% E.A. a ${option.termDays} días)`
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -977,6 +1013,17 @@ export default function FixedIncomeModal({
               onSubmit={handleSaveCDT}
               style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%" }}
             >
+              {/* Comparador de Tasas en Vivo para Nuevos CDTs */}
+              {!editItem && (
+                <CdtComparatorWidget
+                  capital={cdtCapital}
+                  initialTermDays={cdtTermDays || 180}
+                  historicalRates={historicalRates}
+                  portfolioEntities={entities}
+                  onSelectOption={handleSelectCdtOption}
+                />
+              )}
+
               <div>
                 <label className="fi-form-label">
                   Entidad Emisora

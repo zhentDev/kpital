@@ -5,6 +5,7 @@ import { useFixedIncomeStore } from "../../store/fixedIncomeStore";
 import { BANK_PRESETS, computeMissingMonthlyYieldTransactions, getBankPreset, svgToDataUri } from "../../utils/bankPresets";
 import { toastConfirm } from "../../utils/toastAlerts";
 import { calculateAccountYield, getCDTAccruedYield } from "../../utils/yieldCalculator";
+import { getRankedCDTRates } from "../../utils/cdtComparator";
 import FixedIncomeModal from "./FixedIncomeModal";
 import FixedIncomeProjectionChart from "./FixedIncomeProjectionChart";
 import StatementImporterModal from "./StatementImporterModal";
@@ -172,6 +173,11 @@ export default function FixedIncomeHub() {
   const [movementYear, setMovementYear] = useState({});
   const [selectedTxIds, setSelectedTxIds] = useState(new Set());
   const [batchTargetYear, setBatchTargetYear] = useState("2025");
+
+  // Top CDT Market Yields Benchmark (e.g. 1 Year / 360d)
+  const topCdtBenchmark = useMemo(() => {
+    return getRankedCDTRates(360, 1000000, historicalRates, entities);
+  }, [historicalRates, entities]);
 
   const handleDeleteTransaction = async (tx) => {
     const ok = await toastConfirm(
@@ -2014,6 +2020,77 @@ export default function FixedIncomeHub() {
 
         {showEntitiesSection && (
           <>
+            {/* ── Top CDT Opportunities Banner ── */}
+            {topCdtBenchmark?.top3?.length > 0 && (
+              <div
+                style={{
+                  background: isLight
+                    ? "linear-gradient(135deg, rgba(254, 243, 199, 0.7) 0%, rgba(255, 255, 255, 0.95) 100%)"
+                    : "linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(15, 23, 42, 0.6) 100%)",
+                  border: isLight
+                    ? "1px solid rgba(245, 158, 11, 0.35)"
+                    : "1px solid rgba(245, 158, 11, 0.25)",
+                  borderRadius: 12,
+                  padding: "10px 16px",
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  boxShadow: isLight
+                    ? "0 2px 10px rgba(245, 158, 11, 0.08)"
+                    : "0 4px 18px rgba(0, 0, 0, 0.2)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "1.2rem" }}>🏆</span>
+                  <div style={{ fontSize: "0.82rem", color: isLight ? "#78350f" : "#fef3c7" }}>
+                    <strong style={{ color: isLight ? "#92400e" : "#fbbf24", marginRight: 6 }}>
+                      Mejores Tasas para Nuevos CDTs (1 Año / 360D):
+                    </strong>
+                    {topCdtBenchmark.top3.map((b) => (
+                      <span key={b.key} style={{ marginRight: 10, fontWeight: 600 }}>
+                        {b.medal} {b.bankName}:{" "}
+                        <span style={{ color: isLight ? "#059669" : "#34d399", fontWeight: 800 }}>
+                          {b.rateEA.toFixed(2)}% E.A.
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditItem(null);
+                    setEditType(null);
+                    setModalTab("cdt");
+                    setModalOpen(true);
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    background: "#f59e0b",
+                    color: "#000",
+                    fontWeight: 700,
+                    fontSize: "0.76rem",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
+                    transition: "transform 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.03)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                >
+                  <span>✨</span> Abrir CDT con Mejor Tasa
+                </button>
+              </div>
+            )}
+
             {/* ── ENTITIES & ACCOUNTS CONTAINER (ADAPTIVE SMART MASONRY) ── */}
       {(() => {
         const renderEntityCard = (entity, forceExpanded = false) => {
