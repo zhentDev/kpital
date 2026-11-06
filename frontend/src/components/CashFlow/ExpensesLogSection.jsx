@@ -381,8 +381,14 @@ export default function ExpensesLogSection({
   const payrollNetBalance =
     totalIncomeInPeriod - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll;
 
-  const payrollAvailableBalance = matchedPayrollAccount && matchedPayrollAccount.balance !== undefined
-    ? Number(matchedPayrollAccount.balance) || 0
+  // Saldo en Nómina 100% dinámico y reactivo en vivo:
+  // Si hay ingresos en el mes, refleja el flujo neto real del período (Ingresos - Salidas de nómina).
+  // Si no hay ingresos pero hay saldo base registrado de la cuenta bancaria, descuenta en vivo las salidas de nómina.
+  const staticBase = matchedPayrollAccount && matchedPayrollAccount.balance !== undefined ? Number(matchedPayrollAccount.balance) || 0 : 0;
+  const payrollAvailableBalance = totalIncomeInPeriod > 0
+    ? payrollNetBalance
+    : staticBase > 0
+    ? staticBase - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll
     : payrollNetBalance;
 
   const payrollCount = useMemo(() => {
@@ -543,7 +549,7 @@ export default function ExpensesLogSection({
               <span style={{ fontSize: "0.72rem", color: "#10b981", display: "flex", alignItems: "center", gap: 4, fontWeight: 700 }}>
                 <span>🏦</span> Saldo en Nómina
                 <InfoTooltip
-                  text={`Saldo disponible real en cuenta Nu Débito (${formatMoney(payrollAvailableBalance, currency)}). Flujo neto de nómina registrado en el período: ${payrollNetBalance >= 0 ? '+' : ''}${formatMoney(payrollNetBalance, currency)}.`}
+                  text={`Saldo disponible real en cuenta Nómina (Nu Débito): ${formatMoney(payrollAvailableBalance, currency)}. Actualizado en vivo en este período: Ingresos (${formatMoney(totalIncomeInPeriod, currency)}) menos salidas de nómina (${formatMoney(totalSpentFromPayroll + totalSavedFromPayroll + totalPaidToCardsFromPayroll, currency)}).`}
                 />
               </span>
               <strong style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "1.15rem", color: payrollAvailableBalance >= 0 ? "#10b981" : "#f43f5e" }}>

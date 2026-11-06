@@ -1081,9 +1081,9 @@
 /* ── Fixed-Column Ledger & Expenses Log Grid ────────────────────────────── */
 .expense-log-table-header {
   display: grid;
-  grid-template-columns: 140px minmax(200px, 1.2fr) 210px 145px 135px;
+  grid-template-columns: 125px minmax(180px, 1.3fr) minmax(190px, 1fr) minmax(185px, 0.9fr) minmax(175px, 0.9fr);
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   padding: 8px 16px;
   margin-bottom: 2px;
   border-bottom: 1px solid var(--border);
@@ -1092,6 +1092,7 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
+  box-sizing: border-box;
 }
 
 [data-theme="light"] .expense-log-table-header {
@@ -1112,10 +1113,11 @@
 
 .expense-log-grid-row {
   display: grid;
-  grid-template-columns: 140px minmax(200px, 1.2fr) 210px 145px 135px;
+  grid-template-columns: 125px minmax(180px, 1.3fr) minmax(190px, 1fr) minmax(185px, 0.9fr) minmax(175px, 0.9fr);
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 /* Col 1: Date & Selection */
@@ -1126,6 +1128,7 @@
   font-size: 0.75rem;
   color: var(--text-muted);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .expense-select-checkbox {
@@ -1163,23 +1166,31 @@
   color: #64748b;
 }
 
-/* Col 2: Concept & Origin */
+/* Col 2: Concept & Origin (Wraps cleanly without stealing space) */
 .expense-col-desc {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  white-space: normal;
 }
 
 .expense-desc-title {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
   font-size: 0.88rem;
   color: var(--text-primary);
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.expense-desc-title strong {
+  min-width: 0;
+  white-space: normal;
   word-break: break-word;
   overflow-wrap: break-word;
-  line-height: 1.3;
+  flex: 1;
 }
 
 .expense-desc-sub {
@@ -1188,6 +1199,8 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* Col 3: Rubro / Category */
@@ -1197,15 +1210,17 @@
   align-items: flex-start;
   gap: 4px;
   min-width: 0;
+  width: 100%;
 }
 
-/* Col 4: Quick Actions */
+/* Col 4: Quick Actions (Generous space so buttons NEVER touch Col 5) */
 .expense-col-actions {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
+  width: 100%;
 }
 
 .expense-action-pill {
@@ -1223,6 +1238,7 @@
   transition: all 0.15s ease;
   white-space: nowrap;
   text-decoration: none;
+  box-sizing: border-box;
 }
 
 .expense-action-pill:hover {
@@ -1307,27 +1323,30 @@
   border-color: #047857;
 }
 
-/* Col 5: Amount & Actions */
+/* Col 5: Amount & Actions (Ample space for large amounts + icons) */
 .expense-col-amount {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   text-align: right;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .expense-amount-val {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 800;
   white-space: nowrap;
+  letter-spacing: -0.3px;
 }
 
 .expense-log-action-btns {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* Backward compatibility fallback */
@@ -1365,8 +1384,8 @@
   gap: 8px;
 }
 
-/* Mobile Responsive (< 900px) */
-@media (max-width: 899px) {
+/* Mobile Responsive (< 920px) */
+@media (max-width: 919px) {
   .expense-log-table-header {
     display: none !important;
   }
