@@ -79,13 +79,84 @@ func (e *Engine) Parse(n models.RawNotification) (*models.ParsedTransaction, err
 
 // DetectBank resolves the banking entity based on app, package, title, and body.
 func (e *Engine) DetectBank(n models.RawNotification) string {
-	combinedLower := strings.ToLower(n.AppName + " " + n.PackageName + " " + n.Title + " " + n.Text)
+	pkg := strings.ToLower(strings.TrimSpace(n.PackageName))
+	app := strings.ToLower(strings.TrimSpace(n.AppName))
 
+	// 1. PRIMARY SOURCE OF TRUTH: Package name of the official bank application.
+	// The emitting app is authoritative: e.g. a transfer sent from Nu to a Nequi account
+	// must be identified as Nu Colombia, NOT Nequi Colombia.
+	switch {
+	case strings.Contains(pkg, "nu.production") || strings.Contains(pkg, "nubank") || strings.Contains(pkg, "nu.colombia") || strings.Contains(pkg, "com.nu.") || strings.Contains(pkg, "co.nu."):
+		return "Nu Colombia"
+
+	case strings.Contains(pkg, "rappi") || strings.Contains(pkg, "rappipay"):
+		return "RappiPay"
+
+	case strings.Contains(pkg, "bancolombia"):
+		return "Bancolombia"
+
+	case strings.Contains(pkg, "cajasocial") || strings.Contains(pkg, "bcs"):
+		return "Banco Caja Social"
+
+	case strings.Contains(pkg, "nequi"):
+		return "Nequi Colombia"
+
+	case strings.Contains(pkg, "davivienda") || strings.Contains(pkg, "daviplata"):
+		return "Davivienda / Daviplata"
+
+	case strings.Contains(pkg, "falabella"):
+		return "Banco Falabella"
+
+	case strings.Contains(pkg, "lulobank") || strings.Contains(pkg, "lulo"):
+		return "Lulo Bank"
+
+	case strings.Contains(pkg, "finandina"):
+		return "Finandina"
+
+	case strings.Contains(pkg, "plenti"):
+		return "Plenti (Ahorros)"
+
+	case strings.Contains(pkg, "mercadopago"):
+		return "Mercado Pago"
+
+	case strings.Contains(pkg, "walletnfcrel") || strings.Contains(pkg, "google.android.apps.wallet"):
+		combined := strings.ToLower(n.Title + " " + n.Text)
+		if strings.Contains(combined, "nu") {
+			return "Nu Colombia"
+		}
+		if strings.Contains(combined, "rappi") {
+			return "RappiPay"
+		}
+		return "Google Wallet"
+	}
+
+	// 2. SECONDARY: App Name check
+	switch {
+	case strings.Contains(app, "nu") || strings.Contains(app, "nubank"):
+		return "Nu Colombia"
+	case strings.Contains(app, "rappi"):
+		return "RappiPay"
+	case strings.Contains(app, "bancolombia"):
+		return "Bancolombia"
+	case strings.Contains(app, "nequi"):
+		return "Nequi Colombia"
+	case strings.Contains(app, "caja social") || strings.Contains(app, "bcs"):
+		return "Banco Caja Social"
+	case strings.Contains(app, "davivienda") || strings.Contains(app, "daviplata"):
+		return "Davivienda / Daviplata"
+	case strings.Contains(app, "falabella"):
+		return "Banco Falabella"
+	case strings.Contains(app, "lulo"):
+		return "Lulo Bank"
+	}
+
+	// 3. TERTIARY: Content inspection (SMS or generic messaging apps)
+	combinedLower := strings.ToLower(n.Title + " " + n.Text)
 	switch {
 	case strings.Contains(combinedLower, "rappicuenta") || strings.Contains(combinedLower, "rappipay") || strings.Contains(combinedLower, "rappi"):
 		return "RappiPay"
 
-	case strings.Contains(combinedLower, "nubank") || strings.Contains(combinedLower, "nu colombia") || strings.Contains(combinedLower, "tarjeta nu") || strings.Contains(combinedLower, "cuenta nu"):
+	case strings.Contains(combinedLower, "nubank") || strings.Contains(combinedLower, "nu colombia") || strings.Contains(combinedLower, "tarjeta nu") || strings.Contains(combinedLower, "cuenta nu") || strings.Contains(combinedLower, "desde cuenta nu"):
 		return "Nu Colombia"
 
 	case strings.Contains(combinedLower, "bancolombia"):
@@ -103,18 +174,14 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 	case strings.Contains(combinedLower, "daviplata") || strings.Contains(combinedLower, "davivienda"):
 		return "Davivienda / Daviplata"
 
-	case strings.Contains(combinedLower, "google wallet") || strings.Contains(combinedLower, "billetera de google") || strings.Contains(combinedLower, "google pay"):
-		// Check if card brand / entity is embedded
-		if strings.Contains(combinedLower, "nu") {
-			return "Nu Colombia"
-		}
-		if strings.Contains(combinedLower, "rappi") {
-			return "RappiPay"
-		}
-		return "Google Wallet"
-
 	case strings.Contains(combinedLower, "nequi"):
 		return "Nequi Colombia"
+
+	case strings.Contains(combinedLower, "falabella"):
+		return "Banco Falabella"
+
+	case strings.Contains(combinedLower, "lulo"):
+		return "Lulo Bank"
 
 	default:
 		if n.AppName != "" {
@@ -204,6 +271,9 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 		if m := nuReceivedRegex.FindStringSubmatch(text); len(m) > 1 {
 			return "Transferencia de " + strings.TrimSpace(m[1])
 		}
+		if title != "" && !strings.EqualFold(title, "Nubank") && !strings.EqualFold(title, "Nu Colombia") && !strings.Contains(title, ":") && !strings.Contains(strings.ToLower(title), "cajita") {
+			return "Compra " + strings.TrimSpace(title)
+		}
 
 	case "RappiPay":
 		if m := rappiViaRegex.FindStringSubmatch(text); len(m) > 1 {
@@ -283,15 +353,21 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 func (e *Engine) DetectAccount(n models.RawNotification, bank string) string {
 	combinedLower := strings.ToLower(n.Title + " " + n.Text)
 
-	// Check specific Nu pockets
-	if strings.Contains(combinedLower, "cajita viaje") || strings.Contains(combinedLower, "viaje") {
-		return "Cajita Viaje"
-	}
-	if strings.Contains(combinedLower, "cajita estudios") || strings.Contains(combinedLower, "estudios") {
-		return "Cajita Estudios"
-	}
-	if strings.Contains(combinedLower, "deuda mom") {
-		return "Cajita Deuda mom"
+	// Check specific Nu pockets and accounts
+	if bank == "Nu Colombia" {
+		if strings.Contains(combinedLower, "cajita viaje") || strings.Contains(combinedLower, "viaje") {
+			return "Cajita Viaje"
+		}
+		if strings.Contains(combinedLower, "cajita estudios") || strings.Contains(combinedLower, "estudios") {
+			return "Cajita Estudios"
+		}
+		if strings.Contains(combinedLower, "deuda mom") {
+			return "Cajita Deuda mom"
+		}
+		if strings.Contains(combinedLower, "crédito") || strings.Contains(combinedLower, "credito") {
+			return "Tarjeta de Crédito Nu"
+		}
+		return "Cuenta Nu Débito (Nómina)"
 	}
 
 	// Check Rappi pockets

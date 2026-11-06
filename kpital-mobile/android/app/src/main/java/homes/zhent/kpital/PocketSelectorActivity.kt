@@ -176,7 +176,7 @@ class PocketSelectorActivity : Activity() {
                                 currentAmount
                             } else {
                                 val entered = amountInput.text.toString().trim()
-                                entered.toDoubleOrNull() ?: 0.0
+                                MovementHistoryManager.parseAmount(entered)
                             }
                         }
                     )

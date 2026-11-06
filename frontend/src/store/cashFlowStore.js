@@ -2713,12 +2713,17 @@ export const useCashFlowStore = create(
         set((state) => {
           const updatedExpensesLog = (state.expensesLog || []).map((tx) => {
             if (tx.id === txId) {
+              const wasWealth = tx.budgetItemType === "wealth" || tx.budgetItemId?.startsWith("wealth_");
               return {
                 ...tx,
                 isLoan,
                 loanRecipient: isLoan ? loanRecipient || "Amigo / Familiar" : null,
                 loanAmount: isLoan ? (Number(loanAmount) > 0 ? Number(loanAmount) : Number(tx.amount)) : null,
                 loanStatus: isLoan ? (tx.loanStatus || "pending") : null,
+                // Si estaba en una cajita de ahorro/inversión (wealth), reasignar a needs_loans para no descontarlo de la meta de ahorro
+                budgetItemType: isLoan && wasWealth ? "needs" : tx.budgetItemType,
+                budgetItemId: isLoan && wasWealth ? "needs_loans" : tx.budgetItemId,
+                budgetItemName: isLoan && wasWealth ? "Préstamos / Deudas por Cobrar" : tx.budgetItemName,
               };
             }
             return tx;

@@ -86,6 +86,48 @@ object MovementHistoryManager {
         historyChangeListener = listener
     }
 
+    /**
+     * Parsea montos en formato colombiano (ej. 24.845,00 o 24.845 o $ 24.845 o 7.200)
+     * evitando que 24.845 sea interpretado como 24 punto 845 (que redondearía a 25 pesos).
+     */
+    fun parseAmount(raw: String?): Double {
+        if (raw == null) return 0.0
+        var s = raw.replace("$", "").replace("COP", "", ignoreCase = true).trim()
+        if (s.isBlank()) return 0.0
+        s = s.replace(Regex("[^0-9.,]"), "")
+        val hasDot = s.contains(".")
+        val hasComma = s.contains(",")
+        val clean = when {
+            hasDot && hasComma -> {
+                val lastDot = s.lastIndexOf(".")
+                val lastComma = s.lastIndexOf(",")
+                if (lastComma > lastDot) {
+                    s.replace(".", "").replace(",", ".")
+                } else {
+                    s.replace(",", "")
+                }
+            }
+            hasDot && !hasComma -> {
+                val parts = s.split(".")
+                if (parts.size > 2 || (parts.size == 2 && parts[1].length == 3)) {
+                    s.replace(".", "")
+                } else {
+                    s
+                }
+            }
+            hasComma && !hasDot -> {
+                val parts = s.split(",")
+                if (parts.size == 2 && (parts[1].length == 1 || parts[1].length == 2)) {
+                    "${parts[0]}.${parts[1]}"
+                } else {
+                    s.replace(",", "")
+                }
+            }
+            else -> s
+        }
+        return clean.toDoubleOrNull() ?: 0.0
+    }
+
     private fun getPrefs(context: Context): SharedPreferences {
         return context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }

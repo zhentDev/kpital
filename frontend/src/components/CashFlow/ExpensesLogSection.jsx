@@ -114,7 +114,7 @@ export default function ExpensesLogSection({
       .filter((tx) => !tx.period || tx.period === activePeriod)
       .map((tx) => {
         const isIncome = tx.type === "credit" || tx.budgetItemType === "income";
-        const isWealth = (tx.budgetItemType === "wealth" || tx.budgetItemId?.startsWith("wealth_")) && !isIncome;
+        const isWealth = (tx.budgetItemType === "wealth" || tx.budgetItemId?.startsWith("wealth_")) && !isIncome && !tx.isLoan;
         return {
           ...tx,
           itemType: isIncome ? "income" : isWealth ? "wealth_saving" : "expense",
@@ -915,6 +915,32 @@ export default function ExpensesLogSection({
                         <span style={{ color: "#38bdf8", fontWeight: 600 }}>
                           Pagado desde: {item.sourceAccount || item.paymentSource?.targetName || "Nómina Nu"}
                         </span>
+                        {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                          <>
+                            <span>•</span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
+                                if (recipient !== null && recipient.trim()) {
+                                  onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
+                                }
+                              }}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "#f59e0b",
+                                fontSize: "0.72rem",
+                                cursor: "pointer",
+                                padding: 0,
+                                textDecoration: "underline",
+                                fontWeight: 600,
+                              }}
+                            >
+                              🤝 Marcar como Préstamo
+                            </button>
+                          </>
+                        )}
                         {onReclassifyMovement && (
                           <>
                             <span>•</span>
@@ -1184,6 +1210,32 @@ export default function ExpensesLogSection({
                           <span style={{ color: "#10b981", fontWeight: 600 }}>
                             📍 Cuenta destino: {item.destinationAccountName}
                           </span>
+                        </>
+                      )}
+                      {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                        <>
+                          <span>•</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
+                              if (recipient !== null && recipient.trim()) {
+                                onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
+                              }
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#f59e0b",
+                              fontSize: "0.72rem",
+                              cursor: "pointer",
+                              padding: 0,
+                              textDecoration: "underline",
+                              fontWeight: 600,
+                            }}
+                          >
+                            🤝 Marcar como Préstamo
+                          </button>
                         </>
                       )}
                       {onReclassifyMovement && (

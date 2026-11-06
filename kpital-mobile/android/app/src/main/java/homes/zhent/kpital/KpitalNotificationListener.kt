@@ -65,6 +65,8 @@ class KpitalNotificationListener : NotificationListenerService() {
             "com.nu.colombia",
             "co.nu.colombia",
             "com.nu.production",
+            "co.nu.production",
+            "com.nu.app",
             "com.nequi.MobileApp",
             "co.nequi",
             "com.bancofalabella.bancofalabella",
@@ -193,29 +195,43 @@ class KpitalNotificationListener : NotificationListenerService() {
         if (!isFromBankApp && !isFromSmsApp) return
 
         val extras = sbn.notification?.extras ?: return
-        val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
-        val rawText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-            ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-            ?: ""
-        val postTime = sbn.postTime
+        val title = (extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
+            ?: extras.getString(Notification.EXTRA_TITLE)
+            ?: extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
+            ?: "").trim()
 
-        if (title.isBlank() && rawText.isBlank()) return
-
-        // Extracción de texto:
-        // En apps bancarias oficiales (Nu, Rappi, etc.), concatenamos todas las líneas para no perder el monto ni el comercio.
-        // En SMS, si agrupa el historial del remitente, tomamos la última línea más reciente.
         val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-        val textToProcess = if (isFromBankApp) {
-            if (textLines != null && textLines.isNotEmpty()) {
-                textLines.joinToString(" ").trim()
-            } else {
-                rawText.replace("\n", " ").trim()
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
+        val normalText = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        val summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString() ?: ""
+        val infoText = extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString() ?: ""
+        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
+
+        val allBodyParts = mutableListOf<String>()
+        if (bigText.isNotBlank()) allBodyParts.add(bigText)
+        if (normalText.isNotBlank() && !allBodyParts.contains(normalText)) allBodyParts.add(normalText)
+        if (summaryText.isNotBlank() && !allBodyParts.contains(summaryText)) allBodyParts.add(summaryText)
+        if (infoText.isNotBlank() && !allBodyParts.contains(infoText)) allBodyParts.add(infoText)
+        if (subText.isNotBlank() && !allBodyParts.contains(subText) && subText != title) allBodyParts.add(subText)
+        if (textLines != null) {
+            for (line in textLines) {
+                val str = line?.toString()?.trim() ?: ""
+                if (str.isNotBlank() && !allBodyParts.contains(str)) {
+                    allBodyParts.add(str)
+                }
             }
+        }
+
+        val postTime = sbn.postTime
+        if (title.isBlank() && allBodyParts.isEmpty()) return
+
+        val textToProcess = if (isFromBankApp) {
+            allBodyParts.joinToString(" ").replace("\n", " ").trim()
         } else {
             if (textLines != null && textLines.isNotEmpty()) {
                 textLines.last().toString().trim()
             } else {
-                rawText.split("\n").filter { it.isNotBlank() }.lastOrNull()?.trim() ?: rawText.trim()
+                normalText.split("\n").filter { it.isNotBlank() }.lastOrNull()?.trim() ?: normalText.trim()
             }
         }
 
@@ -277,6 +293,7 @@ class KpitalNotificationListener : NotificationListenerService() {
                 // Heurísticas de respaldo
                 val fullLower = (title + " " + textToProcess).lowercase()
                 when {
+                    packageName.contains("nu", ignoreCase = true) || fullLower.contains("nubank") || fullLower.contains("cuenta nu") || fullLower.contains("tarjeta nu") -> bank = "Nu Colombia"
                     fullLower.contains("caja social") || fullLower.contains("bcs") -> bank = "Banco Caja Social"
                     fullLower.contains("nequi") -> bank = "Nequi Colombia"
                     fullLower.contains("bancolombia") -> bank = "Bancolombia"

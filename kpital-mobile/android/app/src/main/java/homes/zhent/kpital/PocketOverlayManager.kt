@@ -240,7 +240,7 @@ object PocketOverlayManager {
                                     if (initialAmount > 0) {
                                         initialAmount
                                     } else {
-                                        amountInput?.text?.toString()?.trim()?.toDoubleOrNull() ?: 0.0
+                                        MovementHistoryManager.parseAmount(amountInput?.text?.toString())
                                     }
                                 }
                             )
