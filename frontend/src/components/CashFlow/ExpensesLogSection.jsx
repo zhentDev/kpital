@@ -972,6 +972,13 @@ export default function ExpensesLogSection({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="expense-log-table-header">
+            <div className="expense-th-date">Fecha &amp; Hora</div>
+            <div className="expense-th-desc">Concepto y Origen</div>
+            <div className="expense-th-cat">Rubro / Categoría</div>
+            <div className="expense-th-actions">Asignación</div>
+            <div className="expense-th-amount">Monto</div>
+          </div>
           {filteredActivities.map((item) => {
             const isDistributedExpense = Boolean(item.isDistributed) || (Array.isArray(item.budgetDeductions) && item.budgetDeductions.length > 0);
             const isPayment = item.itemType === "card_payment" || isDistributedExpense;
@@ -1012,185 +1019,163 @@ export default function ExpensesLogSection({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  <div className="expense-log-row-card" style={{ width: "100%" }}>
-                    <div className="expense-log-row-left">
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            toggleSelection(item.id);
-                          }}
-                          style={{
-                            cursor: "pointer",
-                            width: 17,
-                            height: 17,
-                            accentColor: isLight ? "#0284c7" : "#00e5ff",
-                            borderRadius: "4px",
-                            marginRight: 2,
-                            flexShrink: 0,
-                          }}
-                          title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
-                        />
-                        <span style={{ fontSize: "1rem" }}>{isDebt ? "🤝" : isCard ? "💳" : "📋"}</span>
-                        <strong className="expense-log-row-title">
-                          {isCard ? `${item.cardName} • ${item.description || "Abono a tarjeta"}` : item.description}
-                        </strong>
-                        <span
-                          style={{
-                            background: isDebt ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.2)",
-                            border: isDebt ? "1px solid #f59e0b" : "1px solid #10b981",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            color: isDebt ? (isLight ? "#d97706" : "#fcd34d") : "#10b981",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {isDebt ? "🤝 Abono a Deuda (Distribuido)" : isCard ? "✓ Abono / Libera Cupo" : "📋 Deducción Multi-Rubro"}
-                        </span>
-                        {isCard && (item.budgetDeductions || []).some((d) => d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_")) && (
-                          <span
-                            style={{
-                              background: "rgba(56, 189, 248, 0.15)",
-                              border: "1px solid rgba(56, 189, 248, 0.4)",
-                              padding: "2px 6px",
-                              borderRadius: "6px",
-                              fontSize: "0.68rem",
-                              color: "#38bdf8",
-                              fontWeight: 700,
-                            }}
-                            title="Este pago incluye deducción de metas de ahorro / inversión"
-                          >
-                            💎 Deducción Ahorro: ${(item.budgetDeductions || [])
-                              .filter((d) => d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_"))
-                              .reduce((s, d) => s + Number(d.amount || 0), 0)
-                              .toLocaleString("es-CO")} COP
-                          </span>
-                        )}
-                        <span
-                          style={{
-                            background: "rgba(16, 185, 129, 0.12)",
-                            border: "1px solid rgba(16, 185, 129, 0.3)",
-                            padding: "2px 6px",
-                            borderRadius: "6px",
-                            fontSize: "0.68rem",
-                            color: "#10b981",
-                            fontWeight: 700,
-                          }}
-                        >
-                          📤 Salida (Abono)
-                        </span>
-                      </div>
-
-                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        <span>📅 {formatMovementDateTime(item).date || "Fecha no especificada"}</span>
+                  <div className="expense-log-grid-row">
+                    {/* Col 1: Date & Selection */}
+                    <div className="expense-col-date">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelection(item.id);
+                        }}
+                        className="expense-select-checkbox"
+                        style={{ accentColor: isLight ? "#0284c7" : "#00e5ff" }}
+                        title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                      />
+                      <div className="expense-date-info">
+                        <span className="expense-date-text">📅 {formatMovementDateTime(item).date || "Sin fecha"}</span>
                         {formatMovementDateTime(item).time && (
-                          <>
-                            <span>•</span>
-                            <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>🕒 {formatMovementDateTime(item).time}</span>
-                          </>
-                        )}
-                        <span>•</span>
-                        <span style={{ color: "#38bdf8", fontWeight: 600 }}>
-                          Pagado desde: {item.sourceAccount || item.paymentSource?.targetName || "Nómina Nu"}
-                        </span>
-                        {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
-                          <>
-                            <span>•</span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
-                                if (recipient !== null && recipient.trim()) {
-                                  onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
-                                }
-                              }}
-                              style={{
-                                background: "transparent",
-                                border: "none",
-                                color: "#f59e0b",
-                                fontSize: "0.72rem",
-                                cursor: "pointer",
-                                padding: 0,
-                                textDecoration: "underline",
-                                fontWeight: 600,
-                              }}
-                            >
-                              🤝 Marcar como Préstamo
-                            </button>
-                          </>
-                        )}
-                        {onReclassifyMovement && (
-                          <>
-                            <span>•</span>
-                            <button
-                              type="button"
-                              onClick={() => setAssignModalItem(item)}
-                              style={{
-                                background: "transparent",
-                                border: "none",
-                                color: "#0ea5e9",
-                                fontSize: "0.72rem",
-                                cursor: "pointer",
-                                padding: 0,
-                                textDecoration: "underline",
-                                fontWeight: 600,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 3,
-                              }}
-                              title="Distribuir este abono en varios rubros del mes o cambiar asignación"
-                            >
-                              <span>🏷️</span> Distribuir en Rubros / Reasignar
-                            </button>
-                          </>
+                          <span className="expense-time-text">🕒 {formatMovementDateTime(item).time}</span>
                         )}
                       </div>
                     </div>
 
-                    <div className="expense-log-row-right">
-                      <div className="expense-log-amount-actions">
-                        <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "1.05rem", fontWeight: 800, color: isDebt ? (isLight ? "#d97706" : "#f59e0b") : (isLight ? "#047857" : "#10b981") }}>
-                          -{formatMoney(item.amount, currency)}
+                    {/* Col 2: Concept & Origin */}
+                    <div className="expense-col-desc">
+                      <div className="expense-desc-title">
+                        <span style={{ fontSize: "1rem" }}>{isDebt ? "🤝" : isCard ? "💳" : "📋"}</span>
+                        <strong>
+                          {isCard ? `${item.cardName} • ${item.description || "Abono a tarjeta"}` : item.description}
+                        </strong>
+                      </div>
+                      <div className="expense-desc-sub">
+                        <span style={{ color: "#38bdf8", fontWeight: 600 }}>
+                          💳 Pagado desde: {item.sourceAccount || item.paymentSource?.targetName || "Nómina Nu"}
                         </span>
-                        <div className="expense-log-action-btns">
-                          {onEditTransaction && (
-                            <button
-                              type="button"
-                              onClick={() => onEditTransaction(item)}
-                              style={{
-                                background: "transparent",
-                                border: "none",
-                                color: "#38bdf8",
-                                cursor: "pointer",
-                                padding: "4px",
-                                fontSize: "0.85rem",
-                              }}
-                              title="Editar este pago de tarjeta"
-                            >
-                              ✏️
-                            </button>
-                          )}
-                          {(isCard ? onDeletePayment : onDeleteTransaction) && (
-                            <button
-                              type="button"
-                              onClick={() => isCard ? handleDeleteCardPayment(item) : handleDeleteTransaction(item)}
-                              style={{
-                                background: "transparent",
-                                border: "none",
-                                color: "var(--text-muted)",
-                                cursor: "pointer",
-                                padding: "4px",
-                                fontSize: "0.85rem",
-                              }}
-                              title={isCard ? "Revertir este pago de tarjeta" : "Eliminar este movimiento distribuido"}
-                            >
-                              🗑️
-                            </button>
-                          )}
-                        </div>
+                      </div>
+                    </div>
+
+                    {/* Col 3: Rubro / Category */}
+                    <div className="expense-col-cat">
+                      <span
+                        style={{
+                          background: isDebt ? "rgba(245, 158, 11, 0.2)" : "rgba(16, 185, 129, 0.2)",
+                          border: isDebt ? "1px solid #f59e0b" : "1px solid #10b981",
+                          padding: "2px 8px",
+                          borderRadius: "6px",
+                          fontSize: "0.72rem",
+                          color: isDebt ? (isLight ? "#d97706" : "#fcd34d") : "#10b981",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {isDebt ? "🤝 Abono a Deuda (Distribuido)" : isCard ? "✓ Abono / Libera Cupo" : "📋 Deducción Multi-Rubro"}
+                      </span>
+                      {isCard && (item.budgetDeductions || []).some((d) => d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_")) && (
+                        <span
+                          style={{
+                            background: "rgba(56, 189, 248, 0.15)",
+                            border: "1px solid rgba(56, 189, 248, 0.4)",
+                            padding: "2px 6px",
+                            borderRadius: "6px",
+                            fontSize: "0.68rem",
+                            color: "#38bdf8",
+                            fontWeight: 700,
+                          }}
+                          title="Este pago incluye deducción de metas de ahorro / inversión"
+                        >
+                          💎 Deducción Ahorro: ${(item.budgetDeductions || [])
+                            .filter((d) => d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_"))
+                            .reduce((s, d) => s + Number(d.amount || 0), 0)
+                            .toLocaleString("es-CO")} COP
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          background: "rgba(16, 185, 129, 0.12)",
+                          border: "1px solid rgba(16, 185, 129, 0.3)",
+                          padding: "2px 6px",
+                          borderRadius: "6px",
+                          fontSize: "0.68rem",
+                          color: "#10b981",
+                          fontWeight: 700,
+                        }}
+                      >
+                        📤 Salida (Abono)
+                      </span>
+                    </div>
+
+                    {/* Col 4: Quick Actions */}
+                    <div className="expense-col-actions">
+                      {onReclassifyMovement && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignModalItem(item)}
+                          className="expense-action-pill"
+                          title="Distribuir este abono en varios rubros del mes o cambiar asignación"
+                        >
+                          <span>🏷️</span> Distribuir / Reasignar
+                        </button>
+                      )}
+                      {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
+                            if (recipient !== null && recipient.trim()) {
+                              onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
+                            }
+                          }}
+                          className="expense-action-pill loan-pill"
+                        >
+                          <span>🤝</span> Marcar Préstamo
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Col 5: Amount & Edit/Delete */}
+                    <div className="expense-col-amount">
+                      <span
+                        className="expense-amount-val"
+                        style={{ color: isDebt ? (isLight ? "#d97706" : "#f59e0b") : (isLight ? "#047857" : "#10b981") }}
+                      >
+                        -{formatMoney(item.amount, currency)}
+                      </span>
+                      <div className="expense-log-action-btns">
+                        {onEditTransaction && (
+                          <button
+                            type="button"
+                            onClick={() => onEditTransaction(item)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#38bdf8",
+                              cursor: "pointer",
+                              padding: "4px",
+                              fontSize: "0.85rem",
+                            }}
+                            title="Editar este pago de tarjeta"
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        {(isCard ? onDeletePayment : onDeleteTransaction) && (
+                          <button
+                            type="button"
+                            onClick={() => isCard ? handleDeleteCardPayment(item) : handleDeleteTransaction(item)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--text-muted)",
+                              cursor: "pointer",
+                              padding: "4px",
+                              fontSize: "0.85rem",
+                            }}
+                            title={isCard ? "Revertir este pago de tarjeta" : "Eliminar este movimiento distribuido"}
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1218,18 +1203,20 @@ export default function ExpensesLogSection({
                       >
                         <span>{isExpanded ? "▼" : "▶"}</span>
                         <span>
-                          {isExpanded ? "Ocultar distribución" : "Ver distribución"} ({item.budgetDeductions.length} rubros)
+                          {hasWealthDeduction ? "💎" : "📋"} Desglose en Rubros ({item.budgetDeductions.length}{" "}
+                          {item.budgetDeductions.length === 1 ? "rubro" : "rubros"} • Click para{" "}
+                          {isExpanded ? "ocultar" : "ver"})
                         </span>
                       </div>
 
                       {isExpanded && (
                         <div
                           style={{
+                            marginTop: 8,
+                            padding: "8px 12px",
                             display: "flex",
                             flexDirection: "column",
                             gap: 6,
-                            marginTop: 8,
-                            padding: "8px 12px",
                             borderRadius: "10px",
                             background: isLight ? "rgba(241, 245, 249, 0.7)" : "rgba(10, 16, 30, 0.45)",
                             border: isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)",
@@ -1330,7 +1317,7 @@ export default function ExpensesLogSection({
               return (
                 <div
                   key={item.id}
-                  className="expense-log-row-card"
+                  className="expense-log-grid-row"
                   style={{
                     background: isSelected
                       ? (isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.08)")
@@ -1346,173 +1333,143 @@ export default function ExpensesLogSection({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  <div className="expense-log-row-left">
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          toggleSelection(item.id);
-                        }}
-                        style={{
-                          cursor: "pointer",
-                          width: 17,
-                          height: 17,
-                          accentColor: isLight ? "#0284c7" : "#00e5ff",
-                          borderRadius: "4px",
-                          marginRight: 2,
-                          flexShrink: 0,
-                        }}
-                        title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
-                      />
-                      <span style={{ fontSize: "1rem" }}>{isCardPayoffEmergency ? "💳" : "💎"}</span>
-                      <strong style={{ fontSize: "0.9rem", color: "var(--text-primary)", wordBreak: "break-word" }}>
-                        {item.description}
-                      </strong>
-                      <span
-                        style={{
-                          background: isLight ? "rgba(2, 132, 199, 0.1)" : "rgba(56, 189, 248, 0.15)",
-                          border: `1px solid ${mainColor}`,
-                          padding: "2px 8px",
-                          borderRadius: "6px",
-                          fontSize: "0.72rem",
-                          color: mainColor,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {item.budgetItemName} • Inversión / Ahorro
-                      </span>
-                      <span
-                        style={{
-                          background: isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(56, 189, 248, 0.15)",
-                          border: `1px solid ${mainColor}`,
-                          padding: "2px 6px",
-                          borderRadius: "6px",
-                          fontSize: "0.68rem",
-                          color: mainColor,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {isCardPayoffEmergency ? "💳 Salida (Imputado a Tarjeta)" : "📤 Salida (Aporte a Ahorro)"}
-                      </span>
-                    </div>
-
-                    <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>📅 {formatMovementDateTime(item).date || "Fecha no especificada"}</span>
+                  {/* Col 1: Date & Selection */}
+                  <div className="expense-col-date">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleSelection(item.id);
+                      }}
+                      className="expense-select-checkbox"
+                      style={{ accentColor: isLight ? "#0284c7" : "#00e5ff" }}
+                      title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                    />
+                    <div className="expense-date-info">
+                      <span className="expense-date-text">📅 {formatMovementDateTime(item).date || "Sin fecha"}</span>
                       {formatMovementDateTime(item).time && (
-                        <>
-                          <span>•</span>
-                          <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>🕒 {formatMovementDateTime(item).time}</span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span style={{ color: "#c084fc", fontWeight: 600 }}>
-                        Descontado de: {item.paymentSource?.targetName || "Nómina Nu"}
-                      </span>
-                      {item.destinationAccountName && !isCardPayoffEmergency && (
-                        <>
-                          <span>•</span>
-                          <span style={{ color: "#10b981", fontWeight: 600 }}>
-                            📍 Cuenta destino: {item.destinationAccountName}
-                          </span>
-                        </>
-                      )}
-                      {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
-                        <>
-                          <span>•</span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
-                              if (recipient !== null && recipient.trim()) {
-                                onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
-                              }
-                            }}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#f59e0b",
-                              fontSize: "0.72rem",
-                              cursor: "pointer",
-                              padding: 0,
-                              textDecoration: "underline",
-                              fontWeight: 600,
-                            }}
-                          >
-                            🤝 Marcar como Préstamo
-                          </button>
-                        </>
-                      )}
-                      {onReclassifyMovement && (
-                        <>
-                          <span>•</span>
-                          <button
-                            type="button"
-                            onClick={() => setAssignModalItem(item)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#0ea5e9",
-                              fontSize: "0.72rem",
-                              cursor: "pointer",
-                              padding: 0,
-                              textDecoration: "underline",
-                              fontWeight: 600,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 3,
-                            }}
-                            title="Cambiar rubro o reasignar cuenta de destino"
-                          >
-                            <span>🏷️</span> Cambiar Asignación / Cuenta
-                          </button>
-                        </>
+                        <span className="expense-time-text">🕒 {formatMovementDateTime(item).time}</span>
                       )}
                     </div>
                   </div>
 
-                  <div className="expense-log-row-right">
-                    <div className="expense-log-amount-actions">
-                      <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "1.05rem", fontWeight: 800, color: mainColor }}>
-                        -{formatMoney(item.amount, currency)}
+                  {/* Col 2: Concept & Origin */}
+                  <div className="expense-col-desc">
+                    <div className="expense-desc-title">
+                      <span style={{ fontSize: "1rem" }}>{isCardPayoffEmergency ? "💳" : "💎"}</span>
+                      <strong>{item.description}</strong>
+                    </div>
+                    <div className="expense-desc-sub">
+                      <span style={{ color: "#c084fc", fontWeight: 600 }}>
+                        💳 Descontado de: {item.paymentSource?.targetName || "Nómina Nu"}
                       </span>
-                      <div className="expense-log-action-btns">
-                        {onEditTransaction && (
-                          <button
-                            type="button"
-                            onClick={() => onEditTransaction(item)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: mainColor,
-                              cursor: "pointer",
-                              padding: "4px",
-                              fontSize: "0.85rem",
-                            }}
-                            title="Editar este aporte o movimiento"
-                          >
-                            ✏️
-                          </button>
-                        )}
-                        {onDeleteTransaction && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTransaction(item)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#64748b",
-                              cursor: "pointer",
-                              padding: "4px",
-                              fontSize: "0.85rem",
-                            }}
-                            title="Eliminar este movimiento"
-                          >
-                            🗑️
-                          </button>
-                        )}
-                      </div>
+                      {item.destinationAccountName && !isCardPayoffEmergency && (
+                        <span style={{ color: "#10b981", fontWeight: 600 }}>
+                          📍 Cuenta destino: {item.destinationAccountName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Col 3: Rubro / Category */}
+                  <div className="expense-col-cat">
+                    <span
+                      style={{
+                        background: isLight ? "rgba(2, 132, 199, 0.1)" : "rgba(56, 189, 248, 0.15)",
+                        border: `1px solid ${mainColor}`,
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                        fontSize: "0.72rem",
+                        color: mainColor,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {item.budgetItemName} • Inversión / Ahorro
+                    </span>
+                    <span
+                      style={{
+                        background: isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(56, 189, 248, 0.15)",
+                        border: `1px solid ${mainColor}`,
+                        padding: "2px 6px",
+                        borderRadius: "6px",
+                        fontSize: "0.68rem",
+                        color: mainColor,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {isCardPayoffEmergency ? "💳 Salida (Imputado a Tarjeta)" : "📤 Salida (Aporte a Ahorro)"}
+                    </span>
+                  </div>
+
+                  {/* Col 4: Quick Actions */}
+                  <div className="expense-col-actions">
+                    {onReclassifyMovement && (
+                      <button
+                        type="button"
+                        onClick={() => setAssignModalItem(item)}
+                        className="expense-action-pill"
+                        title="Cambiar rubro o reasignar cuenta de destino"
+                      >
+                        <span>🏷️</span> Cambiar Asignación
+                      </button>
+                    )}
+                    {!item.isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
+                          if (recipient !== null && recipient.trim()) {
+                            onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
+                          }
+                        }}
+                        className="expense-action-pill loan-pill"
+                      >
+                        <span>🤝</span> Marcar Préstamo
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Col 5: Amount & Edit/Delete */}
+                  <div className="expense-col-amount">
+                    <span className="expense-amount-val" style={{ color: mainColor }}>
+                      -{formatMoney(item.amount, currency)}
+                    </span>
+                    <div className="expense-log-action-btns">
+                      {onEditTransaction && (
+                        <button
+                          type="button"
+                          onClick={() => onEditTransaction(item)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: mainColor,
+                            cursor: "pointer",
+                            padding: "4px",
+                            fontSize: "0.85rem",
+                          }}
+                          title="Editar este aporte o movimiento"
+                        >
+                          ✏️
+                        </button>
+                      )}
+                      {onDeleteTransaction && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTransaction(item)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            color: "#64748b",
+                            cursor: "pointer",
+                            padding: "4px",
+                            fontSize: "0.85rem",
+                          }}
+                          title="Eliminar este movimiento"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1549,7 +1506,7 @@ export default function ExpensesLogSection({
             return (
               <div
                 key={item.id}
-                className="expense-log-row-card"
+                className="expense-log-grid-row"
                 style={{
                   background: isSelected
                     ? (isLight ? "rgba(2, 132, 199, 0.08)" : "rgba(0, 229, 255, 0.08)")
@@ -1577,390 +1534,287 @@ export default function ExpensesLogSection({
                   transition: "all 0.15s ease",
                 }}
               >
-                <div className="expense-log-row-left">
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        toggleSelection(item.id);
-                      }}
-                      style={{
-                        cursor: "pointer",
-                        width: 17,
-                        height: 17,
-                        accentColor: isLight ? "#0284c7" : "#00e5ff",
-                        borderRadius: "4px",
-                        marginRight: 2,
-                        flexShrink: 0,
-                      }}
-                      title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
-                    />
-                    <strong className="expense-log-row-title">
-                      {item.description}
-                    </strong>
-
-                    {isIncome ? (
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                        <span
-                          style={{
-                            background: "rgba(16, 185, 129, 0.2)",
-                            border: "1px solid #10b981",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            color: "#10b981",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {item.isDebtCollection ? "🤝 Cobro de Préstamo (Reintegro)" : "📥 Entrada (Consignación)"}
-                        </span>
-                        {item.isDebtCollection && (
-                          <span
-                            style={{
-                              background: isLight ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.18)",
-                              border: isLight ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(16, 185, 129, 0.4)",
-                              padding: "2px 8px",
-                              borderRadius: "6px",
-                              fontSize: "0.70rem",
-                              color: isLight ? "#047857" : "#34d399",
-                              fontWeight: 700,
-                            }}
-                          >
-                            ✓ Asignado a Préstamo
-                          </span>
-                        )}
-
-                        {/* Libertad Total: Clasificar movimiento opcionalmente como nuevo ingreso presupuestado en Sankey */}
-                        <button
-                          type="button"
-                          onClick={() => toggleMovementAsBudgetInflow && toggleMovementAsBudgetInflow(item.id)}
-                          style={{
-                            background: item.isExplicitBudgetIncome
-                              ? (isLight ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.25)")
-                              : (isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.06)"),
-                            border: item.isExplicitBudgetIncome
-                              ? "1px solid #10b981"
-                              : (isLight ? "1px dashed rgba(0, 0, 0, 0.2)" : "1px dashed rgba(255, 255, 255, 0.2)"),
-                            color: item.isExplicitBudgetIncome
-                              ? (isLight ? "#047857" : "#34d399")
-                              : (isLight ? "#64748b" : "var(--text-muted)"),
-                            borderRadius: "6px",
-                            padding: "2px 8px",
-                            fontSize: "0.70rem",
-                            fontWeight: item.isExplicitBudgetIncome ? 700 : 500,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            transition: "all 0.15s ease",
-                          }}
-                          title={
-                            item.isExplicitBudgetIncome
-                              ? "Incluido en Flujo de Caja (Sankey). Clic para quitar y mantener limpios tus 3 ingresos presupuestados principales."
-                              : "Clic para clasificar este movimiento como un Nuevo Ingreso Presupuestado en el diagrama de Flujo de Caja (Sankey)."
-                          }
-                        >
-                          {item.isExplicitBudgetIncome ? "⚡ En Sankey (Ingreso Presupuestado) ✕" : "+ Clasificar como Ingreso Sankey"}
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {!isLoan && (
-                          <span
-                            style={{
-                              background: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                                ? "rgba(14, 165, 233, 0.12)"
-                                : "rgba(239, 68, 68, 0.12)",
-                              border: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                                ? "1px solid rgba(14, 165, 233, 0.3)"
-                                : "1px solid rgba(239, 68, 68, 0.25)",
-                              padding: "2px 6px",
-                              borderRadius: "6px",
-                              fontSize: "0.68rem",
-                              color: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                                ? "#38bdf8"
-                                : "#f87171",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                              ? "💳 Salida (Imputado a Tarjeta)"
-                              : "📤 Salida"}
-                          </span>
-                        )}
-                        {(item.budgetItemName || isLoan) && (
-                          <span
-                            style={{
-                              background: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(128, 128, 128, 0.1)",
-                              border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
-                              padding: "2px 8px",
-                              borderRadius: "6px",
-                              fontSize: "0.72rem",
-                              color: isLight ? "#475569" : "var(--text-muted)",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {item.budgetItemName || (item.isSplit ? "👥 Gasto Compartido" : "🤝 Préstamo Personal")}
-                          </span>
-                        )}
-                      </>
+                {/* Col 1: Date & Selection */}
+                <div className="expense-col-date">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleSelection(item.id);
+                    }}
+                    className="expense-select-checkbox"
+                    style={{ accentColor: isLight ? "#0284c7" : "#00e5ff" }}
+                    title={isSelected ? "Deseleccionar movimiento" : "Seleccionar para sumar"}
+                  />
+                  <div className="expense-date-info">
+                    <span className="expense-date-text">📅 {itemDate || "Sin fecha"}</span>
+                    {itemTime && (
+                      <span className="expense-time-text">🕒 {itemTime}</span>
                     )}
+                  </div>
+                </div>
 
-                    {/* Loan Badges */}
+                {/* Col 2: Concept & Origin */}
+                <div className="expense-col-desc">
+                  <div className="expense-desc-title">
+                    <strong>{item.description}</strong>
+                  </div>
+                  <div className="expense-desc-sub">
+                    <span style={{ color: sourceColor, fontWeight: 600 }}>
+                      💳 {source.targetName || "Nómina"}
+                    </span>
                     {isLoan && !isSettled && (item.isSplit || (item.participants || []).length > 0) && (
                       <span
                         onClick={() => setSettlingTransaction(item)}
                         style={{
                           background: isLight ? "rgba(59, 130, 246, 0.12)" : "rgba(59, 130, 246, 0.2)",
                           border: isLight ? "1px solid rgba(37, 99, 235, 0.4)" : "1px solid #3b82f6",
-                          padding: "2px 8px",
+                          padding: "2px 6px",
                           borderRadius: "6px",
-                          fontSize: "0.72rem",
+                          fontSize: "0.70rem",
                           color: isLight ? "#1d4ed8" : "#93c5fd",
                           fontWeight: 700,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
                           cursor: "pointer",
                         }}
                         title="Clic para ver o gestionar participantes y cobros"
                       >
-                        <span>👥</span> Gasto Compartido ({item.participants?.filter((p) => !p.isUser && p.paid).length || 0}/{(item.participants || []).filter((p) => !p.isUser).length} cobrados)
-                        {item.userIncluded && (
-                          <span style={{ opacity: 0.85, fontWeight: 500 }}>
-                            • Tu parte: {formatMoney(item.userShare || 0)}
-                          </span>
-                        )}
-                        <span>
-                          • Por cobrar: <strong style={{ color: isLight ? "#1e40af" : "#bfdbfe" }}>{formatMoney(remainingLoanAmt)}</strong>
-                        </span>
+                        👥 Gasto Compartido ({item.participants?.filter((p) => !p.isUser && p.paid).length || 0}/{(item.participants || []).filter((p) => !p.isUser).length} cobrados) • Por cobrar: {formatMoney(remainingLoanAmt)}
                       </span>
                     )}
-
                     {isLoan && !isSettled && !item.isSplit && (!item.participants || item.participants.length === 0) && (
                       <span
                         onClick={() => setSettlingTransaction(item)}
                         style={{
                           background: isLight ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.2)",
                           border: isLight ? "1px solid rgba(217, 119, 6, 0.4)" : "1px solid #f59e0b",
-                          padding: "3px 10px",
+                          padding: "2px 6px",
                           borderRadius: "6px",
-                          fontSize: "0.72rem",
+                          fontSize: "0.70rem",
                           color: isLight ? "#92400e" : "#fcd34d",
                           fontWeight: 700,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
                           cursor: "pointer",
-                          flexWrap: "wrap",
                         }}
                         title="Clic para registrar abono o cobro de este préstamo"
                       >
-                        <span>🤝</span> Préstamo a: <strong style={{ color: isLight ? "#78350f" : "#fef08a" }}>{item.loanRecipient || "Amigo"}</strong>
-                        <span style={{ opacity: 0.85, fontWeight: 500 }}>
-                          • Total: {formatMoney(loanTotal)}
-                        </span>
-                        {totalSettledAmt > 0 && (
-                          <span style={{ color: isLight ? "#047857" : "#6ee7b7", fontWeight: 600 }}>
-                            • Abonado: {formatMoney(totalSettledAmt)}{settlementsCount > 0 ? ` (${settlementsCount} ${settlementsCount === 1 ? "abono" : "abonos"})` : ""}
-                          </span>
-                        )}
-                        <span>
-                          • Por cobrar: <strong style={{ color: isLight ? "#b45309" : "#fbbf24" }}>{formatMoney(remainingLoanAmt)}</strong>
-                        </span>
+                        🤝 Préstamo a: {item.loanRecipient || "Amigo"} • Por cobrar: {formatMoney(remainingLoanAmt)}
                       </span>
                     )}
-
                     {isLoan && isSettled && (
                       <span
                         onClick={() => setSettlingTransaction(item)}
                         style={{
                           background: isLight ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.2)",
                           border: `1px solid ${isLight ? "#059669" : "#10b981"}`,
-                          padding: "2px 8px",
+                          padding: "2px 6px",
                           borderRadius: "6px",
-                          fontSize: "0.72rem",
+                          fontSize: "0.70rem",
                           color: isLight ? "#047857" : "#6ee7b7",
                           fontWeight: 700,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
                           cursor: "pointer",
                         }}
                         title="Ver detalle de liquidación"
                       >
-                        ✔️ {item.isSplit ? "Gasto Compartido 100% Cobrado" : `Cobrado • Retornado a: ${item.settlementDetails?.targetName || "Cuenta"}`}
+                        ✓ {item.isSplit ? "Gasto Compartido 100% Cobrado" : `Cobrado • Retornado a: ${item.settlementDetails?.targetName || "Cuenta"}`}
                       </span>
                     )}
-                  </div>
-
-                  <div style={{ fontSize: "0.74rem", color: "#64748b", marginTop: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span>📅 {itemDate || "Fecha no especificada"}</span>
-                    {itemTime && (
-                      <>
-                        <span>•</span>
-                        <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>🕒 {itemTime}</span>
-                      </>
-                    )}
-                    <span>•</span>
-                    <span style={{ color: sourceColor, fontWeight: 600 }}>
-                      {source.targetName || "Nómina"}
-                    </span>
-                    {isLoan && settlementsList.length > 0 && (
-                      <>
-                        <span>•</span>
-                        <span style={{ color: isLight ? "#047857" : "#34d399", fontWeight: 600 }}>
-                          ✓ Último cobro: {formatMoney(settlementsList[0].amount)} ({settlementsList[0].date || "reciente"}) ➔ {settlementsList[0].targetName || "Cuenta"}
-                        </span>
-                      </>
-                    )}
-
-                    {/* Option to toggle as loan if not yet marked */}
-                    {!isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
-                      <>
-                        <span>•</span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
-                            if (recipient !== null && recipient.trim()) {
-                              onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
-                            }
-                          }}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "#f59e0b",
-                            fontSize: "0.72rem",
-                            cursor: "pointer",
-                            padding: 0,
-                            textDecoration: "underline",
-                            fontWeight: 600,
-                          }}
-                        >
-                          🤝 Marcar como Préstamo
-                        </button>
-                      </>
-                    )}
-
-                    {/* Option to reclassify / assign movement */}
-                    {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
-                      <>
-                        <span>•</span>
-                        <button
-                          type="button"
-                          onClick={() => setAssignModalItem(item)}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "#0ea5e9",
-                            fontSize: "0.72rem",
-                            cursor: "pointer",
-                            padding: 0,
-                            textDecoration: "underline",
-                            fontWeight: 600,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 3,
-                          }}
-                          title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
-                        >
-                          <span>🏷️</span> Asignar Movimiento
-                        </button>
-                      </>
+                    {isLoan && settlementsList.length > 0 && !isSettled && (
+                      <span style={{ color: isLight ? "#047857" : "#34d399", fontWeight: 600, fontSize: "0.70rem" }}>
+                        ✓ Último cobro: {formatMoney(settlementsList[0].amount)} ({settlementsList[0].date || "reciente"})
+                      </span>
                     )}
                   </div>
                 </div>
 
-                <div className="expense-log-row-right">
-                  {/* Mark as Settled Button */}
+                {/* Col 3: Rubro / Category */}
+                <div className="expense-col-cat">
+                  {isIncome ? (
+                    <>
+                      <span
+                        style={{
+                          background: "rgba(16, 185, 129, 0.2)",
+                          border: "1px solid #10b981",
+                          padding: "2px 8px",
+                          borderRadius: "6px",
+                          fontSize: "0.72rem",
+                          color: "#10b981",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {item.isDebtCollection ? "🤝 Cobro de Préstamo" : "📥 Entrada"}
+                      </span>
+                      {item.isDebtCollection && (
+                        <span
+                          style={{
+                            background: isLight ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.18)",
+                            border: isLight ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(16, 185, 129, 0.4)",
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            fontSize: "0.70rem",
+                            color: isLight ? "#047857" : "#34d399",
+                            fontWeight: 700,
+                          }}
+                        >
+                          ✓ Asignado a Préstamo
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {(item.budgetItemName || isLoan) && (
+                        <span
+                          style={{
+                            background: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(128, 128, 128, 0.1)",
+                            border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            fontSize: "0.72rem",
+                            color: isLight ? "#475569" : "var(--text-muted)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {item.budgetItemName || (item.isSplit ? "👥 Gasto Compartido" : "🤝 Préstamo Personal")}
+                        </span>
+                      )}
+                      {!isLoan && (
+                        <span
+                          style={{
+                            background: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
+                              ? "rgba(14, 165, 233, 0.12)"
+                              : "rgba(239, 68, 68, 0.12)",
+                            border: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
+                              ? "1px solid rgba(14, 165, 233, 0.3)"
+                              : "1px solid rgba(239, 68, 68, 0.25)",
+                            padding: "2px 6px",
+                            borderRadius: "6px",
+                            fontSize: "0.68rem",
+                            color: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
+                              ? "#38bdf8"
+                              : "#f87171",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
+                            ? "💳 Salida (Imputado a Tarjeta)"
+                            : "📤 Salida"}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Col 4: Quick Actions */}
+                <div className="expense-col-actions">
+                  {isIncome && toggleMovementAsBudgetInflow && (
+                    <button
+                      type="button"
+                      onClick={() => toggleMovementAsBudgetInflow(item.id)}
+                      className="expense-action-pill sankey-pill"
+                      title={
+                        item.isExplicitBudgetIncome
+                          ? "Incluido en Flujo de Caja (Sankey). Clic para quitar y mantener limpios tus 3 ingresos presupuestados principales."
+                          : "Clic para clasificar este movimiento como un Nuevo Ingreso Presupuestado en el diagrama de Flujo de Caja (Sankey)."
+                      }
+                    >
+                      {item.isExplicitBudgetIncome ? "⚡ En Sankey ✓" : "+ En Sankey"}
+                    </button>
+                  )}
+
                   {isLoan && !isSettled && (
                     <button
                       type="button"
                       onClick={() => setSettlingTransaction(item)}
-                      style={{
-                        background: isLight ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.18)",
-                        border: isLight ? "1.5px solid #059669" : "1px solid #10b981",
-                        color: isLight ? "#047857" : "#10b981",
-                        borderRadius: "8px",
-                        padding: "5px 10px",
-                        fontSize: "0.76rem",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        transition: "all 0.15s ease",
-                        boxShadow: isLight ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
-                        flexShrink: 0,
-                      }}
+                      className="expense-action-pill settle-pill"
                       title="Registrar devolución o cobro de este préstamo"
                     >
-                      <span>📥</span> Gestionar Cobros
+                      <span>🤝</span> Gestionar Cobros
                     </button>
                   )}
 
-                  <div className="expense-log-amount-actions">
-                    <span
-                      style={{
-                        fontFamily: "JetBrains Mono, monospace",
-                        fontSize: "1.05rem",
-                        fontWeight: 800,
-                        color: isLoan && !isSettled
-                          ? "#f59e0b"
-                          : isIncome
-                          ? "#10b981"
-                          : "#f43f5e",
-                      }}
+                  {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
+                    <button
+                      type="button"
+                      onClick={() => setAssignModalItem(item)}
+                      className="expense-action-pill"
+                      title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
                     >
-                      {isIncome ? `+${formatMoney(item.amount, currency)}` : `-${formatMoney(item.amount, currency)}`}
-                    </span>
+                      <span>🏷️</span> Asignar Movimiento
+                    </button>
+                  )}
 
-                    <div className="expense-log-action-btns">
-                      {onEditTransaction && (
-                        <button
-                          type="button"
-                          onClick={() => onEditTransaction(item)}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "#38bdf8",
-                            cursor: "pointer",
-                            padding: "4px",
-                            fontSize: "0.85rem",
-                          }}
-                          title="Editar este gasto o préstamo"
-                        >
-                          ✏️
-                        </button>
-                      )}
+                  {!isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const recipient = await toastPrompt("¿A quién le prestaste este monto o parte de él?", "Amigo / Familiar");
+                        if (recipient !== null && recipient.trim()) {
+                          onToggleExpenseLoan(item.id, true, recipient.trim(), item.amount);
+                        }
+                      }}
+                      className="expense-action-pill loan-pill"
+                    >
+                      <span>🤝</span> Marcar Préstamo
+                    </button>
+                  )}
+                </div>
 
-                      {(onDeleteTransaction || onDeletePayment) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (item.itemType === "card_payment" || item.isCardPayment) {
-                              handleDeleteCardPayment(item);
-                            } else {
-                              handleDeleteTransaction(item);
-                            }
-                          }}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            color: "#64748b",
-                            cursor: "pointer",
-                            padding: "4px",
-                            fontSize: "0.85rem",
-                          }}
-                          title={item.itemType === "card_payment" || item.isCardPayment ? "Revertir este pago de tarjeta" : "Eliminar este gasto"}
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
+                {/* Col 5: Amount & Edit/Delete */}
+                <div className="expense-col-amount">
+                  <span
+                    className="expense-amount-val"
+                    style={{
+                      color: isLoan && !isSettled
+                        ? "#f59e0b"
+                        : isIncome
+                        ? "#10b981"
+                        : "#f43f5e",
+                    }}
+                  >
+                    {isIncome ? `+${formatMoney(item.amount, currency)}` : `-${formatMoney(item.amount, currency)}`}
+                  </span>
+
+                  <div className="expense-log-action-btns">
+                    {onEditTransaction && (
+                      <button
+                        type="button"
+                        onClick={() => onEditTransaction(item)}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "#38bdf8",
+                          cursor: "pointer",
+                          padding: "4px",
+                          fontSize: "0.85rem",
+                        }}
+                        title="Editar este gasto o préstamo"
+                      >
+                        ✏️
+                      </button>
+                    )}
+
+                    {(onDeleteTransaction || onDeletePayment) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (item.itemType === "card_payment" || item.isCardPayment) {
+                            handleDeleteCardPayment(item);
+                          } else {
+                            handleDeleteTransaction(item);
+                          }
+                        }}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: "4px",
+                          fontSize: "0.85rem",
+                        }}
+                        title={item.itemType === "card_payment" || item.isCardPayment ? "Revertir este pago de tarjeta" : "Eliminar este gasto"}
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
