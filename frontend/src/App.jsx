@@ -604,14 +604,41 @@ export default function App() {
     return map;
   }, [mode, strategyRebalances, baseNavData]);
 
-  // Si el periodo actual seleccionado no está habilitado para el historial disponible,
-  // retroceder al periodo más alto que sí esté habilitado (o "1W").
+  // Candidatos ordenados de mayor a menor (excluyendo MAX) para selección por defecto inteligente:
+  const CANDIDATE_PERIODS_EXCLUDING_MAX = useMemo(() => ["5Y", "3Y", "1Y", "6M", "3M", "1M", "1W"], []);
+
+  const getHighestEnabledPeriod = useCallback(
+    (enabledMap) => {
+      if (!enabledMap) return "1W";
+      return CANDIDATE_PERIODS_EXCLUDING_MAX.find((p) => enabledMap[p]) || "1W";
+    },
+    [CANDIDATE_PERIODS_EXCLUDING_MAX],
+  );
+
+  const userSelectedPeriodRef = useRef({});
+
+  // Regla de negocio: Por defecto no siempre seleccionar 3M, sino el botón más alto que esté habilitado
+  // (a parte de MAX), respetando siempre si el usuario eligió manualmente un periodo.
   useEffect(() => {
-    if (periodEnabled && period && !periodEnabled[period]) {
-      const fallbackPeriod = [...PERIODS].reverse().find((p) => periodEnabled[p]) || "1W";
-      setPeriod(fallbackPeriod);
+    if (!periodEnabled) return;
+
+    const hasUserSelected = !!userSelectedPeriodRef.current[mode];
+    const isCurrentEnabled = period && periodEnabled[period];
+
+    if (!hasUserSelected) {
+      // Si el usuario no ha hecho una selección manual para este modo,
+      // seleccionar automáticamente el botón más alto habilitado aparte de MAX
+      const highest = getHighestEnabledPeriod(periodEnabled);
+      if (highest && highest !== period) {
+        setPeriod(highest);
+      }
+    } else if (!isCurrentEnabled) {
+      // Si el periodo actual seleccionado ya no está habilitado con el historial disponible,
+      // retroceder al más alto habilitado disponible (excluyendo MAX)
+      const fallback = getHighestEnabledPeriod(periodEnabled);
+      setPeriod(fallback);
     }
-  }, [period, periodEnabled, setPeriod]);
+  }, [mode, period, periodEnabled, setPeriod, getHighestEnabledPeriod]);
 
   // Si la sesión aún se está verificando, mostrar pantalla de carga suave con la animación cuántica
   if (!isInitialized) {
@@ -2710,7 +2737,10 @@ export default function App() {
                       <button
                         key={p}
                         className={`period-btn ${p === period ? "active" : ""}`}
-                        onClick={() => setPeriod(p)}
+                        onClick={() => {
+                          userSelectedPeriodRef.current[mode] = true;
+                          setPeriod(p);
+                        }}
                         disabled={!isEnabled}
                         title={
                           !isEnabled

@@ -313,23 +313,29 @@ export default function NavChart({
     });
 
     chart.subscribeCrosshairMove((param) => {
-      if (!param.time || !param.seriesData) {
+      if (!param.time || !param.seriesData || param.seriesData.size === 0) {
         setHoverValues(null);
         return;
       }
 
-      const navVal = seriesRef.current.nav
-        ? param.seriesData.get(seriesRef.current.nav)?.value
-        : null;
-      const spVal = seriesRef.current.sp500
-        ? param.seriesData.get(seriesRef.current.sp500)?.value
-        : null;
-      const nsdVal = seriesRef.current.nasdaq
-        ? param.seriesData.get(seriesRef.current.nasdaq)?.value
-        : null;
-      const baseVal = seriesRef.current.base
-        ? param.seriesData.get(seriesRef.current.base)?.value
-        : null;
+      const extractVal = (series) => {
+        if (!series) return null;
+        const entry = param.seriesData.get(series);
+        if (entry == null) return null;
+        if (typeof entry === "number") return entry;
+        if (typeof entry.value === "number") return entry.value;
+        return null;
+      };
+
+      const navVal = extractVal(seriesRef.current.nav);
+      const spVal = extractVal(seriesRef.current.sp500);
+      const nsdVal = extractVal(seriesRef.current.nasdaq);
+      const baseVal = extractVal(seriesRef.current.base);
+
+      if (navVal == null && spVal == null && nsdVal == null && baseVal == null) {
+        setHoverValues(null);
+        return;
+      }
 
       setHoverValues({
         date: param.time,
@@ -575,26 +581,34 @@ export default function NavChart({
   // When hovering (or in Live intraday mode), dynamically compute return against currentBase.
   // When not hovering in historical mode, use the official summary active return if available.
   const navPct = isLiveMode || hoverValues
-    ? (currentBase && currentNav != null ? ((currentNav - currentBase) / currentBase) * 100 : null)
+    ? (currentBase && currentBase > 0 && currentNav != null ? ((currentNav - currentBase) / currentBase) * 100 : null)
     : (summary?.active_return_pct != null
         ? summary.active_return_pct
-        : currentBase && currentNav != null
+        : currentBase && currentBase > 0 && currentNav != null
           ? ((currentNav - currentBase) / currentBase) * 100
           : null);
 
   const spPct = hoverValues
-    ? (currentBase && currentSP != null ? ((currentSP - currentBase) / currentBase) * 100 : null)
+    ? (currentBase && currentBase > 0 && currentSP != null
+        ? ((currentSP - currentBase) / currentBase) * 100
+        : sp500Data?.[0]?.value > 0 && currentSP != null
+          ? ((currentSP - sp500Data[0].value) / sp500Data[0].value) * 100
+          : null)
     : (summary?.sp500_return_pct != null
         ? summary.sp500_return_pct
-        : currentBase && currentSP != null
+        : currentBase && currentBase > 0 && currentSP != null
           ? ((currentSP - currentBase) / currentBase) * 100
           : null);
 
   const nasdaqPct = hoverValues
-    ? (currentBase && currentNasdaq != null ? ((currentNasdaq - currentBase) / currentBase) * 100 : null)
+    ? (currentBase && currentBase > 0 && currentNasdaq != null
+        ? ((currentNasdaq - currentBase) / currentBase) * 100
+        : nasdaqData?.[0]?.value > 0 && currentNasdaq != null
+          ? ((currentNasdaq - nasdaqData[0].value) / nasdaqData[0].value) * 100
+          : null)
     : (summary?.nasdaq_return_pct != null
         ? summary.nasdaq_return_pct
-        : currentBase && currentNasdaq != null
+        : currentBase && currentBase > 0 && currentNasdaq != null
           ? ((currentNasdaq - currentBase) / currentBase) * 100
           : null);
 
@@ -614,16 +628,41 @@ export default function NavChart({
       <div
         style={{
           display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 10,
-              marginBottom: "14px",
-              paddingBottom: "12px",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+          marginBottom: "14px",
+          paddingBottom: "12px",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {hoverValues?.date && (
+            <span
+              className="mono"
+              style={{
+                padding: "3px 8px",
+                borderRadius: 6,
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                background: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(255, 255, 255, 0.08)",
+                color: isLight ? "#0f172a" : "#f8fafc",
+                border: `1px solid ${isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)"}`,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+              title="Fecha del cursor en la gráfica"
+            >
+              <span>📅</span>
+              <span>
+                {typeof hoverValues.date === "number"
+                  ? new Date(hoverValues.date * 1000).toLocaleDateString("es-CO", { timeZone: "America/Bogota" })
+                  : String(hoverValues.date).slice(0, 10)}
+              </span>
+            </span>
+          )}
             {/* Titanes Portfolio */}
             <button
               onClick={() => handleToggle("nav")}

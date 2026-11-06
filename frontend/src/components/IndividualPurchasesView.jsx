@@ -460,8 +460,13 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
   }, [visibleSeries]);
 
   const [selectedTimeRange, setSelectedTimeRange] = useState("ALL");
+  const userSelectedRangeRef = useRef(false);
+  const [hoverPoint, setHoverPoint] = useState(null);
 
-  const handleTimeRange = (range) => {
+  const handleTimeRange = (range, isUserClick = false) => {
+    if (isUserClick) {
+      userSelectedRangeRef.current = true;
+    }
     setSelectedTimeRange(range);
     if (!chartInstanceRef.current) return;
     const timeScale = chartInstanceRef.current.timeScale();
@@ -500,6 +505,16 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
     );
     return (RANGE_MIN_DAYS[range] ?? 0) <= availableDays;
   };
+
+  // Auto-seleccionar por defecto el botón más alto habilitado (aparte de ALL)
+  useEffect(() => {
+    if (!earliestDate || userSelectedRangeRef.current) return;
+    const CANDIDATES_EXCLUDING_ALL = ["5Y", "1Y", "YTD", "6M", "3M", "1M"];
+    const highestEnabled = CANDIDATES_EXCLUDING_ALL.find((r) => isRangeEnabled(r));
+    if (highestEnabled && highestEnabled !== selectedTimeRange) {
+      handleTimeRange(highestEnabled, false);
+    }
+  }, [earliestDate]);
 
   const [isFetchingHistorical, setIsFetchingHistorical] = useState(false);
 
@@ -1164,6 +1179,28 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
     };
   }, [lotDataList, currentSales, fxData]);
 
+  // Rentabilidades dinámicas para la leyenda de la gráfica (siguen el cursor del usuario o vuelven al resumen)
+  const activeNetReturnPct = useMemo(() => {
+    if (hoverPoint && hoverPoint.invested != null && hoverPoint.invested > 0 && hoverPoint.value != null) {
+      return ((hoverPoint.value - hoverPoint.invested) / hoverPoint.invested) * 100;
+    }
+    return summary?.netReturnPct ?? 0;
+  }, [hoverPoint, summary?.netReturnPct]);
+
+  const activeSp500ReturnPct = useMemo(() => {
+    if (hoverPoint && hoverPoint.invested != null && hoverPoint.invested > 0 && hoverPoint.sp500 != null) {
+      return ((hoverPoint.sp500 - hoverPoint.invested) / hoverPoint.invested) * 100;
+    }
+    return summary?.sp500ReturnPct ?? 0;
+  }, [hoverPoint, summary?.sp500ReturnPct]);
+
+  const activeNasdaqReturnPct = useMemo(() => {
+    if (hoverPoint && hoverPoint.invested != null && hoverPoint.invested > 0 && hoverPoint.nasdaq != null) {
+      return ((hoverPoint.nasdaq - hoverPoint.invested) / hoverPoint.invested) * 100;
+    }
+    return summary?.nasdaqReturnPct ?? 0;
+  }, [hoverPoint, summary?.nasdaqReturnPct]);
+
   // Persist calculated portfolio summary in global store for instant access in CashFlowHub
   useEffect(() => {
     if (portfolioId && summary && typeof savePortfolioSummary === "function") {
@@ -1660,7 +1697,72 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
     seriesRefs.current.sp500.setData(sp500Data);
     seriesRefs.current.nasdaq.setData(nasdaqData);
 
-    chart.timeScale().fitContent();
+    // Crosshair listener para actualizar las métricas y porcentajes dinámicamente al pasar el cursor
+    chart.subscribeCrosshairMove((param) => {
+      if (!param || !param.time || !param.seriesData || param.seriesData.size === 0) {
+        setHoverPoint(null);
+        return;
+      }
+
+      const extractVal = (series) => {
+        if (!series) return null;
+        const entry = param.seriesData.get(series);
+        if (entry == null) return null;
+        if (typeof entry === "number") return entry;
+        if (typeof entry.value === "number") return entry.value;
+        return null;
+      };
+
+      const val = extractVal(seriesRefs.current.value);
+      const inv = extractVal(seriesRefs.current.invested);
+      const sp = extractVal(seriesRefs.current.sp500);
+      const nsd = extractVal(seriesRefs.current.nasdaq);
+
+      if (val == null && inv == null && sp == null && nsd == null) {
+        setHoverPoint(null);
+        return;
+      }
+
+      let dateStr = "";
+      if (typeof param.time === "string") {
+        dateStr = param.time;
+      } else if (typeof param.time === "object" && param.time !== null) {
+        dateStr = `${param.time.year}-${String(param.time.month).padStart(2, "0")}-${String(param.time.day).padStart(2, "0")}`;
+      } else if (typeof param.time === "number") {
+        dateStr = new Date(param.time * 1000).toISOString().split("T")[0];
+      }
+
+      setHoverPoint({
+        time: param.time,
+        dateStr,
+        value: val,
+        invested: inv,
+        sp500: sp,
+        nasdaq: nsd,
+      });
+    });
+
+    if (selectedTimeRange === "ALL") {
+      chart.timeScale().fitContent();
+    } else {
+      const toDate = new Date();
+      const fromDate = new Date();
+      if (selectedTimeRange === "1M") fromDate.setMonth(fromDate.getMonth() - 1);
+      else if (selectedTimeRange === "3M") fromDate.setMonth(fromDate.getMonth() - 3);
+      else if (selectedTimeRange === "6M") fromDate.setMonth(fromDate.getMonth() - 6);
+      else if (selectedTimeRange === "YTD") {
+        fromDate.setMonth(0);
+        fromDate.setDate(1);
+      } else if (selectedTimeRange === "1Y") fromDate.setFullYear(fromDate.getFullYear() - 1);
+      else if (selectedTimeRange === "5Y") fromDate.setFullYear(fromDate.getFullYear() - 5);
+
+      const fromStr = fromDate.toISOString().split("T")[0];
+      const from = earliestDate && fromStr < earliestDate ? earliestDate : fromStr;
+      chart.timeScale().setVisibleRange({
+        from,
+        to: toDate.toISOString().split("T")[0],
+      });
+    }
 
     const ro = new ResizeObserver(() => {
       if (chartContainerRef.current && chartInstanceRef.current) {
@@ -1675,6 +1777,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
 
     return () => {
       ro.disconnect();
+      setHoverPoint(null);
       if (chartInstanceRef.current) {
         chartInstanceRef.current.remove();
         chartInstanceRef.current = null;
@@ -3052,6 +3155,27 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   justifyContent: "flex-end",
                 }}
               >
+                {hoverPoint?.dateStr && (
+                  <span
+                    className="mono"
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      background: theme === "light" ? "rgba(0, 0, 0, 0.05)" : "rgba(255, 255, 255, 0.08)",
+                      color: theme === "light" ? "#0f172a" : "#f8fafc",
+                      border: `1px solid ${theme === "light" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)"}`,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    title="Fecha del cursor en la gráfica"
+                  >
+                    <span>📅</span>
+                    <span>{hoverPoint.dateStr}</span>
+                  </span>
+                )}
                 <button
                   onClick={() => toggleSeries("valor")}
                   style={{
@@ -3069,7 +3193,8 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   <span
                     style={{ width: 10, height: 10, borderRadius: "50%", background: theme === "light" ? "#0284c7" : "#00e5ff" }}
                   />{" "}
-                  Valor ({summary.netReturnPct >= 0 ? "+" : ""}{summary.netReturnPct.toFixed(1)}%)
+                  Valor {hoverPoint?.value != null ? `$${hoverPoint.value.toFixed(2)} ` : ""}
+                  ({activeNetReturnPct >= 0 ? "+" : ""}{activeNetReturnPct.toFixed(1)}%)
                 </button>
                 <button
                   onClick={() => toggleSeries("sp500")}
@@ -3090,7 +3215,8 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   <span style={{ width: 10, height: 2, background: theme === "light" ? "#be185d" : "#ec4899" }} /> S&P 500
                   {summary.hasBenchmarks && (
                     <span className="mono" style={{ fontSize: "0.7rem" }}>
-                      ({summary.sp500ReturnPct >= 0 ? "+" : ""}{summary.sp500ReturnPct.toFixed(1)}%)
+                      {hoverPoint?.sp500 != null ? ` $${hoverPoint.sp500.toFixed(2)} ` : " "}
+                      ({activeSp500ReturnPct >= 0 ? "+" : ""}{activeSp500ReturnPct.toFixed(1)}%)
                     </span>
                   )}
                 </button>
@@ -3113,7 +3239,8 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   <span style={{ width: 10, height: 2, background: theme === "light" ? "#6d28d9" : "#8b5cf6" }} /> NASDAQ
                   {summary.hasBenchmarks && (
                     <span className="mono" style={{ fontSize: "0.7rem" }}>
-                      ({summary.nasdaqReturnPct >= 0 ? "+" : ""}{summary.nasdaqReturnPct.toFixed(1)}%)
+                      {hoverPoint?.nasdaq != null ? ` $${hoverPoint.nasdaq.toFixed(2)} ` : " "}
+                      ({activeNasdaqReturnPct >= 0 ? "+" : ""}{activeNasdaqReturnPct.toFixed(1)}%)
                     </span>
                   )}
                 </button>
@@ -3132,6 +3259,11 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   }}
                 >
                   <span style={{ width: 10, height: 2, background: theme === "light" ? "#b45309" : "#f59e0b" }} /> Invertido
+                  {hoverPoint?.invested != null && (
+                    <span className="mono" style={{ fontSize: "0.7rem" }}>
+                      : ${hoverPoint.invested.toFixed(2)}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -3199,7 +3331,7 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                   return (
                     <button
                       key={range}
-                      onClick={() => handleTimeRange(range)}
+                      onClick={() => handleTimeRange(range, true)}
                       disabled={!isEnabled}
                       style={{
                         background: isSelected
