@@ -1072,6 +1072,7 @@ export async function fetchRateTrackerAlerts(simulate = false, forceRefresh = fa
   // Client-side fallback evaluation
   const localData = await directFetchFixedIncome();
   const accounts = localData?.accounts || [];
+  const entities = localData?.entities || [];
   
   const alerts = [];
   const now = new Date();
@@ -1230,7 +1231,11 @@ export async function fetchRateTrackerAlerts(simulate = false, forceRefresh = fa
     monitoredAccounts: accounts.length,
     alertsCount: alerts.length,
     alerts,
-    allMarketRates: BANK_PRESETS || [],
+    allMarketRates: (BANK_PRESETS || []).map((p) => ({
+      ...p,
+      currentMarketRateEA: Number(p.defaultRateEA ?? 0),
+      productName: p.suggestedProducts?.[0] || p.name,
+    })),
   };
 }
 

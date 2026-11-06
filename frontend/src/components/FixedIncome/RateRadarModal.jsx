@@ -286,7 +286,7 @@ export default function RateRadarModal({
                         )}
                       </div>
                       <span style={{ fontSize: "0.76rem", color: isLight ? "#64748b" : "#94a3b8" }}>
-                        Tasa actual: <strong style={{ color: "#f43f5e" }}>{alert.currentRateEA.toFixed(2)}% E.A.</strong> ➔ Mercado: <strong style={{ color: "#10b981" }}>{alert.marketRateEA.toFixed(2)}% E.A.</strong> ({alert.diff > 0 ? `+${alert.diff.toFixed(2)}%` : `${alert.diff.toFixed(2)}%`})
+                        Tasa actual: <strong style={{ color: "#f43f5e" }}>{Number(alert.currentRateEA ?? 0).toFixed(2)}% E.A.</strong> ➔ Mercado: <strong style={{ color: "#10b981" }}>{Number(alert.marketRateEA ?? 0).toFixed(2)}% E.A.</strong> ({Number(alert.diff ?? 0) > 0 ? `+${Number(alert.diff ?? 0).toFixed(2)}%` : `${Number(alert.diff ?? 0).toFixed(2)}%`})
                       </span>
                     </div>
                   </div>
@@ -327,7 +327,7 @@ export default function RateRadarModal({
                           <span>Actualizando...</span>
                         </>
                       ) : (
-                        `⚡ Actualizar a ${alert.marketRateEA.toFixed(2)}% E.A.`
+                        `⚡ Actualizar a ${Number(alert.marketRateEA ?? 0).toFixed(2)}% E.A.`
                       )}
                     </button>
                     <button
@@ -576,15 +576,20 @@ export default function RateRadarModal({
 
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginTop: 4 }}>
                       <div>
-                        <strong
-                          style={{
-                            fontSize: "1.2rem",
-                            fontWeight: 800,
-                            color: ent.currentMarketRateEA >= 10 ? "#10b981" : "#0ea5e9",
-                          }}
-                        >
-                          {ent.currentMarketRateEA.toFixed(2)}%
-                        </strong>
+                        {(() => {
+                          const rateVal = Number(ent.currentMarketRateEA ?? ent.defaultRateEA ?? 0);
+                          return (
+                            <strong
+                              style={{
+                                fontSize: "1.2rem",
+                                fontWeight: 800,
+                                color: rateVal >= 10 ? "#10b981" : "#0ea5e9",
+                              }}
+                            >
+                              {rateVal.toFixed(2)}%
+                            </strong>
+                          );
+                        })()}
                         <span style={{ fontSize: "0.72rem", color: isLight ? "#64748b" : "#94a3b8", marginLeft: 3 }}>
                           E.A.
                         </span>

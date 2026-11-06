@@ -1082,7 +1082,7 @@ export default function FixedIncomeHub() {
                         )}
                       </div>
                       <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                        Tasa actual: <span style={{ color: "#f43f5e", fontWeight: 700 }}>{alert.currentRateEA.toFixed(2)}% E.A.</span> ➔ Mercado: <span style={{ color: "#10b981", fontWeight: 700 }}>{alert.marketRateEA.toFixed(2)}% E.A.</span> ({alert.diff > 0 ? `+${alert.diff.toFixed(2)}%` : `${alert.diff.toFixed(2)}%`})
+                        Tasa actual: <span style={{ color: "#f43f5e", fontWeight: 700 }}>{Number(alert.currentRateEA ?? 0).toFixed(2)}% E.A.</span> ➔ Mercado: <span style={{ color: "#10b981", fontWeight: 700 }}>{Number(alert.marketRateEA ?? 0).toFixed(2)}% E.A.</span> ({Number(alert.diff ?? 0) > 0 ? `+${Number(alert.diff ?? 0).toFixed(2)}%` : `${Number(alert.diff ?? 0).toFixed(2)}%`})
                       </span>
                     </div>
                   </div>
@@ -1124,7 +1124,7 @@ export default function FixedIncomeHub() {
                           <span>Actualizando...</span>
                         </>
                       ) : (
-                        `⚡ Actualizar a ${alert.marketRateEA.toFixed(2)}%`
+                        `⚡ Actualizar a ${Number(alert.marketRateEA ?? 0).toFixed(2)}%`
                       )}
                     </button>
                     <button
