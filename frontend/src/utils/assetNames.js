@@ -74,7 +74,134 @@ export const TICKER_FULL_NAMES = {
   "VECO": "Veeco Instruments Inc.",
   "OSK": "Oshkosh Corporation",
   "SM": "SM Energy Company",
+
+  // Mejores Acciones Cuantitativas
+  "OSIS": "OSI Systems, Inc.",
+  "MCK": "McKesson Corporation",
+  "ENS": "EnerSys",
+  "AYI": "Acuity Brands, Inc.",
+  "ANF": "Abercrombie & Fitch Co.",
+  "CRM": "Salesforce, Inc.",
+  "CTSH": "Cognizant Technology Solutions",
+  "EXPE": "Expedia Group, Inc.",
+  "OPCH": "Option Care Health, Inc.",
+  "ENB": "Enbridge Inc.",
+  "PAYC": "Paycom Software, Inc.",
+  "DK": "Delek US Holdings, Inc.",
+  "HALO": "Halozyme Therapeutics, Inc.",
 };
+
+export const ASSET_SECTORS = {
+  // Mejores Acciones Cuantitativas
+  "OSIS": "Tecnología",
+  "MCK": "Salud",
+  "ENS": "Industrial",
+  "AYI": "Industrial",
+  "ANF": "Consumo Cíclico",
+  "CRM": "Tecnología",
+  "CTSH": "Tecnología",
+  "EXPE": "Consumo Cíclico",
+  "OPCH": "Salud",
+  "ENB": "Energía",
+  "PAYC": "Tecnología",
+  "DK": "Energía",
+  "HALO": "Salud",
+
+  // MM20 Mid-caps
+  "ARLP": "Energía",
+  "ACLS": "Tecnología",
+  "BHC": "Salud",
+  "DIOD": "Tecnología",
+  "HAE": "Salud",
+  "NSIT": "Tecnología",
+  "VECO": "Tecnología",
+  "OSK": "Industrial",
+  "SM": "Energía",
+
+  // Tech Titans
+  "NVDA": "Tecnología",
+  "AMD": "Tecnología",
+  "AMAT": "Tecnología",
+  "HPQ": "Tecnología",
+  "INTC": "Tecnología",
+  "ON": "Tecnología",
+  "ORCL": "Tecnología",
+  "POWI": "Tecnología",
+  "QCOM": "Tecnología",
+  "TXN": "Tecnología",
+  "MRVL": "Tecnología",
+  "HIMX": "Tecnología",
+  "NTAP": "Tecnología",
+  "KD": "Tecnología",
+  "ARM": "Tecnología",
+  "AAPL": "Tecnología",
+  "MSFT": "Tecnología",
+  "GOOGL": "Tecnología",
+  "AMZN": "Consumo Cíclico",
+  "META": "Tecnología",
+  "TSLA": "Consumo Cíclico",
+  "NFLX": "Servicios de Comunicación",
+  "AVGO": "Tecnología",
+  "ASML": "Tecnología",
+  "TSM": "Tecnología",
+
+  // ETFs & Fondos
+  "IPLT": "Materias Primas",
+  "SMH": "Tecnología (ETF)",
+  "GDX": "Metales Preciosos",
+  "CSPX": "Índice (S&P 500)",
+  "CNDX": "Índice (NASDAQ)",
+  "EMIM": "Mercados Emergentes",
+  "CNYA": "China A",
+  "KWEB": "China Tech",
+  "SPY": "Índice (S&P 500)",
+  "QQQ": "Índice (NASDAQ)",
+  "VOO": "Índice (S&P 500)",
+  "IVV": "Índice (S&P 500)",
+  "IWM": "Índice (Russell 2000)",
+  "PAXG": "Oro Físico",
+  "XAUT": "Oro Físico",
+  "BTC": "Criptoactivo",
+  "ETH": "Criptoactivo",
+};
+
+export const ASSET_FALLBACK_PRICES = {
+  "OSIS": { price: 202.10, startPrice: 178.50, changePct: 2.92 },
+  "MCK": { price: 1062.38, startPrice: 921.38, changePct: 0.15 },
+  "ENS": { price: 152.80, startPrice: 139.20, changePct: 3.93 },
+  "AYI": { price: 338.91, startPrice: 299.08, changePct: 4.66 },
+  "ANF": { price: 153.18, startPrice: 147.50, changePct: 2.46 },
+  "CRM": { price: 215.00, startPrice: 213.00, changePct: 0.70 },
+  "CTSH": { price: 64.09, startPrice: 65.09, changePct: -0.97 },
+  "EXPE": { price: 257.16, startPrice: 259.20, changePct: -0.80 },
+  "OPCH": { price: 31.70, startPrice: 31.65, changePct: 0.13 },
+  "ENB": { price: 47.52, startPrice: 47.00, changePct: 1.09 },
+  "PAYC": { price: 185.40, startPrice: 168.00, changePct: 1.20 },
+  "DK": { price: 21.30, startPrice: 23.50, changePct: -1.40 },
+  "HALO": { price: 54.10, startPrice: 51.20, changePct: 0.85 },
+};
+
+export function getAssetSector(ticker, fallbackSector = "Tecnología") {
+  if (!ticker) return fallbackSector;
+  const tUpper = String(ticker).trim().toUpperCase().split(".")[0];
+  return ASSET_SECTORS[tUpper] || fallbackSector;
+}
+
+export function getAssetInfo(ticker) {
+  if (!ticker) return { name: "", sector: "Tecnología", price: 100, startPrice: 100, changePct: 0 };
+  const tUpper = String(ticker).trim().toUpperCase();
+  const baseTicker = tUpper.split(".")[0];
+  const name = getAssetName(tUpper);
+  const sector = ASSET_SECTORS[baseTicker] || ASSET_SECTORS[tUpper] || "Tecnología";
+  const quote = ASSET_FALLBACK_PRICES[baseTicker] || { price: 100, startPrice: 100, changePct: 0 };
+  return {
+    name,
+    sector,
+    price: quote.price,
+    startPrice: quote.startPrice,
+    changePct: quote.changePct,
+  };
+}
 
 /**
  * Returns the human-readable full company or ETF name.

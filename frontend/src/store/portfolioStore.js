@@ -450,6 +450,12 @@ export const usePortfolioStore = create((set, get) => ({
         cash_added: 0,
         tickers: ["OSIS", "PAYC", "MCK", "ENS", "AYI", "ANF", "CRM"],
       },
+      {
+        date: "2026-11-02",
+        rebalance_date: "2026-11-02",
+        cash_added: 0,
+        tickers: ["OSIS", "MCK", "ENS", "AYI", "ANF", "CRM", "CTSH", "EXPE", "OPCH", "ENB"],
+      },
     ],
   },
   lastKnownQuotes: {},

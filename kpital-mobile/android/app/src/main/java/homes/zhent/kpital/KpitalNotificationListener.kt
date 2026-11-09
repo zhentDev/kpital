@@ -363,7 +363,7 @@ class KpitalNotificationListener : NotificationListenerService() {
 
             // CRÍTICO: Una notificación solo se considera transacción si Go Core la parseó exitosamente Y tiene monto > 0
             if (!obj.optBoolean("parsed", false) || obj.optDouble("amount", 0.0) <= 0.0) {
-                Log.i(TAG, "Notificación descartada: No contiene una transacción financiera válida con monto mayor a 0 (parsed=${obj.optBoolean("parsed")}, amount=${obj.optDouble("amount")}) en '$title - $textToProcess'.")
+                Log.i(TAG, "Notificación descartada: No contiene una transacción financiera válida con monto mayor a 0 (parsed=${obj.optBoolean("parsed", false)}, amount=${obj.optDouble("amount", 0.0)}) en '$title - $textToProcess'.")
                 return
             }
 

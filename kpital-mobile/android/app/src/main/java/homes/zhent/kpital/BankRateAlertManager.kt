@@ -408,20 +408,25 @@ object BankRateAlertManager {
                 val entityName: String
                 val productName: String
                 val sourceUrl: String
+                val finalEntityId: String
 
                 if (entIdLower.contains("rappi") || accNameLower.contains("rappi")) {
+                    finalEntityId = "ent_rappi"
                     entityName = "RappiPay"
                     productName = "Bolsillos RappiCuenta (A la vista)"
                     sourceUrl = "https://rappipay.co/rappicuenta/"
                 } else if (entIdLower.contains("finandina") || accNameLower.contains("flexi") || entIdLower == "ent_1786771791285") {
+                    finalEntityId = "ent_1786771791285"
                     entityName = "Banco Finandina"
                     productName = "FlexiDigital + (Bolsillo Ahorro)"
                     sourceUrl = "https://www.bancofinandina.com/personas/banco-digital/cuenta-flexidigital"
                 } else if (entIdLower.contains("nu") || accNameLower.contains("nu")) {
+                    finalEntityId = "ent_nu"
                     entityName = "Nu Colombia"
                     productName = "Cajitas Nu (A la vista)"
                     sourceUrl = "https://nu.com.co/cf/cuenta/"
                 } else {
+                    finalEntityId = if (entIdLower.isNotBlank()) targetAcc?.optString("entity_id") ?: "ent_banco" else "ent_banco"
                     entityName = "Banco"
                     productName = "Cuenta de Ahorros"
                     sourceUrl = "https://www.superfinanciera.gov.co/"
@@ -430,7 +435,7 @@ object BankRateAlertManager {
                 val simAlert = BankRateAlert(
                     accountId = accId,
                     accountName = accName,
-                    entityId = if (isRappi) "ent_rappi" else "ent_nu",
+                    entityId = finalEntityId,
                     entityName = entityName,
                     currency = "COP",
                     currentRateEA = currRate,

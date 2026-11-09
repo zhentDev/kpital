@@ -25,6 +25,7 @@ import IndividualHoldingChart from "./IndividualHoldingChart";
 import FxRateExplorer from "./Common/FxRateExplorer";
 import { exportPortfolioExcel } from "../utils/exportReport";
 import { useTheme } from "../context/ThemeContext";
+import { getAssetInfo, getAssetSector, getAssetName } from "../utils/assetNames";
 
 const PERIODS = ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y", "MAX"];
 
@@ -97,6 +98,7 @@ export default function DynamicStrategyView({
     strategyRebalances,
     saveStrategySummary,
     saveLastKnownQuotes,
+    lastKnownQuotes,
   } = usePortfolioStore();
 
   // Rebalance history for this specific custom strategy (Supabase SSOT)
@@ -292,18 +294,37 @@ export default function DynamicStrategyView({
   const cashBuffer = simulatedCapital - activeInvested;
   const weightPerSlot = (100 / numSlots).toFixed(1);
 
-  const [tickerMetadata, setTickerMetadata] = useState({});
+  const [tickerMetadata, setTickerMetadata] = useState(() => {
+    return { ...(lastKnownQuotes || {}) };
+  });
+
+  // Sync if lastKnownQuotes updates from other components/views
+  useEffect(() => {
+    if (lastKnownQuotes && Object.keys(lastKnownQuotes).length > 0) {
+      setTickerMetadata((prev) => ({
+        ...lastKnownQuotes,
+        ...prev,
+      }));
+    }
+  }, [lastKnownQuotes]);
 
   useEffect(() => {
     if (activeTickers.length > 0) {
       fetchLiveQuotes(activeTickers)
         .then((res) => {
-          if (Array.isArray(res)) {
+          if (Array.isArray(res) && res.length > 0) {
             const map = {};
             res.forEach((q) => {
-              map[q.ticker] = q;
+              if (q && q.ticker) {
+                const info = getAssetInfo(q.ticker);
+                map[q.ticker] = {
+                  ...info,
+                  ...q,
+                  sector: (q.sector && q.sector !== "Tecnología") ? q.sector : info.sector,
+                };
+              }
             });
-            setTickerMetadata(map);
+            setTickerMetadata((prev) => ({ ...prev, ...map }));
             if (typeof saveLastKnownQuotes === "function") {
               saveLastKnownQuotes(map);
             }
@@ -388,15 +409,32 @@ export default function DynamicStrategyView({
   const { filteredNavData, filteredHoldings, effectiveActiveInvested, effectiveSlotValue } = useMemo(() => {
     const rawHoldings = navData?.holdings || [];
     const allHoldings = rawHoldings.length > 0
-      ? rawHoldings
-      : activeTickers.map((t) => ({
-          ticker: t,
-          shares: 1,
-          current_price: tickerMetadata[t]?.price || 100,
-          start_price: tickerMetadata[t]?.price || 100,
-          unrealized_pnl: (tickerMetadata[t]?.change_pct || 0) >= 0 ? 1 : -1,
-          return_pct: tickerMetadata[t]?.change_pct || 0,
-        }));
+      ? rawHoldings.map((h) => {
+          const info = getAssetInfo(h.ticker);
+          return {
+            ...h,
+            name: (h.name && h.name !== h.ticker) ? h.name : info.name,
+            sector: (h.sector && h.sector !== "Tecnología") ? h.sector : info.sector,
+          };
+        })
+      : activeTickers.map((t) => {
+          const q = tickerMetadata[t] || lastKnownQuotes?.[t] || {};
+          const info = getAssetInfo(t);
+          const currentPrice = q.price || info.price || 100;
+          const startPrice = info.startPrice || currentPrice;
+          const changePct = q.change_pct ?? info.changePct ?? 0;
+          const returnPct = startPrice > 0 ? ((currentPrice - startPrice) / startPrice) * 100 : changePct;
+          return {
+            ticker: t,
+            name: info.name || q.name || t,
+            sector: q.sector || info.sector || "Tecnología",
+            shares: startPrice > 0 ? Number((slotValue / startPrice).toFixed(4)) : 1,
+            current_price: currentPrice,
+            start_price: startPrice,
+            unrealized_pnl: returnPct >= 0 ? 1 : -1,
+            return_pct: Number(returnPct.toFixed(2)),
+          };
+        });
 
     const currentSelected = selectedTickers ?? allHoldings.map((h) => h.ticker);
     const updatedHoldings = allHoldings.map((h) => ({
@@ -582,14 +620,21 @@ export default function DynamicStrategyView({
       }
     }
 
-    // 2. Fallback for strategy return: compute from live quotes of active tickers if backend NAV series not yet generated
+    // 2. Fallback for strategy return: compute from holdings return or live quotes
     if (realStratReturn === null && activeTickers.length > 0) {
-      const validChanges = activeTickers
-        .map((t) => tickerMetadata[t]?.change_pct)
-        .filter((c) => typeof c === "number" && !isNaN(c));
-      if (validChanges.length > 0) {
-        const avgChangePct = validChanges.reduce((a, b) => a + b, 0) / validChanges.length;
-        realStratReturn = avgChangePct / 100;
+      const validHoldingsReturns = (filteredHoldings || [])
+        .map((h) => h.return_pct)
+        .filter((r) => typeof r === "number" && !isNaN(r) && r !== 0);
+      if (validHoldingsReturns.length > 0) {
+        realStratReturn = (validHoldingsReturns.reduce((a, b) => a + b, 0) / validHoldingsReturns.length) / 100;
+      } else {
+        const validChanges = activeTickers
+          .map((t) => tickerMetadata[t]?.change_pct ?? lastKnownQuotes?.[t]?.change_pct)
+          .filter((c) => typeof c === "number" && !isNaN(c));
+        if (validChanges.length > 0) {
+          const avgChangePct = validChanges.reduce((a, b) => a + b, 0) / validChanges.length;
+          realStratReturn = avgChangePct / 100;
+        }
       }
     }
 
@@ -600,15 +645,15 @@ export default function DynamicStrategyView({
     const baseSynthetic = SYNTHETIC_RETURNS[period] || SYNTHETIC_RETURNS["MAX"];
 
     return {
-      sp: benchmarkSpReturn !== null ? benchmarkSpReturn : 0.0,
-      nasdaq: realNasdaqReturn !== null ? realNasdaqReturn : 0.0,
-      mm20: realMm20Return !== null ? realMm20Return : 0.0,
-      strat: realStratReturn !== null ? realStratReturn : 0.0,
+      sp: benchmarkSpReturn !== null ? benchmarkSpReturn : baseSynthetic.sp,
+      nasdaq: realNasdaqReturn !== null ? realNasdaqReturn : baseSynthetic.nasdaq,
+      mm20: realMm20Return !== null ? realMm20Return : baseSynthetic.mm20,
+      strat: realStratReturn !== null ? realStratReturn : (baseSynthetic.strat || 0.08),
       days: baseSynthetic.days,
       points: baseSynthetic.points,
       isReal: realStratReturn !== null,
     };
-  }, [filteredNavData, navData, period, activeTickers, tickerMetadata, strategy?.benchmark, strategy?.id]);
+  }, [filteredNavData, navData, period, activeTickers, tickerMetadata, filteredHoldings, lastKnownQuotes, strategy?.benchmark, strategy?.id]);
 
   const handleSearchAndAdd = async (e) => {
     e?.preventDefault();

@@ -4,6 +4,7 @@ import StockAlertModal from "./StockAlertModal";
 import { fetchStockAlerts, saveStockAlert, deleteStockAlert } from "../api/client";
 import { useAuthStore } from "../store/authStore";
 import { useTheme } from "../context/ThemeContext";
+import { getAssetSector } from "../utils/assetNames";
 import toast from "react-hot-toast";
 
 export default function HoldingsTable({
@@ -412,7 +413,7 @@ export default function HoldingsTable({
                       <MarketScheduleBadge ticker={h.ticker} exchange={h.exchange} size="xs" />
                     </div>
                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2 }}>
-                      {h.name || h.ticker} · <span style={{ color: "var(--accent-primary)" }}>{h.sector || "Tecnología"}</span>
+                      {h.name || h.ticker} · <span style={{ color: "var(--accent-primary)" }}>{getAssetSector(h.ticker, h.sector)}</span>
                     </div>
                   </div>
 
@@ -765,7 +766,7 @@ export default function HoldingsTable({
                         fontSize: "0.7rem",
                       }}
                     >
-                      {h.sector || "Tecnología"}
+                      {getAssetSector(h.ticker, h.sector)}
                     </span>
                   </td>
 
@@ -1234,7 +1235,7 @@ export default function HoldingsTable({
                           </span>
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2 }}>
-                          {c.name || c.ticker} · <span style={{ color: "var(--accent-primary)" }}>{c.sector || "Tecnología"}</span>
+                          {c.name || c.ticker} · <span style={{ color: "var(--accent-primary)" }}>{getAssetSector(c.ticker, c.sector)}</span>
                         </div>
                       </div>
 
@@ -1411,7 +1412,7 @@ export default function HoldingsTable({
                               fontSize: "0.7rem",
                             }}
                           >
-                            {c.sector || "Tecnología"}
+                            {getAssetSector(c.ticker, c.sector)}
                           </span>
                         </td>
 
