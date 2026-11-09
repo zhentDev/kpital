@@ -916,16 +916,22 @@ export default function FixedIncomeHub() {
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: "1.4rem" }}>{isCheckingRates ? "⏳" : "🔔"}</span>
+              <span style={{ fontSize: "1.4rem" }}>
+                {isCheckingRates ? "⏳" : rateTrackerAlerts.some((a) => a.isSimulated) ? "🧪" : "🔔"}
+              </span>
               <div>
-                <strong style={{ fontSize: "0.92rem", color: "var(--text-primary)" }}>
+                <strong style={{ fontSize: "0.92rem", color: rateTrackerAlerts.some((a) => a.isSimulated) ? (isLight ? "#b45309" : "#fbbf24") : "var(--text-primary)" }}>
                   {isCheckingRates
                     ? "Consultando Tasas de Mercado en Vivo..."
+                    : rateTrackerAlerts.some((a) => a.isSimulated)
+                    ? `Ensayo Visual / Alerta Simulada (${rateTrackerAlerts.length} en prueba)`
                     : `Seguimiento Semanal de Tasas de Mercado (${rateTrackerAlerts.length} detectadas)`}
                 </strong>
                 <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>
                   {isCheckingRates
                     ? "Rastreando en vivo los portales web oficiales de Nu Colombia, RappiPay, Banco Finandina, Pibank y Lulo Bank..."
+                    : rateTrackerAlerts.some((a) => a.isSimulated)
+                    ? "⚠️ Alerta artificial de prueba (+0.90% simulado para ensayar el botón). La tasa real vigente de Finandina FlexiDigital es 10.50% E.A."
                     : (liveScrapedInfo
                         ? "🌐 Rastreado en tiempo real directamente desde los portales web oficiales (nu.com.co, rappipay.co, pibank.co, bancofinandina.com)"
                         : "Verificado con fuentes oficiales del sistema financiero colombiano y USD. Solo afecta cálculos desde la fecha de vigencia sin alterar tus rendimientos históricos pasados.")}
@@ -934,28 +940,31 @@ export default function FixedIncomeHub() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={handleFlashRateTest}
-                disabled={isCheckingRates}
-                style={{
-                  background: "rgba(16, 185, 129, 0.15)",
-                  border: "1px solid #10b981",
-                  color: "#10b981",
-                  borderRadius: "8px",
-                  padding: "6px 12px",
-                  fontSize: "0.76rem",
-                  fontWeight: 700,
-                  cursor: isCheckingRates ? "not-allowed" : "pointer",
-                  opacity: isCheckingRates ? 0.6 : 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-                title="Genera una alerta de prueba en vivo para verificar el flujo de actualización"
-              >
-                ⚡ Prueba Flash en Vivo
-              </button>
+              {rateTrackerAlerts.some((a) => a.isSimulated) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRateTrackerAlerts((prev) => prev.filter((a) => !a.isSimulated));
+                    toast.success("Simulación eliminada. Mostrando solo datos reales.");
+                  }}
+                  style={{
+                    background: isLight ? "#fef2f2" : "rgba(239, 68, 68, 0.15)",
+                    border: "1px solid #ef4444",
+                    color: "#ef4444",
+                    borderRadius: "8px",
+                    padding: "6px 12px",
+                    fontSize: "0.76rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                  title="Elimina esta alerta simulada y limpia la pantalla"
+                >
+                  🧹 Descartar Simulación
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1440,18 +1449,18 @@ export default function FixedIncomeHub() {
         }}
       >
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {/* Rate Tracker Flash Test & Check Buttons */}
+          {/* Live Rate Verification and Radar Buttons */}
           <button
             type="button"
-            onClick={handleFlashRateTest}
+            onClick={handleCheckRatesNow}
             disabled={isCheckingRates}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 6,
-              background: "rgba(16, 185, 129, 0.15)",
-              color: "#10b981",
-              border: "1px solid #10b981",
+              background: isLight ? "rgba(14, 165, 233, 0.1)" : "rgba(14, 165, 233, 0.15)",
+              color: "#0ea5e9",
+              border: "1px solid #0ea5e9",
               padding: "8px 14px",
               borderRadius: 8,
               fontWeight: 700,
@@ -1459,9 +1468,28 @@ export default function FixedIncomeHub() {
               cursor: isCheckingRates ? "not-allowed" : "pointer",
               opacity: isCheckingRates ? 0.6 : 1,
             }}
-            title="Genera una alerta de prueba en vivo para verificar el flujo de actualización de tasas"
+            title="Rastrea en tiempo real las tasas en las webs oficiales de los bancos"
           >
-            <span>🧪</span> Probar Tasas (Flash)
+            {isCheckingRates ? (
+              <>
+                <span
+                  className="kpital-spin"
+                  style={{
+                    width: 13,
+                    height: 13,
+                    borderRadius: "50%",
+                    border: "2px solid rgba(14, 165, 233, 0.3)",
+                    borderTopColor: "#0ea5e9",
+                    display: "inline-block",
+                  }}
+                />
+                <span>Verificando en Vivo...</span>
+              </>
+            ) : (
+              <>
+                <span>🔄</span> Verificar Tasas en Vivo
+              </>
+            )}
           </button>
           <button
             type="button"

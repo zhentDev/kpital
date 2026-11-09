@@ -187,9 +187,9 @@ export default function RateRadarModal({
                   alignItems: "center",
                   gap: 5,
                 }}
-                title="Genera una alerta de prueba simulada para ensayar el botón de actualizar"
+                title="Genera una alerta ficticia solo para ensayar visualmente el botón de actualización"
               >
-                <span>⚡</span> Probar Alerta Flash
+                <span>🧪</span> Simular Alerta (Test UI)
               </button>
 
               <button
