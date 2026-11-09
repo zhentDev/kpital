@@ -29,7 +29,7 @@ import StrategyPaywall from "./components/StrategyPaywall";
 import QuantumOrbitalLoader from "./components/QuantumOrbitalLoader";
 import { useAuthStore } from "./store/authStore";
 import { usePortfolioStore } from "./store/portfolioStore";
-import { exportPortfolioExcel, exportPortfolioPyScript } from "./utils/exportReport";
+import { exportPortfolioExcel } from "./utils/exportReport";
 import { toastPrompt } from "./utils/toastAlerts";
 import { useTheme } from "./context/ThemeContext";
 import "./App.css";
@@ -3010,7 +3010,6 @@ export default function App() {
                         onOpenWasmLab={() => setShowWasmLabModal(true)}
                         onOpenWarren={() => setShowWarrenModal(true)}
                         onExportExcel={() => exportPortfolioExcel(mode, investment, numSlots)}
-                        onExportPyScript={() => exportPortfolioPyScript(navData, investment)}
                         strategyId={mode}
                       />
                     </div>

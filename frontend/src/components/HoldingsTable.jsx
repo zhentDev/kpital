@@ -20,7 +20,6 @@ export default function HoldingsTable({
   onOpenWasmLab,
   onOpenWarren,
   onExportExcel,
-  onExportPyScript,
   strategyId = "historical",
   onRemoveTicker,
 }) {
@@ -335,30 +334,7 @@ export default function HoldingsTable({
             </button>
           )}
 
-          {onExportPyScript && (
-            <button
-              type="button"
-              onClick={onExportPyScript}
-              title="Exportar con PyScript 2.0+ (MicroPython WASM / Polyscript en el navegador)"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "3px 9px",
-                borderRadius: "12px",
-                border: "1px solid rgba(245, 158, 11, 0.35)",
-                background: "rgba(245, 158, 11, 0.08)",
-                color: "#f59e0b",
-                fontSize: "0.72rem",
-                fontWeight: 700,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span>🐍</span>
-              <span>PyScript</span>
-            </button>
-          )}
+
 
           {/* Selector de modo vista Móvil (Tarjetas vs Tabla) */}
           <div
