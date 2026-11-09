@@ -11,16 +11,27 @@ export function isMainOwnerUser(userOrEmail) {
   return Boolean(email && email.toLowerCase().trim() === MAIN_OWNER_EMAIL);
 }
 
+export function decodeAuthToken(token) {
+  if (!token || typeof token !== "string") return null;
+  try {
+    const raw = token.includes(".") ? token.split(".")[1] : token;
+    let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4 !== 0) {
+      b64 += "=";
+    }
+    const jsonStr = atob(b64);
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
 export function getCurrentUserEmail() {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem("kpital_auth_token") || localStorage.getItem("titanes_auth_token");
   if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token));
-    return payload?.email?.toLowerCase().trim() || null;
-  } catch {
-    return null;
-  }
+  const payload = decodeAuthToken(token);
+  return payload?.email?.toLowerCase().trim() || null;
 }
 
 const LEGACY_STORAGE_KEYS = [
@@ -117,11 +128,30 @@ export const useAuthStore = create((set, get) => ({
       const res = await fetchMeApi();
       if (res && res.user) {
         set({ user: res.user, isInitialized: true });
-      } else {
-        localStorage.removeItem("kpital_auth_token");
-        localStorage.removeItem("titanes_auth_token");
-        set({ token: null, user: null, isInitialized: true });
+        return;
       }
+
+      // If backend returned 401/offline, check if we have a valid owner email in the local token
+      const localEmail = getCurrentUserEmail();
+      if (localEmail) {
+        const decoded = decodeAuthToken(token);
+        const isOwner = isMainOwnerUser(localEmail);
+        set({
+          user: {
+            id: decoded?.sub || decoded?.id || "usr_owner",
+            email: localEmail,
+            name: decoded?.name || localEmail.split("@")[0],
+            avatar_url: decoded?.avatar_url || null,
+            is_pro: isOwner,
+          },
+          isInitialized: true,
+        });
+        return;
+      }
+
+      localStorage.removeItem("kpital_auth_token");
+      localStorage.removeItem("titanes_auth_token");
+      set({ token: null, user: null, isInitialized: true });
     } catch {
       set({ isInitialized: true });
     }

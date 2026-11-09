@@ -98,7 +98,12 @@ export async function directSupabaseLogin(email, plainPassword) {
 export async function directSupabaseFetchMe(token) {
   if (!token) return null;
   try {
-    const payload = JSON.parse(atob(token));
+    const raw = token.includes(".") ? token.split(".")[1] : token;
+    let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4 !== 0) {
+      b64 += "=";
+    }
+    const payload = JSON.parse(atob(b64));
     if (!payload?.email) return null;
 
     const { data: userRows } = await supabase
@@ -110,7 +115,15 @@ export async function directSupabaseFetchMe(token) {
     if (userRows && userRows.length > 0) {
       return { user: userRows[0] };
     }
-    return { user: payload };
+    return {
+      user: {
+        id: payload.sub || payload.id || "usr_owner",
+        email: payload.email,
+        name: payload.name || payload.email.split("@")[0],
+        avatar_url: payload.avatar_url || null,
+        is_pro: true,
+      },
+    };
   } catch {
     return null;
   }
