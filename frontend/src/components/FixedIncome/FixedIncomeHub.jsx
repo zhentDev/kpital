@@ -573,9 +573,17 @@ export default function FixedIncomeHub() {
   const historicalSeries = useMemo(() => {
     if (!hasAnyData) {
       const todayStr = new Date().toISOString().slice(0, 10);
-      const label = new Date(todayStr).toLocaleDateString("es-CO", { month: "short", year: "2-digit" });
+      const prevD = new Date();
+      prevD.setDate(prevD.getDate() - 7);
+      const prevStr = prevD.toISOString().slice(0, 10);
+      const labelToday = new Date(todayStr).toLocaleDateString("es-CO", { month: "short", year: "2-digit" });
+      const labelPrev = prevD.toLocaleDateString("es-CO", { month: "short", year: "2-digit" });
       const total = Number(metrics.totalPatrimony || 0);
-      return [{ date: todayStr, dateLabel: label, projectedValue: total, baseCapital: total, earnings: 0, rate: metrics.weightedEA || 9.30 }];
+      const activeRate = Number(metrics.weightedEA || 9.30);
+      return [
+        { date: prevStr, dateLabel: labelPrev, projectedValue: total, baseCapital: total, earnings: 0, rate: activeRate },
+        { date: todayStr, dateLabel: labelToday, projectedValue: total, baseCapital: total, earnings: 0, rate: activeRate },
+      ];
     }
 
     const startDateStr = firstOpenDate;
@@ -820,6 +828,22 @@ export default function FixedIncomeHub() {
       });
 
       currDate.setDate(currDate.getDate() + 1);
+    }
+
+    if (series.length === 1) {
+      const single = series[0];
+      const prevD = new Date(single.date + "T00:00:00");
+      prevD.setDate(prevD.getDate() - 1);
+      const prevStr = prevD.toISOString().slice(0, 10);
+      const prevLabel = prevD.toLocaleDateString("es-CO", { month: "short", year: "2-digit" });
+      series.unshift({
+        date: prevStr,
+        dateLabel: prevLabel,
+        projectedValue: single.projectedValue,
+        baseCapital: single.baseCapital,
+        earnings: single.earnings,
+        rate: single.rate,
+      });
     }
 
     return series;
@@ -1398,7 +1422,7 @@ export default function FixedIncomeHub() {
               marginTop: 4,
             }}
           >
-            {metrics.weightedEA.toFixed(2)}%{" "}
+            {Number(metrics.weightedEA ?? 0).toFixed(2)}%{" "}
             <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-muted)" }}>E.A.</span>
           </div>
           <div style={{ fontSize: "0.7rem", color: isLight ? "#92400e" : "#d97706", marginTop: 2, fontWeight: 600 }}>
@@ -1428,7 +1452,7 @@ export default function FixedIncomeHub() {
             }}
           >
             {metrics.realRateEA >= 0 ? "+" : ""}
-            {metrics.realRateEA.toFixed(2)}%{" "}
+            {Number(metrics.realRateEA ?? 0).toFixed(2)}%{" "}
             <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-muted)" }}>Real</span>
           </div>
           <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 2 }}>
@@ -1798,7 +1822,7 @@ export default function FixedIncomeHub() {
                 </span>
               </div>
               <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
-                Interés compuesto a partir de hoy con tu capital actual y tasa vigente ({metrics.weightedEA.toFixed(2)}% E.A.)
+                Interés compuesto a partir de hoy con tu capital actual y tasa vigente ({Number(metrics.weightedEA ?? 0).toFixed(2)}% E.A.)
               </div>
             </div>
           </div>
@@ -2081,7 +2105,7 @@ export default function FixedIncomeHub() {
                       <span key={b.key} style={{ marginRight: 10, fontWeight: 600 }}>
                         {b.medal} {b.bankName}:{" "}
                         <span style={{ color: isLight ? "#059669" : "#34d399", fontWeight: 800 }}>
-                          {b.rateEA.toFixed(2)}% E.A.
+                          {Number(b.rateEA ?? 0).toFixed(2)}% E.A.
                         </span>
                       </span>
                     ))}

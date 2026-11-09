@@ -123,7 +123,11 @@ class KpitalNotificationListener : NotificationListenerService() {
                 "pide en rappi", "pide ya", "te llega de una", "envío gratis", "envio gratis",
                 "2x1", "3x2", "consiente al", "consiente a", "válido también en", "valido tambien en",
                 "solo por hoy", "imperdible", "no te pierdas", "aprovecha", "te regalamos",
-                "hasta 40%", "hasta 50%", "hasta 30%", "hasta 20%", "hasta 70%"
+                "hasta 40%", "hasta 50%", "hasta 30%", "hasta 20%", "hasta 70%",
+                // Entretenimiento, boletería, conciertos y preventas comerciales (Nequi Visa, etc.)
+                "preventa", "preventa exclusiva", "boleta", "boletas", "bolestas", "boletería", "boleteria",
+                "entrada", "entradas", "concierto", "hazlo aquí", "hazlo aqui", "compra tus boletas",
+                "compra tus bolestas", "compra tus entradas", "tarjeta nequi visa"
             ).any { lower.contains(it) }
             if (isMarketing) return true
 
@@ -156,9 +160,9 @@ class KpitalNotificationListener : NotificationListenerService() {
                     "saldo nuevo", "nuevo saldo", "saldo al", "consulta de saldo", "tienes un saldo",
                     "saldo total", "tu dinero creció",
                     // Saldo diario informativo Caja Social y bancos colombianos
-                    "al final del", "el saldo de su cuenta", "el saldo de tu cuenta", "el saldo de la cuenta",
+                    "al final del", "al final de ", "el saldo de su cuenta", "el saldo de tu cuenta", "el saldo de la cuenta",
                     "saldo de su cuenta", "saldo de tu cuenta", "saldo de la cuenta", "saldo de su",
-                    "saldo de tu", "saldo al corte", "saldo al cierre", "saldo al final"
+                    "saldo de tu", "saldo al corte", "saldo al cierre", "saldo al final", "fue de %", "fue de $"
                 ).any { lower.contains(it) }
                 if (hasBalanceIndicator) return true
             }
@@ -352,32 +356,24 @@ class KpitalNotificationListener : NotificationListenerService() {
             Log.d(TAG, "Parseo Go Core: $parsedJson")
             val obj = JSONObject(parsedJson)
 
-            if (obj.optBoolean("isBalance", false) || obj.optBoolean("isIgnored", false) || obj.optString("txType") == "balance_digest") {
+            if (obj.optBoolean("isBalance", false) || obj.optBoolean("isIgnored", false) || obj.optString("txType") == "balance_digest" || obj.optBoolean("isInformational", false)) {
                 Log.i(TAG, "Notificación informativa/descartada ($packageName): ${obj.optString("ignoreReason", "informativa")}. Ignorando.")
                 return
             }
 
-            if (obj.optBoolean("parsed", false)) {
-                bank = obj.optString("bank", "Banco")
-                amount = obj.optDouble("amount", 0.0)
-                description = obj.optString("description", description)
-                txType = obj.optString("txType", "debit")
-            } else {
-                // Heurísticas de respaldo
-                val fullLower = (title + " " + textToProcess).lowercase()
-                when {
-                    packageName.contains("nu", ignoreCase = true) || fullLower.contains("nubank") || fullLower.contains("cuenta nu") || fullLower.contains("tarjeta nu") -> bank = "Nu Colombia"
-                    fullLower.contains("caja social") || fullLower.contains("bcs") -> bank = "Banco Caja Social"
-                    fullLower.contains("nequi") -> bank = "Nequi Colombia"
-                    fullLower.contains("bancolombia") -> bank = "Bancolombia"
-                    fullLower.contains("nu") -> bank = "Nu Colombia"
-                    fullLower.contains("rappi") -> bank = "RappiPay"
-                    fullLower.contains("daviplata") || fullLower.contains("davivienda") -> bank = "Davivienda / Daviplata"
-                    fullLower.contains("falabella") -> bank = "Banco Falabella"
-                }
+            // CRÍTICO: Una notificación solo se considera transacción si Go Core la parseó exitosamente Y tiene monto > 0
+            if (!obj.optBoolean("parsed", false) || obj.optDouble("amount", 0.0) <= 0.0) {
+                Log.i(TAG, "Notificación descartada: No contiene una transacción financiera válida con monto mayor a 0 (parsed=${obj.optBoolean("parsed")}, amount=${obj.optDouble("amount")}) en '$title - $textToProcess'.")
+                return
             }
+
+            bank = obj.optString("bank", "Banco")
+            amount = obj.optDouble("amount", 0.0)
+            description = obj.optString("description", description)
+            txType = obj.optString("txType", "debit")
         } catch (e: Throwable) {
             Log.e(TAG, "Error procesando con Go Core: ${e.message}", e)
+            return
         }
 
         // 3.4. Validar monto para evitar falsos positivos de números de fecha o teléfono

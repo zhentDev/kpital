@@ -116,15 +116,22 @@ function generateSyntheticData(
     ? (sortedRebalances[0].tickers?.length || 0) * slotValue
     : (baseActive || 500);
 
+  const targetBase = baseActive > 0 ? baseActive : initialCapital;
+
   const getCapitalOnDate = (dateStr) => {
     if (sortedRebalances.length > 0 && slotValue > 0) {
       const valid = sortedRebalances.filter((r) => (r.rebalance_date || r.date) <= dateStr);
       if (valid.length > 0) {
-        return (valid[valid.length - 1].tickers?.length || 0) * slotValue;
+        const reb = valid[valid.length - 1];
+        const rebCap = (reb.tickers?.length || 0) * slotValue;
+        if (rebCap > 0 && Math.abs(rebCap - targetBase) / targetBase < 0.25) {
+          return rebCap;
+        }
+        return targetBase;
       }
-      return initialCapital;
+      return targetBase;
     }
-    return baseActive || 500;
+    return targetBase;
   };
 
   // Si hay firstInvestDate y el periodo seleccionado o la fecha de inicio es anterior a pData.days,
@@ -208,7 +215,7 @@ function generateSyntheticData(
     const correctionND = (pData.nasdaq - endND) * progress;
     const correctionMM = (pData.strat - endMM) * progress;
 
-    const volScale = Math.max(0.005, Math.min(0.04, Math.abs(pData.strat || 0.05) / 10));
+    const volScale = Math.max(0.015, Math.min(0.035, Math.abs(pData.strat || 0.05) / 2));
 
     const capOnDate = getCapitalOnDate(typeof timeVal === "string" ? timeVal : today.toISOString().split("T")[0]);
 
@@ -249,8 +256,7 @@ function generateSyntheticData(
     uniqueData.baseLine[0].value = firstCap;
 
     const last = uniqueData.sp500.length - 1;
-    const lastTime = uniqueData.strat[last].time;
-    const lastCap = getCapitalOnDate(typeof lastTime === "string" ? lastTime : today.toISOString().split("T")[0]);
+    const lastCap = baseActive > 0 ? baseActive : targetBase;
     uniqueData.sp500[last].value = lastCap * (1 + pData.sp);
     uniqueData.nasdaq[last].value = lastCap * (1 + pData.nasdaq);
     uniqueData.strat[last].value = lastCap * (1 + pData.strat);

@@ -324,6 +324,17 @@ func TestInformationalBalanceAndFilteringCases(t *testing.T) {
 			expectedBank:    "Banco Caja Social",
 			expectedBalance: 1500000.0,
 		},
+		{
+			name: "Banco Caja Social - SMS daily closing balance with percent symbol and without del",
+			notification: models.RawNotification{
+				AppName:     "CLARO DIGITAL",
+				PackageName: "com.google.android.apps.messaging",
+				Title:       "87227",
+				Text:        "Al final de 20261108 el saldo de su cuenta **3417 fue de % 10,839.48. Banco Caja Social.",
+			},
+			expectedBank:    "Banco Caja Social",
+			expectedBalance: 10839.48,
+		},
 	}
 
 	for _, bc := range balanceCases {
@@ -411,6 +422,15 @@ func TestInformationalBalanceAndFilteringCases(t *testing.T) {
 				PackageName: "com.grability.rappi",
 				Title:       "💖 Skincare coreano hasta 40%!",
 				Text:        "Dale a tu piel el cuidado que merece. En Línea Estética todo para tu piel con hasta 40% OFF. Aplican T&C",
+			},
+		},
+		{
+			name: "Nequi - Marketing concert ticket presale Maluma with compra tus bolestas",
+			notification: models.RawNotification{
+				AppName:     "Nequi",
+				PackageName: "com.nequi.nequi",
+				Title:       "\"Maluma está loco x volver\"",
+				Text:        "La preventa exclusiva arranca HOY 9 de noviembre con tu Tarjeta Nequi Visa, compra tus bolestas. Hazlo aquí.",
 			},
 		},
 	}

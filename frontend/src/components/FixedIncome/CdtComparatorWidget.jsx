@@ -331,7 +331,7 @@ export default function CdtComparatorWidget({
                       lineHeight: 1.1,
                     }}
                   >
-                    {item.rateEA.toFixed(2)}%
+                    {Number(item.rateEA ?? 0).toFixed(2)}%
                   </div>
                   <div
                     style={{

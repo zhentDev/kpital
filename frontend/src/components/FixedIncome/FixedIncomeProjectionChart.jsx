@@ -134,7 +134,7 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
         barSpacing: isMobile ? 14 : 10,
         fixLeftEdge: true,
         fixRightEdge: true,
-        timeVisible: true,
+        timeVisible: false,
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true },
       handleScale: { mouseWheel: true, pinch: true },
@@ -209,12 +209,16 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
 
       // Format clean standard date YYYY-MM-DD without overflowing
       let dateStr = "";
-      if (typeof param.time === "number") {
+      if (typeof param.time === "string") {
+        dateStr = param.time.slice(0, 10);
+      } else if (typeof param.time === "number") {
         const dObj = new Date(param.time * 1000);
         const y = dObj.getUTCFullYear();
         const m = String(dObj.getUTCMonth() + 1).padStart(2, "0");
         const d = String(dObj.getUTCDate()).padStart(2, "0");
         dateStr = `${y}-${m}-${d}`;
+      } else if (param.time && param.time.year) {
+        dateStr = `${param.time.year}-${String(param.time.month).padStart(2, "0")}-${String(param.time.day).padStart(2, "0")}`;
       } else if (param.time) {
         dateStr = String(param.time).slice(0, 10);
       }
@@ -290,39 +294,57 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
     const formattedRate = [];
 
     projectionData.forEach((d) => {
-      const timeVal = d.date;
+      const timeVal = typeof d.date === "string" ? d.date.slice(0, 10) : d.date;
       if (!timeVal || seenTimes.has(timeVal)) return;
       seenTimes.add(timeVal);
 
-      const timestamp = Math.floor(new Date(d.date).getTime() / 1000);
-
       formattedBalance.push({
-        time: timestamp,
+        time: timeVal,
         value: Number(d.projectedValue) || 0,
       });
 
       formattedCapital.push({
-        time: timestamp,
+        time: timeVal,
         value: Number(d.baseCapital) || 0,
       });
 
       formattedEarnings.push({
-        time: timestamp,
+        time: timeVal,
         value: Number(d.earnings) || 0,
       });
 
       formattedRate.push({
-        time: timestamp,
+        time: timeVal,
         value: Number(d.rate) || 0,
       });
     });
+
+    // Ensure strictly ascending order by date
+    formattedBalance.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+    formattedCapital.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+    formattedEarnings.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+    formattedRate.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+
+    // Ensure at least 2 points so Lightweight Charts can render line segments
+    if (formattedBalance.length === 1) {
+      const single = formattedBalance[0];
+      const prevD = new Date(single.time + "T00:00:00");
+      prevD.setDate(prevD.getDate() - 1);
+      const prevStr = prevD.toISOString().slice(0, 10);
+      formattedBalance.unshift({ time: prevStr, value: single.value });
+      formattedCapital.unshift({ time: prevStr, value: formattedCapital[0].value });
+      formattedEarnings.unshift({ time: prevStr, value: formattedEarnings[0].value });
+      formattedRate.unshift({ time: prevStr, value: formattedRate[0].value });
+    }
 
     if (formattedBalance.length > 0) {
       seriesRef.current.balance?.setData(formattedBalance);
       seriesRef.current.capital?.setData(formattedCapital);
       seriesRef.current.earnings?.setData(formattedEarnings);
       seriesRef.current.rate?.setData(formattedRate);
-      chartRef.current.timeScale().fitContent();
+      setTimeout(() => {
+        chartRef.current?.timeScale().fitContent();
+      }, 50);
     }
   }, [projectionData]);
 
