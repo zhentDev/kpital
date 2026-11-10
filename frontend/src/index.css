@@ -7,9 +7,11 @@
 
 /* ── Tokens ─────────────────────────────────────────── */
 :root {
+  color-scheme: dark;
   /* Background layers */
   --bg-base: #080c18;
   --bg-surface: #0d1226;
+  --bg-primary: #0d1226;
   --bg-card: #111829;
   --bg-card-hover: #161f35;
   --bg-overlay: rgba(13, 18, 38, 0.85);
@@ -57,9 +59,11 @@
 
 /* ── Tokens: Modo Diurno (Light Mode) ───────────────── */
 [data-theme="light"] {
+  color-scheme: light;
   /* Background layers */
   --bg-base: #f0f4f8;
   --bg-surface: #ffffff;
+  --bg-primary: #ffffff;
   --bg-card: #ffffff;
   --bg-card-hover: #f1f5f9;
   --bg-overlay: rgba(255, 255, 255, 0.94);
@@ -100,7 +104,19 @@
     linear-gradient(90deg, rgba(2, 132, 199, 0.025) 1px, transparent 1px);
 }
 
-/* ── Light Mode: Element Overrides ─────────────────── */
+/* ── Dark & Light Mode: Native Form & Select Overrides ── */
+
+select {
+  color-scheme: dark;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+select option,
+select optgroup {
+  background-color: #0d1226;
+  color: #f1f5f9;
+}
 
 [data-theme="light"] input,
 [data-theme="light"] select,
@@ -108,6 +124,16 @@
   color: #0f172a !important;
   background-color: #ffffff !important;
   border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-theme="light"] select {
+  color-scheme: light;
+}
+
+[data-theme="light"] select option,
+[data-theme="light"] select optgroup {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
 }
 
 [data-theme="light"] input::placeholder,

@@ -862,8 +862,9 @@ export default function AssignMovementModal({
                 borderRadius: "8px",
                 fontSize: "0.82rem",
                 fontWeight: 600,
-                background: isLight ? "#ffffff" : "var(--bg-primary)",
-                color: "var(--text-primary)",
+                background: isLight ? "#ffffff" : "var(--bg-surface)",
+                color: isLight ? "#0f172a" : "#f1f5f9",
+                colorScheme: isLight ? "light" : "dark",
                 border: isLight ? "1px solid rgba(0,0,0,0.15)" : "1px solid var(--border)",
                 cursor: "pointer",
               }}
@@ -1047,7 +1048,8 @@ export default function AssignMovementModal({
                     borderRadius: 8,
                     fontSize: "0.78rem",
                     background: isLight ? "#ffffff" : "var(--bg-surface)",
-                    color: "var(--text-primary)",
+                    color: isLight ? "#0f172a" : "#f1f5f9",
+                    colorScheme: isLight ? "light" : "dark",
                     border: "1px solid var(--border)",
                   }}
                 >
@@ -3558,15 +3560,14 @@ export default function AssignMovementModal({
         >
           <button
             type="button"
-            className="cashflow-btn secondary"
+            className="cashflow-action-btn secondary"
             onClick={onClose}
-            style={{ padding: "9px 18px", fontSize: "0.84rem" }}
+            style={{ padding: "9px 18px", fontSize: "0.84rem", borderRadius: "10px", justifyContent: "center" }}
           >
             Cancelar
           </button>
           <button
             type="button"
-            className="cashflow-btn primary"
             disabled={isConfirmDisabled}
             onClick={handleConfirm}
             style={{

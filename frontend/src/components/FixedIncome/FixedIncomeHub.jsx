@@ -77,8 +77,8 @@ export default function FixedIncomeHub() {
   const [selectedDetailEntityId, setSelectedDetailEntityId] = useState("ent_nu"); // 'all' | entityId
   const [futureYears, setFutureYears] = useState(0); // 0 to 10 years future simulation
   const [showSimulator, setShowSimulator] = useState(false); // Collapsible simulator
-  const [showFixedIncomeChart, setShowFixedIncomeChart] = useState(true); // Default OPEN as main visual
-  const [showEntitiesSection, setShowEntitiesSection] = useState(false); // Default COLLAPSED
+  const [showFixedIncomeChart, setShowFixedIncomeChart] = useState(false); // Default COLLAPSED
+  const [showEntitiesSection, setShowEntitiesSection] = useState(true); // Default OPEN (único bloque desplegado por defecto)
   const [selectedModalEntityId, setSelectedModalEntityId] = useState(null); // Pre-select entity in modal
   const [fxRate, setFxRate] = useState(4150); // USD-COP fallback
   const [colInflationRate, setColInflationRate] = useState(5.16); // YoY IPC fallback
