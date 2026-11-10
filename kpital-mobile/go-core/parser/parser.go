@@ -43,7 +43,7 @@ var (
 	// Nu Colombia
 	nuSentRecipientRegex = regexp.MustCompile(`(?i)Le enviaste a\s+([^.]+?)(?:\s+en su cuenta|\s+con tu|\.|\$|\.\.\.)`)
 	nuPurchaseRegex      = regexp.MustCompile(`(?i)Compra (?:aprobada )?en\s+([^.]+?)(?:\s+por|\s+con|\.|\$)`)
-	nuReceivedRegex      = regexp.MustCompile(`(?i)Recibiste\s+.*?de\s+([^.]+?)(?:\s+en (?:su|tu) cuenta|\.|\$)`)
+	nuReceivedRegex      = regexp.MustCompile(`(?i)Recibiste\s+.*?de\s+([^.]+?)(?:\s+por\s+\$|\s+por\s+cop|\s+en\s+(?:su|tu)\s+cuenta|\.|\$)`)
 
 	// RappiPay
 	rappiViaRegex      = regexp.MustCompile(`(?i)a través de\s+([A-Za-z0-9\-\s]+?)(?:fue exitoso|\.|\.\.\.|\$)`)
@@ -351,7 +351,12 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 			return "Compra " + strings.TrimSpace(m[1])
 		}
 		if m := nuReceivedRegex.FindStringSubmatch(text); len(m) > 1 {
-			return "Transferencia de " + strings.TrimSpace(m[1])
+			merchant := strings.TrimSpace(m[1])
+			lowerCombined := strings.ToLower(title + " " + text)
+			if strings.Contains(lowerCombined, "devolución") || strings.Contains(lowerCombined, "devolucion") || strings.Contains(lowerCombined, "reembolso") {
+				return "Devolución " + merchant
+			}
+			return "Transferencia de " + merchant
 		}
 		if title != "" && !strings.EqualFold(title, "Nubank") && !strings.EqualFold(title, "Nu Colombia") && !strings.Contains(title, ":") && !strings.Contains(strings.ToLower(title), "cajita") {
 			return "Compra " + strings.TrimSpace(title)

@@ -1844,7 +1844,7 @@ export default function ExpensesLogSection({
                           padding: "4px",
                           fontSize: "0.85rem",
                         }}
-                        title="Editar este gasto o préstamo"
+                        title="Editar movimiento (Gasto, Salida, Ingreso o Préstamo)"
                       >
                         ✏️
                       </button>

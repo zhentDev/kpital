@@ -102,6 +102,19 @@ func TestParserEngineRealWorldCases(t *testing.T) {
 			expectedDesc:    "Transferencia de CARLOS PEREZ",
 		},
 		{
+			name: "Nu Colombia - Refund without trailing por",
+			notification: models.RawNotification{
+				AppName: "Nubank",
+				Title:   "Devolución exitosa",
+				Text:    "Recibiste una devolución de DL GOOGLE PLAY YOUTUBE por $2.000,00 que puedes ver desde tu app.",
+			},
+			expectedBank:    "Nu Colombia",
+			expectedType:    models.TypeCredit,
+			expectedAmount:  2000.0,
+			expectedAccount: "Cuenta Nu Débito (Nómina)",
+			expectedDesc:    "Devolución DL GOOGLE PLAY YOUTUBE",
+		},
+		{
 			name: "Nu Colombia - Pocket expense (Cajita Viaje)",
 			notification: models.RawNotification{
 				AppName: "Nubank",

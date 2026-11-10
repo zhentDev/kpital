@@ -1220,7 +1220,7 @@ export const useCashFlowStore = create(
             });
           }
 
-          if (updatedTx.paymentSource?.type === "credit_card" && updatedTx.paymentSource.targetId) {
+          if (updatedTx.type !== "credit" && updatedTx.paymentSource?.type === "credit_card" && updatedTx.paymentSource.targetId) {
             updatedCards = updatedCards.map((c) => {
               if (c.id === updatedTx.paymentSource.targetId) {
                 return { ...c, usedLimit: (Number(c.usedLimit) || 0) + Number(updatedTx.amount) };
@@ -1232,7 +1232,7 @@ export const useCashFlowStore = create(
           // Real-time synchronization with creditPurchases
           const cleanId = updatedTx.id.replace("cf_", "");
           let updatedPurchases = state.creditPurchases || [];
-          if (updatedTx.paymentSource?.type === "credit_card") {
+          if (updatedTx.type !== "credit" && updatedTx.paymentSource?.type === "credit_card") {
             const cardId = updatedTx.paymentSource.targetId || "cc_nu";
             const exists = updatedPurchases.some((p) => p.id === `cp_${cleanId}` || p.id === updatedTx.id);
             if (exists) {
@@ -1282,11 +1282,13 @@ export const useCashFlowStore = create(
           const updatedLog = (state.expensesLog || []).map((tx) =>
             tx.id === updatedTx.id ? { ...tx, ...updatedTx } : tx
           );
+          const sortedLog = sortMovementsByDateTimeDesc(updatedLog);
 
           return {
-            expensesLog: sortMovementsByDateTimeDesc(updatedLog),
+            expensesLog: sortedLog,
             creditCards: updatedCards,
             creditPurchases: updatedPurchases,
+            debts: syncExpenseLoansToDebts(sortedLog, state.debts || []),
           };
         });
         get().syncStateWithBackend();
@@ -2132,6 +2134,9 @@ export const useCashFlowStore = create(
             return {
               ...e,
               type: "debit", // Asegurar que sea egreso/aporte efectivo imputable al rubro
+              itemType: resolvedPillar === "wealth" ? "wealth_saving" : "expense",
+              isExplicitBudgetIncome: false,
+              isExplicitSankeyIncome: false,
               budgetItemId: envelope.id,
               budgetItemName: envelope.name,
               budgetItemType: resolvedPillar,

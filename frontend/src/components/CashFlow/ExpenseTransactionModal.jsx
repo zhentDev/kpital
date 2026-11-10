@@ -142,16 +142,33 @@ export default function ExpenseTransactionModal({
             editTransaction.destinationAccountId ||
             "payroll";
           setIncomeTargetAccountId(matchedTarget);
-        } else if (editTransaction.paymentSource) {
-          setSourceType(editTransaction.paymentSource.type || "payroll");
+
+          const bName = (editTransaction.budgetItemName || "").toLowerCase();
+          if (bName.includes("salario") || bName.includes("nómina")) setIncomeCategory("salary");
+          else if (bName.includes("freelance") || bName.includes("honorario")) setIncomeCategory("freelance");
+          else if (bName.includes("rendimiento")) setIncomeCategory("yield");
+          else if (bName.includes("devoluc") || bName.includes("reembols")) setIncomeCategory("refund");
+          else setIncomeCategory("transfer");
+        }
+
+        // Siempre hidratar también la cuenta origen para gastos, permitiendo cambiar de Ingreso ↔ Salida limpiamente
+        if (editTransaction.paymentSource) {
+          const psType = editTransaction.paymentSource.type;
+          if (["payroll", "credit_card", "fixed_pocket", "investment_cash", "cash"].includes(psType)) {
+            setSourceType(psType);
+          } else {
+            setSourceType("payroll");
+          }
           if (editTransaction.paymentSource.targetId) {
-            if (editTransaction.paymentSource.type === "credit_card") {
+            if (psType === "credit_card") {
               setSelectedCardId(editTransaction.paymentSource.targetId);
               setCardInstallments(editTransaction.paymentSource.installments || 1);
-            } else if (editTransaction.paymentSource.type === "fixed_pocket") {
+            } else if (psType === "fixed_pocket") {
               setSelectedPocketId(editTransaction.paymentSource.targetId);
             }
           }
+        } else {
+          setSourceType("payroll");
         }
       } else {
         setMovementNature("expense");
@@ -228,6 +245,7 @@ export default function ExpenseTransactionModal({
     }
     return {
       type: "payroll",
+      targetId: payrollAccount.id || "acc_nu_debito",
       targetName: payrollAccount.name || "Cuenta Nu Débito",
     };
   };
@@ -246,7 +264,7 @@ export default function ExpenseTransactionModal({
 
     if (movementNature === "income") {
       // 📥 INCOMING MONEY (Income / Abono)
-      const isTargetPayroll = incomeTargetAccountId === "payroll";
+      const isTargetPayroll = incomeTargetAccountId === "payroll" || incomeTargetAccountId === "acc_nu_debito";
       const targetAcc = isTargetPayroll
         ? { id: "acc_nu_debito", name: payrollAccount.name || "Nu Colombia (Cuenta Nu Débito)" }
         : fixedIncomeAccounts.find((a) => a.id === incomeTargetAccountId) || {
@@ -263,12 +281,22 @@ export default function ExpenseTransactionModal({
         budgetItemId: null,
         budgetItemName: `Ingreso: ${selectedCatObj?.label?.split(" ")[1] || "Transferencia"}`,
         budgetItemType: "income",
+        itemType: "income",
+        subItemId: null,
+        subItemName: null,
         description: description.trim(),
         amount: Number(amount),
         currency,
         date,
         time: time ? (time.length === 5 ? `${time}:00` : time) : null,
         type: "credit",
+        isLoan: false,
+        loanRecipient: null,
+        loanAmount: null,
+        loanDueDate: null,
+        loanStatus: null,
+        isSplit: false,
+        participants: [],
         paymentSource: {
           type: isTargetPayroll ? "payroll" : "fixed_pocket",
           targetId: targetAcc.id,
@@ -293,6 +321,11 @@ export default function ExpenseTransactionModal({
         budgetItemId: selectedBudgetItem?.id || null,
         budgetItemName: selectedBudgetItem?.name || (description.trim() || (isLoan ? `Préstamo (${loanRecipient || 'Deudor'})` : "Sin Asignar")),
         budgetItemType: selectedBudgetItem?.pillarType || (isLoan ? "receivable" : null),
+        itemType: isWealthItem ? "wealth_saving" : "expense",
+        isExplicitBudgetIncome: false,
+        isExplicitSankeyIncome: false,
+        destinationAccountId: isWealthItem ? (editTransaction?.destinationAccountId || null) : null,
+        destinationAccountName: isWealthItem ? (editTransaction?.destinationAccountName || null) : null,
         description: description.trim(),
         amount: Number(amount),
         currency,
@@ -369,117 +402,117 @@ export default function ExpenseTransactionModal({
           </button>
         </div>
 
-        {/* Dual Mode Toggle (Gasto vs Ingreso) */}
-        {!editTransaction && (
-          <div
+        {/* Dual Mode Toggle (Gasto vs Ingreso) — Disponible tanto al crear como al editar */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+            marginTop: 6,
+            marginBottom: 12,
+            padding: 4,
+            borderRadius: "12px",
+            background: isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)",
+            border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMovementNature("expense");
+              if (!editTransaction && !description.trim() && budgetItems.length > 0) {
+                setDescription(budgetItems[0]?.name || "");
+              }
+            }}
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 8,
-              marginTop: 6,
-              marginBottom: 12,
-              padding: 4,
-              borderRadius: "12px",
-              background: isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)",
-              border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "8px 12px",
+              borderRadius: "9px",
+              fontSize: "0.82rem",
+              fontWeight: movementNature === "expense" ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              background:
+                movementNature === "expense"
+                  ? isLight
+                    ? "#ffffff"
+                    : "rgba(239, 68, 68, 0.22)"
+                  : "transparent",
+              border:
+                movementNature === "expense"
+                  ? isLight
+                    ? "1px solid rgba(239, 68, 68, 0.4)"
+                    : "1px solid rgba(239, 68, 68, 0.5)"
+                  : "none",
+              color:
+                movementNature === "expense"
+                  ? isLight
+                    ? "#dc2626"
+                    : "#fca5a5"
+                  : isLight
+                  ? "#64748b"
+                  : "#94a3b8",
+              boxShadow:
+                movementNature === "expense" && isLight
+                  ? "0 2px 6px rgba(239, 68, 68, 0.12)"
+                  : "none",
             }}
           >
-            <button
-              type="button"
-              onClick={() => {
-                setMovementNature("expense");
-                if (budgetItems.length > 0) {
-                  setDescription(budgetItems[0]?.name || "");
-                }
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                padding: "8px 12px",
-                borderRadius: "9px",
-                fontSize: "0.82rem",
-                fontWeight: movementNature === "expense" ? 700 : 500,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                background:
-                  movementNature === "expense"
-                    ? isLight
-                      ? "#ffffff"
-                      : "rgba(239, 68, 68, 0.22)"
-                    : "transparent",
-                border:
-                  movementNature === "expense"
-                    ? isLight
-                      ? "1px solid rgba(239, 68, 68, 0.4)"
-                      : "1px solid rgba(239, 68, 68, 0.5)"
-                    : "none",
-                color:
-                  movementNature === "expense"
-                    ? isLight
-                      ? "#dc2626"
-                      : "#fca5a5"
-                    : isLight
-                    ? "#64748b"
-                    : "#94a3b8",
-                boxShadow:
-                  movementNature === "expense" && isLight
-                    ? "0 2px 6px rgba(239, 68, 68, 0.12)"
-                    : "none",
-              }}
-            >
-              <span>💸</span> Gasto / Salida
-            </button>
+            <span>💸</span> Gasto / Salida
+          </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setMovementNature("income");
+          <button
+            type="button"
+            onClick={() => {
+              setMovementNature("income");
+              if (!editTransaction && !description.trim()) {
                 const cat = INCOME_CATEGORIES.find((c) => c.id === incomeCategory);
                 setDescription(cat?.defaultDesc || "Transferencia recibida");
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                padding: "8px 12px",
-                borderRadius: "9px",
-                fontSize: "0.82rem",
-                fontWeight: movementNature === "income" ? 700 : 500,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                background:
-                  movementNature === "income"
-                    ? isLight
-                      ? "#ffffff"
-                      : "rgba(16, 185, 129, 0.22)"
-                    : "transparent",
-                border:
-                  movementNature === "income"
-                    ? isLight
-                      ? "1px solid rgba(16, 185, 129, 0.4)"
-                      : "1px solid rgba(16, 185, 129, 0.5)"
-                    : "none",
-                color:
-                  movementNature === "income"
-                    ? isLight
-                      ? "#059669"
-                      : "#6ee7b7"
-                    : isLight
-                    ? "#64748b"
-                    : "#94a3b8",
-                boxShadow:
-                  movementNature === "income" && isLight
-                    ? "0 2px 6px rgba(16, 185, 129, 0.12)"
-                    : "none",
-              }}
-            >
-              <span>📥</span> Ingreso / Entrada
-            </button>
-          </div>
-        )}
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "8px 12px",
+              borderRadius: "9px",
+              fontSize: "0.82rem",
+              fontWeight: movementNature === "income" ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              background:
+                movementNature === "income"
+                  ? isLight
+                    ? "#ffffff"
+                    : "rgba(16, 185, 129, 0.22)"
+                  : "transparent",
+              border:
+                movementNature === "income"
+                  ? isLight
+                    ? "1px solid rgba(16, 185, 129, 0.4)"
+                    : "1px solid rgba(16, 185, 129, 0.5)"
+                  : "none",
+              color:
+                movementNature === "income"
+                  ? isLight
+                    ? "#059669"
+                    : "#6ee7b7"
+                  : isLight
+                  ? "#64748b"
+                  : "#94a3b8",
+              boxShadow:
+                movementNature === "income" && isLight
+                  ? "0 2px 6px rgba(16, 185, 129, 0.12)"
+                  : "none",
+            }}
+          >
+            <span>📥</span> Ingreso / Entrada
+          </button>
+        </div>
 
         <p style={{ fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginTop: 2, marginBottom: 12 }}>
           {movementNature === "income"
@@ -1362,7 +1395,11 @@ export default function ExpenseTransactionModal({
                     : undefined,
               }}
             >
-              {movementNature === "income"
+              {editTransaction
+                ? movementNature === "income"
+                  ? `✓ Guardar como Ingreso (+${formatMoney(amount, currency)})`
+                  : `✓ Guardar como Salida (-${formatMoney(amount, currency)})`
+                : movementNature === "income"
                 ? `✓ Registrar Ingreso (+${formatMoney(amount, currency)})`
                 : isWealthItem
                 ? "✓ Registrar Aporte / Inversión"
