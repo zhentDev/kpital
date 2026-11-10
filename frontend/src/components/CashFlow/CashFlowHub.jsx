@@ -104,7 +104,31 @@ export default function CashFlowHub() {
     initFetchFixedIncome,
     creditAccountFromCashFlow,
     revertAccountCredit,
+    revertCashFlowMovement,
+    syncCashFlowMovementToFixedIncome,
   } = useFixedIncomeStore();
+
+  const handleSaveExpenseWithSync = (tx) => {
+    addExpenseTransaction(tx);
+    if (typeof syncCashFlowMovementToFixedIncome === "function") {
+      syncCashFlowMovementToFixedIncome(null, tx);
+    }
+  };
+
+  const handleUpdateExpenseWithSync = (updatedTx) => {
+    const oldTx = (expensesLog || []).find((e) => e.id === updatedTx.id) || null;
+    updateExpenseTransaction(updatedTx);
+    if (typeof syncCashFlowMovementToFixedIncome === "function") {
+      syncCashFlowMovementToFixedIncome(oldTx, updatedTx);
+    }
+  };
+
+  const handleDeleteExpenseWithSync = (id) => {
+    deleteExpenseTransaction(id);
+    if (typeof revertCashFlowMovement === "function") {
+      revertCashFlowMovement({ movementId: id });
+    }
+  };
 
   // Reclasifica el movimiento y, si se eligió una cuenta destino distinta al origen (p.ej. Principal de
   // Finandina o RappiPay desde Nómina para el Fondo de Emergencia), abona el dinero en esa cuenta.
@@ -162,6 +186,21 @@ export default function CashFlowHub() {
           date: mv.date,
           movementId: mv.id,
           description: `Transferencia para ${payload.targetItem?.name || "Ahorro"} (desde ${mv.paymentSource?.targetName || "Nómina"})`,
+        });
+      }
+
+      // Si al asignar el movimiento se cambió la cuenta origen hacia/desde un bolsillo Renta Fija (Rappi / Finandina), sincronizar el retiro
+      const psChanged =
+        payload.paymentSource &&
+        (payload.paymentSource.targetId !== mv.paymentSource?.targetId ||
+          payload.paymentSource.type !== mv.paymentSource?.type ||
+          mv.type === "credit");
+      if (psChanged && typeof syncCashFlowMovementToFixedIncome === "function") {
+        syncCashFlowMovementToFixedIncome(mv, {
+          ...mv,
+          type: "debit",
+          paymentSource: payload.paymentSource,
+          description: payload.targetItem?.name ? `${mv.description || payload.targetItem.name}` : mv.description,
         });
       }
     }
@@ -2779,8 +2818,8 @@ export default function CashFlowHub() {
               onAddItem={handleOpenAddModal}
               onEditItem={handleOpenEditModal}
               onDeleteItem={(id) => handleDeleteItem(id, "needs")}
-              onSaveTransaction={addExpenseTransaction}
-              onDeleteTransaction={deleteExpenseTransaction}
+              onSaveTransaction={handleSaveExpenseWithSync}
+              onDeleteTransaction={handleDeleteExpenseWithSync}
               onEditTransaction={(tx) => {
                 setExpenseToEdit(tx);
                 setExpenseModalOpen(true);
@@ -2804,8 +2843,8 @@ export default function CashFlowHub() {
               onAddItem={handleOpenAddModal}
               onEditItem={handleOpenEditModal}
               onDeleteItem={(id) => handleDeleteItem(id, "wants")}
-              onSaveTransaction={addExpenseTransaction}
-              onDeleteTransaction={deleteExpenseTransaction}
+              onSaveTransaction={handleSaveExpenseWithSync}
+              onDeleteTransaction={handleDeleteExpenseWithSync}
               onEditTransaction={(tx) => {
                 setExpenseToEdit(tx);
                 setExpenseModalOpen(true);
@@ -2829,8 +2868,8 @@ export default function CashFlowHub() {
               onAddItem={handleOpenAddModal}
               onEditItem={handleOpenEditModal}
               onDeleteItem={(id) => handleDeleteItem(id, "wealth")}
-              onSaveTransaction={addExpenseTransaction}
-              onDeleteTransaction={deleteExpenseTransaction}
+              onSaveTransaction={handleSaveExpenseWithSync}
+              onDeleteTransaction={handleDeleteExpenseWithSync}
               onEditTransaction={(tx) => {
                 setExpenseToEdit(tx);
                 setExpenseModalOpen(true);
@@ -2969,8 +3008,8 @@ export default function CashFlowHub() {
                 setExpenseModalOpen(true);
               }}
               onOpenPaymentModal={() => setPaymentModalOpen(true)}
-              onSaveTransaction={addExpenseTransaction}
-              onDeleteTransaction={deleteExpenseTransaction}
+              onSaveTransaction={handleSaveExpenseWithSync}
+              onDeleteTransaction={handleDeleteExpenseWithSync}
               onDeletePayment={deleteCreditCardPayment}
               onConfirmSettlement={settleLoanTransaction}
               onUpdateSplit={updateExpenseLoanSplit}
@@ -3326,19 +3365,8 @@ export default function CashFlowHub() {
         creditCards={creditCards}
         fixedIncomeAccounts={fixedAccounts}
         editTransaction={expenseToEdit}
-        onSaveExpenseTransaction={(tx) => {
-          addExpenseTransaction(tx);
-          if (tx.type === "credit" && tx.paymentSource?.targetId && creditAccountFromCashFlow) {
-            creditAccountFromCashFlow({
-              accountId: tx.paymentSource.targetId,
-              amount: tx.amount,
-              date: tx.date,
-              description: tx.description,
-              movementId: tx.id,
-            });
-          }
-        }}
-        onUpdateExpenseTransaction={updateExpenseTransaction}
+        onSaveExpenseTransaction={handleSaveExpenseWithSync}
+        onUpdateExpenseTransaction={handleUpdateExpenseWithSync}
       />
 
       {/* ── 17. Credit Card Debt Payment & Quota Liberation Modal ───── */}

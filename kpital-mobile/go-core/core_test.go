@@ -76,3 +76,50 @@ func TestProcessNotification(t *testing.T) {
 		}
 	})
 }
+
+func TestMatchFixedIncomeAccountFallback(t *testing.T) {
+	entities := []fiEntity{
+		{ID: "ent_rappipay", Name: "RappiPay"},
+		{ID: "ent_finandina", Name: "Banco Finandina"},
+		{ID: "ent_nu", Name: "Nu Colombia"},
+	}
+	accounts := []fiAccount{
+		{ID: "acc_1789616855068", EntityID: "ent_rappipay", Name: "Impresora", Balance: 296483.88, Currency: "COP"},
+		{ID: "acc_1789760692910", EntityID: "ent_rappipay", Name: "Fondo de emergencia", Balance: 228400.16, Currency: "COP"},
+		{ID: "acc_finandina_principal", EntityID: "ent_finandina", Name: "Cuenta Finandina (Principal)", Balance: 0, Currency: "COP"},
+		{ID: "acc_1786771927434", EntityID: "ent_finandina", Name: "Bolsillo de Ahorro — Fondo de Emergencia (FlexiDigital +)", Balance: 485945.92, Currency: "COP"},
+		{ID: "acc_nu_debito", EntityID: "ent_nu", Name: "Cuenta Nu Débito", Balance: 100000, Currency: "COP"},
+		{ID: "acc_nu_cajita", EntityID: "ent_nu", Name: "Cajita Nu", Balance: 50000, Currency: "COP"},
+	}
+
+	if got := matchFixedIncomeAccount("RappiPay", "Impresora", entities, accounts); got == nil || got.ID != "acc_1789616855068" {
+		t.Fatalf("Expected Impresora account, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Rappi", "Fondo de emergencia", entities, accounts); got == nil || got.ID != "acc_1789760692910" {
+		t.Fatalf("Expected Fondo de emergencia account, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Banco Finandina", "Cuenta Finandina", entities, accounts); got == nil || got.ID != "acc_1786771927434" {
+		t.Fatalf("Expected funded Finandina FlexiDigital+ pocket, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Nu Colombia", "Cuenta Nu Débito", entities, accounts); got != nil {
+		t.Fatalf("Expected Nu Debito to be skipped, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Nu Colombia", "Tarjeta Nu", entities, accounts); got != nil {
+		t.Fatalf("Expected credit card to be skipped, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Nu Colombia", "Cajita Nu", entities, accounts); got == nil || got.ID != "acc_nu_cajita" {
+		t.Fatalf("Expected Cajita Nu account, got %+v", got)
+	}
+}
+
+func TestBuildFixedIncomeDescription(t *testing.T) {
+	if got := buildFixedIncomeDescription("Préstamo Tatiana", "debit"); got != "Retiro: Préstamo Tatiana" {
+		t.Fatalf("Unexpected debit description: %s", got)
+	}
+	if got := buildFixedIncomeDescription("Retiro Bre-B", "debit"); got != "Retiro Bre-B" {
+		t.Fatalf("Unexpected already-prefixed description: %s", got)
+	}
+	if got := buildFixedIncomeDescription("Pago cliente", "credit"); got != "Pago cliente" {
+		t.Fatalf("Unexpected credit description: %s", got)
+	}
+}

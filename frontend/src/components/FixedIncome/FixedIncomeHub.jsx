@@ -25,6 +25,17 @@ const PERIOD_UNLOCK_DAYS = {
   "5Y": 1095,
 };
 
+const isTransactionDebit = (tx) => {
+  const descLower = (tx?.description || "").toLowerCase();
+  return (
+    tx?.type === "debit" ||
+    descLower.includes("retiraste") ||
+    descLower.includes("retiro") ||
+    descLower.includes("invertiste") ||
+    Number(tx?.amount) < 0
+  );
+};
+
 export default function FixedIncomeHub() {
   const { theme } = useTheme();
   const isLight = theme === "light";
@@ -3213,12 +3224,7 @@ export default function FixedIncomeHub() {
 
                         const filteredTx = accTx.filter((tx) => {
                           const descLower = (tx.description || "").toLowerCase();
-                          const isDebit =
-                            tx.type === "debit" ||
-                            descLower.includes("retiraste") ||
-                            descLower.includes("retiro") ||
-                            descLower.includes("invertiste") ||
-                            Number(tx.amount) < 0;
+                          const isDebit = isTransactionDebit(tx);
                           const isCredit = !isDebit;
 
                           if (currentType === "credit" && !isCredit) return false;
@@ -3235,11 +3241,12 @@ export default function FixedIncomeHub() {
                         });
 
                         const totalCredits = filteredTx
-                          .filter((t) => t.type === "credit" || (!t.type && Number(t.amount) > 0))
+                          .filter((t) => !isTransactionDebit(t))
                           .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
                         const totalDebits = filteredTx
-                          .filter((t) => t.type === "debit" || Number(t.amount) < 0)
+                          .filter((t) => isTransactionDebit(t))
                           .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
+                        const netMovements = totalCredits - totalDebits;
 
                         const availableYears = Array.from(
                           new Set(
@@ -3782,9 +3789,11 @@ export default function FixedIncomeHub() {
                                     <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: "0.76rem", color: "var(--text-secondary)", marginBottom: 10 }}>
                                       <span>Mostrando: <strong style={{ color: "var(--text-primary)" }}>{filteredTx.length}</strong> de {accTx.length}</span>
                                       <span>•</span>
-                                      <span>Total Entradas: <strong style={{ color: "var(--gain)" }}>+${totalCredits.toLocaleString("es-CO", { maximumFractionDigits: 0 })}</strong></span>
+                                      <span>Total Entradas: <strong style={{ color: "var(--gain)" }}>+${totalCredits.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></span>
                                       <span>•</span>
-                                      <span>Total Salidas: <strong style={{ color: "var(--loss)" }}>-${totalDebits.toLocaleString("es-CO", { maximumFractionDigits: 0 })}</strong></span>
+                                      <span>Total Salidas: <strong style={{ color: "var(--loss)" }}>-${totalDebits.toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></span>
+                                      <span>•</span>
+                                      <span>Neto (Entradas − Salidas): <strong style={{ color: netMovements >= 0 ? "var(--accent-primary)" : "var(--loss)" }}>{netMovements >= 0 ? "+" : "-"}${Math.abs(netMovements).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</strong></span>
                                     </div>
                                   )}
                                 </>
@@ -3819,13 +3828,7 @@ export default function FixedIncomeHub() {
                                   </thead>
                                   <tbody>
                                     {filteredTx.map((tx, txIdx) => {
-                                      const descLower = (tx.description || "").toLowerCase();
-                                      const isDebit =
-                                        tx.type === "debit" ||
-                                        descLower.includes("retiraste") ||
-                                        descLower.includes("retiro") ||
-                                        descLower.includes("invertiste") ||
-                                        Number(tx.amount) < 0;
+                                      const isDebit = isTransactionDebit(tx);
                                       const isCredit = !isDebit;
                                       const isSelected = selectedTxIds.has(tx.id);
 

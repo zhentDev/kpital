@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -54,7 +55,7 @@ var (
 		AutoSync: true,
 	}
 	httpClient = &http.Client{
-		Timeout: 12 * time.Second,
+		Timeout: 30 * time.Second,
 	}
 	parserEngine = parser.NewEngine()
 )
@@ -262,8 +263,301 @@ func SendTransactionToBackend(bank, account, description, txType string, amount 
 	return SendTransactionWithRubroToBackend(bank, account, description, txType, amount, rawText, "", "", "")
 }
 
-// syncToSupabaseDirect inserts the transaction directly into Supabase PostgreSQL (cf_movements)
-// ensuring zero lag and 100% resilience even if the backend cloud server is offline or sleeping.
+type fiEntity struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type fiAccount struct {
+	ID        string                 `json:"id"`
+	EntityID  string                 `json:"entity_id"`
+	Name      string                 `json:"name"`
+	Balance   float64                `json:"balance"`
+	Currency  string                 `json:"currency"`
+	ExtraJSON map[string]interface{} `json:"extra_json"`
+}
+
+func supabaseDo(method, path string, payload interface{}, prefer string) ([]byte, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewBuffer(jsonBytes)
+	}
+
+	endpoint := fmt.Sprintf("%s%s", SupabaseRestUrl, path)
+	req, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("apikey", SupabaseAnonKey)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", SupabaseAnonKey))
+	req.Header.Set("Content-Type", "application/json")
+	if prefer != "" {
+		req.Header.Set("Prefer", prefer)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("supabase returned HTTP %d: %s", resp.StatusCode, string(respBytes))
+	}
+	return respBytes, nil
+}
+
+func isCardOrExcludedAccount(account string) bool {
+	s := strings.ToLower(strings.TrimSpace(account))
+	return strings.Contains(s, "tarjeta") ||
+		strings.Contains(s, "card") ||
+		strings.Contains(s, "visa") ||
+		strings.Contains(s, "mastercard") ||
+		strings.Contains(s, "rappicard") ||
+		strings.Contains(s, "nu débito") ||
+		strings.Contains(s, "nu debito") ||
+		strings.Contains(s, "efectivo") ||
+		strings.Contains(s, "cash") ||
+		strings.Contains(s, "caja social")
+}
+
+func bankCanonicalKey(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.Contains(s, "rappipay"), strings.Contains(s, "rappi"):
+		return "rappipay"
+	case strings.Contains(s, "finandina"):
+		return "finandina"
+	case strings.Contains(s, "nubank"), strings.Contains(s, "nu colombia"), s == "nu", strings.HasPrefix(s, "nu "), strings.Contains(s, "_nu"):
+		return "nu"
+	case strings.Contains(s, "plenti"):
+		return "plenti"
+	default:
+		return s
+	}
+}
+
+func isPrimaryFiAccount(acc fiAccount) bool {
+	if acc.ExtraJSON != nil {
+		if v, ok := acc.ExtraJSON["isPrimary"].(bool); ok && v {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(acc.Name), "principal")
+}
+
+func matchFixedIncomeAccount(bank, account string, entities []fiEntity, accounts []fiAccount) *fiAccount {
+	if isCardOrExcludedAccount(account) {
+		return nil
+	}
+	bankKey := bankCanonicalKey(bank)
+	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" {
+		return nil
+	}
+
+	targetEntityIDs := make(map[string]bool)
+	for _, ent := range entities {
+		if bankCanonicalKey(ent.Name) == bankKey || bankCanonicalKey(ent.ID) == bankKey {
+			targetEntityIDs[ent.ID] = true
+		}
+	}
+
+	var entityAccounts []fiAccount
+	for _, acc := range accounts {
+		if acc.ID == "acc_nu_debito" || isCardOrExcludedAccount(acc.Name) {
+			continue
+		}
+		if targetEntityIDs[acc.EntityID] || bankCanonicalKey(acc.EntityID) == bankKey {
+			entityAccounts = append(entityAccounts, acc)
+		}
+	}
+	if len(entityAccounts) == 0 {
+		return nil
+	}
+
+	trimmedQuery := strings.TrimSpace(account)
+	lowerQuery := strings.ToLower(trimmedQuery)
+
+	if trimmedQuery != "" {
+		for i := range entityAccounts {
+			if strings.EqualFold(strings.TrimSpace(entityAccounts[i].Name), trimmedQuery) {
+				acc := entityAccounts[i]
+				return &acc
+			}
+		}
+	}
+
+	isGeneric := lowerQuery == "" ||
+		strings.Contains(lowerQuery, "principal") ||
+		strings.Contains(lowerQuery, "general") ||
+		strings.Contains(lowerQuery, "ahorros") ||
+		strings.Contains(lowerQuery, "flexidigital") ||
+		bankCanonicalKey(lowerQuery) == bankKey
+
+	if trimmedQuery != "" && !isGeneric {
+		for i := range entityAccounts {
+			lowerName := strings.ToLower(entityAccounts[i].Name)
+			if strings.Contains(lowerName, lowerQuery) || (len(lowerName) > 3 && strings.Contains(lowerQuery, lowerName)) {
+				acc := entityAccounts[i]
+				return &acc
+			}
+		}
+	}
+
+	if !isGeneric {
+		return nil
+	}
+
+	if len(entityAccounts) == 1 {
+		acc := entityAccounts[0]
+		return &acc
+	}
+
+	var fundedPrimary *fiAccount
+	var fundedAccounts []fiAccount
+	var firstPrimary *fiAccount
+
+	for i := range entityAccounts {
+		acc := entityAccounts[i]
+		isPrimary := isPrimaryFiAccount(acc)
+		if isPrimary && firstPrimary == nil {
+			firstPrimary = &acc
+		}
+		if acc.Balance > 0 {
+			fundedAccounts = append(fundedAccounts, acc)
+			if isPrimary && fundedPrimary == nil {
+				fundedPrimary = &acc
+			}
+		}
+	}
+
+	if fundedPrimary != nil {
+		return fundedPrimary
+	}
+	if len(fundedAccounts) == 1 {
+		return &fundedAccounts[0]
+	}
+	if firstPrimary != nil {
+		return firstPrimary
+	}
+	acc := entityAccounts[0]
+	return &acc
+}
+
+func resolveFixedIncomeAccount(bank, account string) (*fiAccount, error) {
+	if isCardOrExcludedAccount(account) {
+		return nil, nil
+	}
+	bankKey := bankCanonicalKey(bank)
+	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" {
+		return nil, nil
+	}
+
+	entBytes, err := supabaseDo("GET", fmt.Sprintf("/fi_entities?user_id=eq.%s&select=id,name", DefaultOwnerId), nil, "")
+	if err != nil {
+		return nil, err
+	}
+	var entities []fiEntity
+	if err := json.Unmarshal(entBytes, &entities); err != nil {
+		return nil, err
+	}
+
+	accBytes, err := supabaseDo("GET", fmt.Sprintf("/fi_accounts?user_id=eq.%s&select=id,entity_id,name,balance,currency,extra_json", DefaultOwnerId), nil, "")
+	if err != nil {
+		return nil, err
+	}
+	var accounts []fiAccount
+	if err := json.Unmarshal(accBytes, &accounts); err != nil {
+		return nil, err
+	}
+
+	return matchFixedIncomeAccount(bank, account, entities, accounts), nil
+}
+
+func buildFixedIncomeDescription(description, txType string) string {
+	desc := strings.TrimSpace(description)
+	if txType == "debit" {
+		if desc == "" {
+			return "Retiro automático móvil"
+		}
+		if strings.HasPrefix(strings.ToLower(desc), "retiro") {
+			return desc
+		}
+		return "Retiro: " + desc
+	}
+	if desc == "" {
+		return "Depósito automático móvil"
+	}
+	return desc
+}
+
+func syncFixedIncomeDirect(matchedAcc *fiAccount, cfTxId, bank, description, txType string, amount float64, rawText, budgetItemName, dateStr, timeStr string) error {
+	if matchedAcc == nil || (txType != "debit" && txType != "credit") || amount <= 0 {
+		return nil
+	}
+
+	signedAmount := math.Abs(amount)
+	if txType == "debit" {
+		signedAmount = -signedAmount
+	}
+	newBalance := math.Round(math.Max(0, matchedAcc.Balance+signedAmount)*100) / 100
+
+	curr := matchedAcc.Currency
+	if curr == "" {
+		curr = "COP"
+	}
+	cat := strings.TrimSpace(budgetItemName)
+	if cat == "" {
+		cat = "Movimiento Móvil"
+	}
+
+	fiTxPayload := map[string]interface{}{
+		"id":          "tx_cf_" + cfTxId,
+		"user_id":     DefaultOwnerId,
+		"account_id":  matchedAcc.ID,
+		"entity_id":   matchedAcc.EntityID,
+		"date":        dateStr,
+		"time":        timeStr,
+		"type":        txType,
+		"amount":      signedAmount,
+		"currency":    curr,
+		"description": buildFixedIncomeDescription(description, txType),
+		"category":    cat,
+		"source":      "mobile_direct_fallback",
+		"extra_json": map[string]interface{}{
+			"cfMovementId": cfTxId,
+			"rawText":      rawText,
+			"bank":         bank,
+		},
+	}
+
+	if _, err := supabaseDo("POST", "/fi_transactions", fiTxPayload, "return=minimal"); err != nil {
+		return err
+	}
+
+	extraAcc := make(map[string]interface{})
+	for k, v := range matchedAcc.ExtraJSON {
+		extraAcc[k] = v
+	}
+	extraAcc["balance"] = newBalance
+
+	accPatch := map[string]interface{}{
+		"balance":    newBalance,
+		"extra_json": extraAcc,
+	}
+	accPath := fmt.Sprintf("/fi_accounts?id=eq.%s&user_id=eq.%s", url.QueryEscape(matchedAcc.ID), DefaultOwnerId)
+	_, err := supabaseDo("PATCH", accPath, accPatch, "return=minimal")
+	return err
+}
+
+// syncToSupabaseDirect inserts the transaction directly into Supabase PostgreSQL (cf_movements + fi_transactions/fi_accounts)
+// as a resilient fallback when the backend webhook is unavailable or times out.
 func syncToSupabaseDirect(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string) error {
 	now := time.Now().UTC().Add(-5 * time.Hour) // America/Bogota (UTC-5)
 	period := now.Format("2006-01")
@@ -275,12 +569,13 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 	isCard := strings.Contains(strings.ToLower(account), "tarjeta") ||
 		strings.Contains(strings.ToLower(account), "card") ||
 		strings.Contains(strings.ToLower(account), "visa") ||
-		strings.Contains(strings.ToLower(account), "mastercard")
+		strings.Contains(strings.ToLower(account), "mastercard") ||
+		strings.Contains(strings.ToLower(account), "rappicard")
 
 	sourceType := "fixed_pocket"
 	if isCard {
 		sourceType = "credit_card"
-	} else if strings.Contains(strings.ToLower(account), "nomina") || strings.Contains(strings.ToLower(account), "nómina") || strings.Contains(strings.ToLower(account), "nu débito") {
+	} else if strings.Contains(strings.ToLower(account), "nomina") || strings.Contains(strings.ToLower(account), "nómina") || strings.Contains(strings.ToLower(account), "nu débito") || strings.Contains(strings.ToLower(account), "nu debito") {
 		sourceType = "payroll"
 	}
 
@@ -289,23 +584,31 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		targetName = bank
 	}
 
+	matchedAcc, _ := resolveFixedIncomeAccount(bank, account)
+	paymentSource := map[string]interface{}{
+		"type":       sourceType,
+		"targetName": targetName,
+	}
+	if matchedAcc != nil {
+		paymentSource["type"] = "fixed_pocket"
+		paymentSource["targetId"] = matchedAcc.ID
+		paymentSource["targetName"] = matchedAcc.Name
+	}
+
 	payload := map[string]interface{}{
-		"id":               txId,
-		"user_id":          DefaultOwnerId,
-		"period":           period,
-		"date":             dateStr,
-		"time":             timeStr,
-		"type":             txType,
-		"amount":           amount,
-		"currency":         "COP",
-		"description":      description,
-		"budget_item_id":   budgetItemId,
-		"budget_item_name": budgetItemName,
-		"budget_item_type": budgetItemType,
-		"payment_source_json": map[string]interface{}{
-			"type":       sourceType,
-			"targetName": targetName,
-		},
+		"id":                  txId,
+		"user_id":             DefaultOwnerId,
+		"period":              period,
+		"date":                dateStr,
+		"time":                timeStr,
+		"type":                txType,
+		"amount":              amount,
+		"currency":            "COP",
+		"description":         description,
+		"budget_item_id":      budgetItemId,
+		"budget_item_name":    budgetItemName,
+		"budget_item_type":    budgetItemType,
+		"payment_source_json": paymentSource,
 		"extra_json": map[string]interface{}{
 			"source":  "kpital_mobile_direct",
 			"rawText": rawText,
@@ -314,43 +617,19 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		},
 	}
 
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
+	if _, err := supabaseDo("POST", "/cf_movements", payload, "return=minimal"); err != nil {
 		return err
 	}
 
-	url := fmt.Sprintf("%s/cf_movements", SupabaseRestUrl)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("apikey", SupabaseAnonKey)
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", SupabaseAnonKey))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Prefer", "return=minimal")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("supabase returned HTTP %d: %s", resp.StatusCode, string(b))
+	if matchedAcc != nil {
+		return syncFixedIncomeDirect(matchedAcc, txId, bank, description, txType, amount, rawText, budgetItemName, dateStr, timeStr)
 	}
 	return nil
 }
 
 // SendTransactionWithRubroToBackend dispatches the user-confirmed transaction with both pocket and budget item (rubro).
-// Implements dual-sync: posts to backend webhook AND directly to Supabase PostgreSQL for 100% reliable real-time sync.
+// Calls the backend webhook first (which updates both Renta Fija and Flujo) and falls back to direct Supabase sync if offline.
 func SendTransactionWithRubroToBackend(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string) string {
-	// 1. Dual-Sync: Insert directly into Supabase PostgreSQL
-	go func() {
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
-	}()
-
 	cfgLock.RLock()
 	currentCfg := appConfig
 	cfgLock.RUnlock()
@@ -371,7 +650,7 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
-		// If JSON marshal fails, still try direct sync
+		// If JSON marshal fails, fall back to direct Supabase sync
 		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
 		return `{"success":true,"message":"Movimiento registrado en Kpital"}`
 	}

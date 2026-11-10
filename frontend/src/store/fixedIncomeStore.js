@@ -81,12 +81,21 @@ export const useFixedIncomeStore = create((set, get) => ({
       };
       const isZombieOrOrphanTx = (t) => {
         if (!t || !t.id) return true;
-        return t.id === "tx_int_deuda_mike_transfer_in" || t.id === "tx_deuda_mike_20261024_01";
+        return (
+          t.id === "tx_int_deuda_mike_transfer_in" ||
+          t.id === "tx_deuda_mike_20261024_01" ||
+          t.id === "tx_int_finandina_in_350k" ||
+          t.id === "tx_int_finandina_out_350k" ||
+          t.id === "tx_cf_tx_sub_1792795620492_e98s"
+        );
       };
       const deletedTxSet = new Set([
         ...(get().deletedTxIds || []),
         "tx_int_deuda_mike_transfer_in",
         "tx_deuda_mike_20261024_01",
+        "tx_int_finandina_in_350k",
+        "tx_int_finandina_out_350k",
+        "tx_cf_tx_sub_1792795620492_e98s",
       ]);
 
       const rawTransactions = Array.isArray(res?.transactions) ? res.transactions : [];
@@ -209,14 +218,7 @@ export const useFixedIncomeStore = create((set, get) => ({
             return { ...acc, balance: Math.max(0, net) };
           }
         }
-        if (acc.id === "acc_1786771927434") {
-          const hasDeposit350k = cleanFinandinaTxs.some(
-            (t) => t.accountId === "acc_1786771927434" && Number(t.amount) === 350000
-          );
-          if (hasDeposit350k && Number(acc.balance || 0) < 900000) {
-            return { ...acc, balance: 994145.92 };
-          }
-        }
+
         return acc;
       });
       finalTransactions = cleanFinandinaTxs;
@@ -306,12 +308,39 @@ export const useFixedIncomeStore = create((set, get) => ({
       rateHistory: [{ date: new Date().toISOString().slice(0, 10), rateEA: rate }],
       createdAt: new Date().toISOString(),
     };
+    const openingTx = newAccount.balance > 0
+      ? {
+          id: `tx_init_${newAccount.id}_${Date.now()}`,
+          accountId: newAccount.id,
+          entityId: newAccount.entityId,
+          date: new Date().toISOString().slice(0, 10),
+          description: `Saldo Inicial / Apertura ${newAccount.name}`,
+          amount: newAccount.balance,
+          currency: newAccount.currency,
+          type: "credit",
+          category: "Saldo Inicial",
+          source: "account_creation",
+          createdAt: new Date().toISOString(),
+        }
+      : null;
+
+    const nextAccounts = [...get().accounts, newAccount];
+    const nextTxs = openingTx ? [openingTx, ...(get().transactions || [])] : get().transactions;
+
     try {
       await createFixedIncomeAccount(newAccount);
-      set((state) => ({ accounts: [...state.accounts, newAccount] }));
+      set({ accounts: nextAccounts, transactions: nextTxs });
+      if (openingTx) {
+        await syncFixedIncomeStateApi({
+          entities: get().entities,
+          accounts: nextAccounts,
+          cdts: get().cdts,
+          transactions: nextTxs,
+        });
+      }
       toast.success(`Cuenta ${newAccount.name} agregada`);
     } catch {
-      set((state) => ({ accounts: [...state.accounts, newAccount] }));
+      set({ accounts: nextAccounts, transactions: nextTxs });
     }
   },
 
@@ -513,19 +542,34 @@ export const useFixedIncomeStore = create((set, get) => ({
   },
 
   // ── Inter-account Money Movements ─────────────────
-  creditAccountFromCashFlow: async ({ accountId, amount, date, description, movementId, usdAmount }) => {
+  applyCashFlowAccountMovement: async ({
+    accountId,
+    amount,
+    date,
+    description,
+    movementId,
+    txType = "credit",
+    usdAmount,
+    silent = false,
+  }) => {
     const amt = Math.abs(Number(amount || 0));
     const state = get();
     const acc = state.accounts.find((a) => a.id === accountId);
     if (!acc || amt <= 0) return;
+
+    const cleanMovId = movementId ? String(movementId).replace(/^cf_/, "") : null;
     const txId = `tx_cf_${movementId || Date.now()}`;
     const isDuplicate = (state.transactions || []).some(
       (t) =>
         t.id === txId ||
-        (movementId && (t.id === movementId || String(t.id).includes(String(movementId)) || String(movementId).includes(String(t.id))))
+        (movementId &&
+          (t.id === movementId ||
+            t.id === cleanMovId ||
+            t.id === `tx_cf_${cleanMovId}` ||
+            String(t.id).includes(String(movementId))))
     );
     if (isDuplicate) {
-      toast("Este movimiento ya existe en esta cuenta", { icon: "ℹ️" });
+      if (!silent) toast("Este movimiento ya existe en esta cuenta", { icon: "ℹ️" });
       return;
     }
 
@@ -535,27 +579,81 @@ export const useFixedIncomeStore = create((set, get) => ({
       if (usdAmount && Number(usdAmount) > 0) {
         finalAmount = Number(usdAmount);
       } else if (amt > 1000) {
-        const fx = Number(state.fxRate) > 0 ? Number(state.fxRate) : (amt === 200000 ? (200000 / 63.56) : 4150);
+        const fx = Number(state.fxRate) > 0 ? Number(state.fxRate) : (amt === 200000 ? 200000 / 63.56 : 4150);
         finalAmount = Number((amt / fx).toFixed(2));
       }
     }
 
-    const newTx = {
-      id: txId,
-      accountId: acc.id,
-      entityId: acc.entityId,
-      date: date || new Date().toISOString().slice(0, 10),
-      description: description || "Transferencia recibida",
-      amount: finalAmount,
-      currency: acc.currency || "COP",
-      type: "credit",
-      category: "Transferencia desde Flujo de Caja",
-      source: "cashflow_assignment",
-      createdAt: new Date().toISOString(),
-    };
-    const updatedAcc = { ...acc, balance: Number((Number(acc.balance || 0) + finalAmount).toFixed(2)) };
-    const updatedAccounts = state.accounts.map((a) => (a.id === acc.id ? updatedAcc : a));
-    const updatedTx = [newTx, ...(state.transactions || [])];
+    const isDebit = txType === "debit";
+    const currentBal = Number(acc.balance || 0);
+    const txDate = date || new Date().toISOString().slice(0, 10);
+    const createdAt = new Date().toISOString();
+
+    let updatedAccounts = [...state.accounts];
+    const newTxsToInsert = [];
+
+    if (isDebit && acc.fallbackAccountId && finalAmount > currentBal && currentBal > 0) {
+      // Cascada: cubre hasta donde alcance el bolsillo y descuenta el resto de la cuenta principal de respaldo
+      const shortfall = Number((finalAmount - currentBal).toFixed(2));
+      const fallbackAcc = state.accounts.find((a) => a.id === acc.fallbackAccountId);
+
+      newTxsToInsert.push({
+        id: txId,
+        accountId: acc.id,
+        entityId: acc.entityId,
+        date: txDate,
+        description: `${description || "Retiro"} (Parcial en ${acc.name})`,
+        amount: -currentBal,
+        currency: acc.currency || "COP",
+        type: "debit",
+        category: "Retiro / Gasto",
+        source: "cashflow_sync",
+        createdAt,
+      });
+
+      updatedAccounts = updatedAccounts.map((a) => {
+        if (a.id === acc.id) return { ...a, balance: 0 };
+        if (fallbackAcc && a.id === fallbackAcc.id) {
+          return { ...a, balance: Math.max(0, Number((Number(a.balance || 0) - shortfall).toFixed(2))) };
+        }
+        return a;
+      });
+
+      if (fallbackAcc) {
+        newTxsToInsert.push({
+          id: `${txId}_fb`,
+          accountId: fallbackAcc.id,
+          entityId: fallbackAcc.entityId,
+          date: txDate,
+          description: `${description || "Retiro"} (Respaldo cascada desde ${acc.name})`,
+          amount: -shortfall,
+          currency: fallbackAcc.currency || "COP",
+          type: "debit",
+          category: "Retiro / Gasto",
+          source: "cashflow_sync",
+          createdAt,
+        });
+      }
+    } else {
+      const signedAmount = isDebit ? -finalAmount : finalAmount;
+      const newBalance = Math.max(0, Number((currentBal + signedAmount).toFixed(2)));
+      newTxsToInsert.push({
+        id: txId,
+        accountId: acc.id,
+        entityId: acc.entityId,
+        date: txDate,
+        description: description || (isDebit ? `Retiro: ${acc.name}` : "Transferencia recibida"),
+        amount: signedAmount,
+        currency: acc.currency || "COP",
+        type: isDebit ? "debit" : "credit",
+        category: isDebit ? "Retiro / Gasto" : "Transferencia desde Flujo de Caja",
+        source: "cashflow_sync",
+        createdAt,
+      });
+      updatedAccounts = updatedAccounts.map((a) => (a.id === acc.id ? { ...a, balance: newBalance } : a));
+    }
+
+    const updatedTx = [...newTxsToInsert, ...(state.transactions || [])];
     set({ accounts: updatedAccounts, transactions: updatedTx });
     try {
       await syncFixedIncomeStateApi({
@@ -565,39 +663,134 @@ export const useFixedIncomeStore = create((set, get) => ({
         transactions: updatedTx,
       });
     } catch (e) {
-      console.warn("[FixedIncome] creditAccountFromCashFlow sync failed:", e);
+      console.warn("[FixedIncome] applyCashFlowAccountMovement sync failed:", e);
     }
-    const formattedDisplay = isTargetUsd
-      ? `+$${finalAmount.toFixed(2)} USD`
-      : `+$${finalAmount.toLocaleString("es-CO")} COP`;
-    toast.success(`${formattedDisplay} abonados en ${acc.name}`, { icon: "🏦" });
+    if (!silent) {
+      const formattedDisplay = isTargetUsd
+        ? `${isDebit ? "-" : "+"}$${finalAmount.toFixed(2)} USD`
+        : `${isDebit ? "-" : "+"}$${finalAmount.toLocaleString("es-CO")} COP`;
+      toast.success(
+        isDebit
+          ? `${formattedDisplay} retirados de ${acc.name}`
+          : `${formattedDisplay} abonados en ${acc.name}`,
+        { icon: isDebit ? "📤" : "🏦" }
+      );
+    }
   },
 
-  revertAccountCredit: async ({ accountId, amount, movementId }) => {
-    const amt = Math.abs(Number(amount || 0));
+  creditAccountFromCashFlow: async (args) => {
+    return get().applyCashFlowAccountMovement({ ...args, txType: "credit" });
+  },
+
+  debitAccountFromCashFlow: async (args) => {
+    return get().applyCashFlowAccountMovement({ ...args, txType: "debit" });
+  },
+
+  revertCashFlowMovement: async ({ movementId }) => {
+    if (!movementId) return false;
     const state = get();
-    const acc = state.accounts.find((a) => a.id === accountId);
-    if (!acc || amt <= 0) return;
+    const cleanMovId = String(movementId).replace(/^cf_/, "");
     const txId = `tx_cf_${movementId}`;
-    const txToRevert = (state.transactions || []).find(
-      (t) => t.id === txId || (movementId && (t.id === movementId || String(t.id).includes(String(movementId))))
+
+    const matchedTxs = (state.transactions || []).filter(
+      (t) =>
+        t.id === txId ||
+        t.id === `${txId}_fb` ||
+        t.id === movementId ||
+        t.id === cleanMovId ||
+        t.id === `tx_cf_${cleanMovId}` ||
+        t.id === `tx_cf_${cleanMovId}_fb`
     );
-    const revertAmount = txToRevert ? Math.abs(Number(txToRevert.amount || 0)) : amt;
-    const updatedTx = (state.transactions || []).filter(
-      (t) => t.id !== txId && (!movementId || !String(t.id).includes(String(movementId)))
-    );
-    const updatedAcc = { ...acc, balance: Math.max(0, Number((Number(acc.balance || 0) - revertAmount).toFixed(2))) };
-    const updatedAccounts = state.accounts.map((a) => (a.id === acc.id ? updatedAcc : a));
-    set({ accounts: updatedAccounts, transactions: updatedTx });
+
+    if (matchedTxs.length === 0) {
+      return false;
+    }
+
+    const matchedIds = new Set(matchedTxs.map((t) => t.id));
+    const balanceAdjustments = {};
+    matchedTxs.forEach((t) => {
+      const amtAbs = Math.abs(Number(t.amount || 0));
+      const wasDebit = t.type === "debit" || Number(t.amount) < 0;
+      const inverseDelta = wasDebit ? amtAbs : -amtAbs;
+      balanceAdjustments[t.accountId] = (balanceAdjustments[t.accountId] || 0) + inverseDelta;
+    });
+
+    const updatedAccounts = state.accounts.map((a) => {
+      if (!balanceAdjustments[a.id]) return a;
+      return {
+        ...a,
+        balance: Math.max(0, Number((Number(a.balance || 0) + balanceAdjustments[a.id]).toFixed(2))),
+      };
+    });
+    const updatedTx = (state.transactions || []).filter((t) => !matchedIds.has(t.id));
+    const deletedList = Array.from(matchedIds);
+    const nextDeletedIds = [...new Set([...(state.deletedTxIds || []), ...deletedList])];
+
+    set({ accounts: updatedAccounts, transactions: updatedTx, deletedTxIds: nextDeletedIds });
     try {
       await syncFixedIncomeStateApi({
         entities: state.entities,
         accounts: updatedAccounts,
         cdts: state.cdts,
         transactions: updatedTx,
+        deletedTxIds: deletedList,
       });
     } catch (e) {
-      console.warn("[FixedIncome] revertAccountCredit sync failed:", e);
+      console.warn("[FixedIncome] revertCashFlowMovement sync failed:", e);
+    }
+    return true;
+  },
+
+  revertAccountCredit: async ({ movementId }) => {
+    return get().revertCashFlowMovement({ movementId });
+  },
+
+  syncCashFlowMovementToFixedIncome: async (oldTx, newTx) => {
+    const state = get();
+    const resolveTargetAccount = (tx) => {
+      if (!tx || !tx.paymentSource) return null;
+      const ps = tx.paymentSource;
+      if (ps.type === "credit_card" || ps.type === "cash" || ps.type === "investment_cash") return null;
+      if (ps.targetId === "acc_nu_debito") return null;
+
+      let acc = null;
+      if (ps.targetId) {
+        acc = state.accounts.find((a) => a.id === ps.targetId);
+      }
+      if (!acc && ps.targetName) {
+        const qNorm = ps.targetName.toLowerCase().trim();
+        acc = state.accounts.find((a) => {
+          if (a.id === "acc_nu_debito") return false;
+          const aName = (a.name || "").toLowerCase().trim();
+          return aName === qNorm || (aName.length > 3 && qNorm.includes(aName));
+        });
+      }
+      if (!acc || acc.id === "acc_nu_debito") return null;
+      // Solo aplicar a cuentas de Renta Fija / Bolsillos / Principal de Rappi, Finandina, Plenti, Nu Cajitas
+      if (ps.type === "fixed_pocket" || ps.type === "savings" || acc.accountCategory === "high_yield" || acc.type === "pocket" || acc.entityId === "ent_1789616750396" || acc.entityId === "ent_1786771791285") {
+        return acc;
+      }
+      return null;
+    };
+
+    if (oldTx?.id) {
+      await get().revertCashFlowMovement({ movementId: oldTx.id });
+    }
+
+    const targetAcc = resolveTargetAccount(newTx);
+    if (newTx && targetAcc && Number(newTx.amount) > 0) {
+      const txType = newTx.type === "credit" ? "credit" : "debit";
+      const desc = txType === "credit"
+        ? (newTx.description || "Depósito")
+        : `Retiro: ${newTx.description || newTx.budgetItemName || "Movimiento"}`;
+      await get().applyCashFlowAccountMovement({
+        accountId: targetAcc.id,
+        amount: newTx.amount,
+        date: newTx.date,
+        description: desc,
+        movementId: newTx.id,
+        txType,
+      });
     }
   },
 
