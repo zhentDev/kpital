@@ -124,7 +124,9 @@ export const usePortfolioStore = create((set, get) => ({
       if (res && Array.isArray(res.purchasePortfolios) && res.purchasePortfolios.length > 0) {
         set({
           purchasePortfolios: res.purchasePortfolios,
-          individualPurchases: res.individualPurchases || [],
+          individualPurchases: (res.individualPurchases || []).filter(
+            (p) => Number(p.shares || 0) > 1e-6,
+          ),
           purchaseSales: res.purchaseSales || [],
         });
       }
@@ -157,7 +159,7 @@ export const usePortfolioStore = create((set, get) => ({
     try {
       await createPurchaseSale(sale);
       if (updatedLot) {
-        if (updatedLot.shares <= 0) {
+        if (Number(updatedLot.shares || 0) <= 1e-6) {
           await deletePurchaseLot(updatedLot.id);
           set((state) => ({
             purchaseSales: [sale, ...state.purchaseSales],

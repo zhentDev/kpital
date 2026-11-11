@@ -721,23 +721,81 @@ export async function directSaveCashFlow(payload = {}) {
   return { success: true, timestamp: new Date().toISOString(), directSupabase: true };
 }
 
-// ── 4. Direct Purchases & Portfolios Fetch from Supabase ──────────────────────
+// ── 4. Direct Purchases & Portfolios Fetch & CRUD (Supabase SSOT) ───────────────
+function assertSupabaseOk(error, action) {
+  if (error) {
+    throw new Error(`[Supabase Purchases] ${action}: ${error.message || String(error)}`);
+  }
+}
+
+function parsePlanConfig(raw) {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function mapLotToRow(lot) {
+  return {
+    id: String(lot.id),
+    portfolio_id: lot.portfolioId || "hist_default",
+    ticker: String(lot.ticker || "").trim().toUpperCase(),
+    date: lot.date || new Date().toISOString().slice(0, 10),
+    purchase_price: Number(lot.purchasePrice ?? lot.purchase_price ?? 0),
+    shares: Number(lot.shares ?? 0),
+    manual_current_price:
+      lot.manualCurrentPrice != null ? Number(lot.manualCurrentPrice) : null,
+    purchase_time: lot.purchaseTime || null,
+    commission_amount: Number(lot.commissionAmount ?? 0),
+    notes: lot.notes ?? null,
+    user_id: OWNER_USER_ID,
+  };
+}
+
+function mapSaleToRow(sale) {
+  return {
+    id: String(sale.id),
+    lot_id: sale.lotId ? String(sale.lotId) : null,
+    portfolio_id: sale.portfolioId || "hist_default",
+    ticker: String(sale.ticker || "").trim().toUpperCase(),
+    sale_date: sale.saleDate || new Date().toISOString().slice(0, 10),
+    sale_time: sale.saleTime || null,
+    sale_price: Number(sale.salePrice ?? 0),
+    shares: Number(sale.shares ?? 0),
+    sale_commission: Number(sale.saleCommission ?? 0),
+    realized_pnl: Number(sale.realizedPnl ?? 0),
+    notes: sale.notes ?? null,
+    user_id: OWNER_USER_ID,
+    purchase_date: sale.purchaseDate || null,
+    cost_basis: sale.costBasis != null ? Number(sale.costBasis) : null,
+  };
+}
+
 export async function directFetchPurchases() {
+  const userFilter = `user_id.eq.${OWNER_USER_ID},user_id.is.null`;
   const [portsRes, purchasesRes, salesRes] = await Promise.all([
-    supabase.from("rv_portfolios").select("*"),
-    supabase.from("rv_purchases").select("*").order("date", { ascending: false }),
-    supabase.from("rv_sales").select("*").order("sale_date", { ascending: false }),
+    supabase.from("rv_portfolios").select("*").or(userFilter),
+    supabase.from("rv_purchases").select("*").or(userFilter).order("date", { ascending: false }),
+    supabase.from("rv_sales").select("*").or(userFilter).order("sale_date", { ascending: false }),
   ]);
+
+  assertSupabaseOk(portsRes.error, "fetch portfolios");
+  assertSupabaseOk(purchasesRes.error, "fetch purchases");
+  assertSupabaseOk(salesRes.error, "fetch sales");
 
   const purchasePortfolios = (portsRes.data || []).map((p) => ({
     id: p.id,
     name: p.name,
-    isPlan: p.is_plan,
-    planConfig: p.plan_config ? JSON.parse(p.plan_config) : null,
-    assetCurrency: p.asset_currency,
-    localCurrency: p.local_currency,
-    annualInflationRate: p.annual_inflation_rate,
-    useAutoColInflation: p.use_auto_col_inflation,
+    isPlan: Boolean(p.is_plan),
+    planConfig: parsePlanConfig(p.plan_config),
+    assetCurrency: p.asset_currency || "USD",
+    localCurrency: p.local_currency || "COP",
+    annualInflationRate: Number(p.annual_inflation_rate ?? 0),
+    inflationRate: Number(p.annual_inflation_rate ?? 0),
+    useAutoColInflation: p.use_auto_col_inflation !== false,
   }));
 
   const individualPurchases = (purchasesRes.data || []).map((l) => ({
@@ -771,9 +829,153 @@ export async function directFetchPurchases() {
 
   return {
     purchasePortfolios,
-    individualPurchases,
+    individualPurchases: (individualPurchases || []).filter(
+      (p) => Number(p.shares || 0) > 1e-6
+    ),
     purchaseSales,
   };
+}
+
+export async function directCreatePurchasePortfolio(id, name, isPlan = false) {
+  const { error } = await supabase.from("rv_portfolios").upsert(
+    [
+      {
+        id: String(id),
+        name: String(name),
+        is_plan: Boolean(isPlan),
+        plan_config: null,
+        asset_currency: "USD",
+        local_currency: "COP",
+        annual_inflation_rate: 0.0,
+        use_auto_col_inflation: true,
+        user_id: OWNER_USER_ID,
+      },
+    ],
+    { onConflict: "id" }
+  );
+  assertSupabaseOk(error, "create portfolio");
+  return { success: true, id };
+}
+
+export async function directRenamePurchasePortfolio(id, newName) {
+  const { error } = await supabase
+    .from("rv_portfolios")
+    .update({ name: String(newName) })
+    .eq("id", String(id));
+  assertSupabaseOk(error, "rename portfolio");
+  return { success: true, id, name: newName };
+}
+
+export async function directDeletePurchasePortfolio(id) {
+  const pid = String(id);
+  const { error: salesErr } = await supabase.from("rv_sales").delete().eq("portfolio_id", pid);
+  assertSupabaseOk(salesErr, "delete portfolio sales");
+  const { error: lotsErr } = await supabase.from("rv_purchases").delete().eq("portfolio_id", pid);
+  assertSupabaseOk(lotsErr, "delete portfolio lots");
+  const { error: portErr } = await supabase.from("rv_portfolios").delete().eq("id", pid);
+  assertSupabaseOk(portErr, "delete portfolio");
+  return { success: true, id: pid };
+}
+
+export async function directTogglePortfolioPlan(id, isPlan, planConfig = null) {
+  const serializedConfig =
+    planConfig == null
+      ? null
+      : typeof planConfig === "string"
+        ? planConfig
+        : JSON.stringify(planConfig);
+  const { error } = await supabase
+    .from("rv_portfolios")
+    .update({
+      is_plan: Boolean(isPlan),
+      plan_config: serializedConfig,
+    })
+    .eq("id", String(id));
+  assertSupabaseOk(error, "toggle portfolio plan");
+  return { success: true, id, isPlan, planConfig };
+}
+
+export async function directUpdatePortfolioSettings(
+  id,
+  assetCurrency,
+  localCurrency,
+  inflationRate,
+  useAutoColInflation
+) {
+  const { error } = await supabase
+    .from("rv_portfolios")
+    .update({
+      asset_currency: assetCurrency || "USD",
+      local_currency: localCurrency || "COP",
+      annual_inflation_rate: Number(inflationRate ?? 0),
+      use_auto_col_inflation: Boolean(useAutoColInflation),
+    })
+    .eq("id", String(id));
+  assertSupabaseOk(error, "update portfolio settings");
+  return { success: true, id };
+}
+
+export async function directCreatePurchaseLot(lot) {
+  const row = mapLotToRow(lot);
+  if (row.shares <= 1e-6) {
+    return directDeletePurchaseLot(row.id);
+  }
+  const { error } = await supabase
+    .from("rv_purchases")
+    .upsert([row], { onConflict: "id" });
+  assertSupabaseOk(error, "create purchase lot");
+  return { success: true, id: row.id };
+}
+
+export async function directUpdatePurchaseLots(lots) {
+  if (!Array.isArray(lots) || lots.length === 0) {
+    return { success: true, updated: 0 };
+  }
+  const rows = lots.map(mapLotToRow);
+  const zeroIds = rows.filter((r) => r.shares <= 1e-6).map((r) => r.id);
+  const activeRows = rows.filter((r) => r.shares > 1e-6);
+
+  if (zeroIds.length > 0) {
+    const { error: delErr } = await supabase
+      .from("rv_purchases")
+      .delete()
+      .in("id", zeroIds);
+    assertSupabaseOk(delErr, "delete zero-share lots");
+  }
+  if (activeRows.length > 0) {
+    const { error: upErr } = await supabase
+      .from("rv_purchases")
+      .upsert(activeRows, { onConflict: "id" });
+    assertSupabaseOk(upErr, "update purchase lots");
+  }
+  return { success: true, updated: lots.length };
+}
+
+export async function directDeletePurchaseLot(id) {
+  const { error } = await supabase
+    .from("rv_purchases")
+    .delete()
+    .eq("id", String(id));
+  assertSupabaseOk(error, "delete purchase lot");
+  return { success: true, id };
+}
+
+export async function directCreatePurchaseSale(sale) {
+  const row = mapSaleToRow(sale);
+  const { error } = await supabase
+    .from("rv_sales")
+    .upsert([row], { onConflict: "id" });
+  assertSupabaseOk(error, "create purchase sale");
+  return { success: true, id: row.id };
+}
+
+export async function directDeletePurchaseSale(id) {
+  const { error } = await supabase
+    .from("rv_sales")
+    .delete()
+    .eq("id", String(id));
+  assertSupabaseOk(error, "delete purchase sale");
+  return { success: true, id };
 }
 
 // ── 5. Direct Custom Strategies & Rebalances ────────────────────────────────

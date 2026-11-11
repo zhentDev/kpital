@@ -17,6 +17,17 @@ import {
   directFetchCashFlow,
   directDeleteCreditPurchase,
   directSaveCashFlow,
+  directFetchPurchases,
+  directCreatePurchasePortfolio,
+  directRenamePurchasePortfolio,
+  directDeletePurchasePortfolio,
+  directTogglePortfolioPlan,
+  directUpdatePortfolioSettings,
+  directCreatePurchaseLot,
+  directUpdatePurchaseLots,
+  directDeletePurchaseLot,
+  directCreatePurchaseSale,
+  directDeletePurchaseSale,
 } from "../shared/api/directSupabase";
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
@@ -548,8 +559,32 @@ export async function deleteCustomStrategyApi(strategyId) {
   }
 }
 
-/** PURCHASES API */
+/** PURCHASES API (Supabase SSOT + best-effort backend mirror) */
+async function mirrorPurchasesBackend(path, method, body) {
+  try {
+    const opts = { method };
+    if (body !== undefined) {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(body);
+    }
+    const res = await safeFetch(`${getBase()}${path}`, opts);
+    if (!res.ok) {
+      console.warn(`[Purchases Mirror] ${method} ${path} -> HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`[Purchases Mirror] ${method} ${path} failed:`, err?.message || err);
+  }
+}
+
 export async function fetchPurchasesData() {
+  try {
+    const direct = await directFetchPurchases();
+    if (direct && Array.isArray(direct.purchasePortfolios) && direct.purchasePortfolios.length > 0) {
+      return direct;
+    }
+  } catch (err) {
+    console.warn("[Purchases] Supabase direct fetch failed, falling back to backend:", err?.message || err);
+  }
   const data = await fetchWithFallback("/purchases/portfolios", "purchases.json");
   if (!data || (!data.purchasePortfolios && !data.individualPurchases)) {
     throw new Error("Error fetching purchases data");
@@ -558,42 +593,31 @@ export async function fetchPurchasesData() {
 }
 
 export async function createPurchasePortfolio(id, name, isPlan = false) {
-  const res = await safeFetch(`${getBase()}/purchases/portfolios`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, name, isPlan }),
-  });
+  const result = await directCreatePurchasePortfolio(id, name, isPlan);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend("/purchases/portfolios", "POST", { id, name, isPlan });
+  return result;
 }
 
 export async function renamePurchasePortfolioApi(id, newName) {
-  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/rename`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: newName }),
-  });
+  const result = await directRenamePurchasePortfolio(id, newName);
   invalidateApiCache("/purchases");
-  if (!res.ok) {
-    return { ok: true, id, name: newName };
-  }
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/portfolios/${id}/rename`, "PUT", { name: newName });
+  return result;
 }
 
 export async function deletePurchasePortfolioApi(id) {
-  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}`, { method: "DELETE" });
+  const result = await directDeletePurchasePortfolio(id);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/portfolios/${id}`, "DELETE");
+  return result;
 }
 
 export async function togglePortfolioPlanApi(id, isPlan, planConfig = null) {
-  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/plan`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ isPlan, planConfig }),
-  });
+  const result = await directTogglePortfolioPlan(id, isPlan, planConfig);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/portfolios/${id}/plan`, "PUT", { isPlan, planConfig });
+  return result;
 }
 
 export async function updatePortfolioSettingsApi(
@@ -603,13 +627,21 @@ export async function updatePortfolioSettingsApi(
   inflationRate,
   useAutoColInflation,
 ) {
-  const res = await safeFetch(`${getBase()}/purchases/portfolios/${id}/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assetCurrency, localCurrency, inflationRate, useAutoColInflation }),
-  });
+  const result = await directUpdatePortfolioSettings(
+    id,
+    assetCurrency,
+    localCurrency,
+    inflationRate,
+    useAutoColInflation,
+  );
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/portfolios/${id}/settings`, "PUT", {
+    assetCurrency,
+    localCurrency,
+    inflationRate,
+    useAutoColInflation,
+  });
+  return result;
 }
 
 export async function fetchFxHistory(assetCurrency, localCurrency) {
@@ -820,46 +852,38 @@ export async function testStockAlertTelegram() {
 
 
 export async function createPurchaseLot(lot) {
-  const res = await safeFetch(`${getBase()}/purchases/lots`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(lot),
-  });
+  const result = await directCreatePurchaseLot(lot);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend("/purchases/lots", "POST", lot);
+  return result;
 }
 
 export async function updatePurchaseLots(lots) {
-  const res = await safeFetch(`${getBase()}/purchases/lots`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(lots),
-  });
-  if (!res.ok) throw new Error("Failed to update purchase lots");
+  const result = await directUpdatePurchaseLots(lots);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend("/purchases/lots", "PUT", lots);
+  return result;
 }
 
 export async function deletePurchaseLot(id) {
-  const res = await safeFetch(`${getBase()}/purchases/lots/${id}`, { method: "DELETE" });
+  const result = await directDeletePurchaseLot(id);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/lots/${id}`, "DELETE");
+  return result;
 }
 
 export async function createPurchaseSale(sale) {
-  const res = await safeFetch(`${getBase()}/purchases/sales`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sale),
-  });
+  const result = await directCreatePurchaseSale(sale);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend("/purchases/sales", "POST", sale);
+  return result;
 }
 
 export async function deletePurchaseSale(id) {
-  const res = await safeFetch(`${getBase()}/purchases/sales/${id}`, { method: "DELETE" });
+  const result = await directDeletePurchaseSale(id);
   invalidateApiCache("/purchases");
-  return res.json();
+  void mirrorPurchasesBackend(`/purchases/sales/${id}`, "DELETE");
+  return result;
 }
 
 export async function syncPurchasesMigration(purchasePortfolios, individualPurchases, purchaseSales = []) {
