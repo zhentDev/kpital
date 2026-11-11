@@ -125,21 +125,6 @@ export default function DynamicStrategyView({
           setStrategyRebalances(strategy.id, data);
           const latestTickers = data[data.length - 1].tickers || [];
           setFormTickers([...latestTickers]);
-          // Immediately request fresh NAV for this strategy with loaded rebalances
-          fetchNAV({
-            period,
-            investment: simulatedCapital,
-            numSlots,
-            strategyId: strategy.id,
-          })
-            .then((nData) => {
-              if (isMounted && nData) {
-                setNavData(nData);
-                setIsNavLoading(false);
-                setLastRefreshedAt(new Date());
-              }
-            })
-            .catch(() => {});
         } else {
           // Backend is empty for this strategy. If we have local rebalances with tickers, sync them!
           const localRebs = rebalances.filter((r) => Array.isArray(r.tickers) && r.tickers.length > 0);
@@ -167,10 +152,12 @@ export default function DynamicStrategyView({
     };
   }, [strategy.id]);
 
-  // Fecha efectiva de inicio: la fecha del rebalanceo más antiguo registrado/editado, con fallback a firstInvestDate
+  // Fecha efectiva de inicio: la fecha del rebalanceo más antiguo con posiciones activas, con fallback a firstInvestDate
   const effectiveFirstInvestDate = useMemo(() => {
     if (Array.isArray(rebalances) && rebalances.length > 0) {
-      const dates = rebalances
+      const nonEmptyRebs = rebalances.filter((r) => Array.isArray(r.tickers) && r.tickers.length > 0);
+      const sourceRebs = nonEmptyRebs.length > 0 ? nonEmptyRebs : rebalances;
+      const dates = sourceRebs
         .map((r) => r.rebalance_date || r.date)
         .filter(Boolean);
       if (dates.length > 0) {
@@ -231,7 +218,7 @@ export default function DynamicStrategyView({
         maxHistoryDaysRef.current = days;
       }
     }
-    const availableDays = maxHistoryDaysRef.current > 0 ? maxHistoryDaysRef.current : Infinity;
+    const availableDays = effectiveFirstInvestDate ? maxHistoryDaysRef.current : Infinity;
     for (const p of PERIODS) map[p] = !effectiveFirstInvestDate || UNLOCK_DAYS[p] <= availableDays;
     return map;
   }, [effectiveFirstInvestDate]);
@@ -253,9 +240,17 @@ export default function DynamicStrategyView({
     }
   }, [highestActivePeriod, period, periodEnabled]);
 
+  const userEditedCapitalRef = useRef(false);
   const [simulatedCapital, setLocalSimulatedCapital] = useState(
-    () => strategy.activeInvested || 1000
+    () => Number(strategy.capital || strategy.activeInvested || 1000)
   );
+
+  useEffect(() => {
+    const cap = Number(strategy?.capital);
+    if (!userEditedCapitalRef.current && cap > 0 && cap !== simulatedCapital) {
+      setLocalSimulatedCapital(cap);
+    }
+  }, [strategy?.capital]);
 
   const numSlots = strategy.numSlots || 20;
   const [unit, setUnit] = useState("pct");
@@ -348,11 +343,15 @@ export default function DynamicStrategyView({
     }
   }, [simulatedCapital, activeInvested, strategy?.id, updateStrategyCapital]);
 
+  const navRequestSeqRef = useRef(0);
+
   useEffect(() => {
     let isMounted = true;
+    let retryTimer = null;
+    const reqSeq = ++navRequestSeqRef.current;
 
-    const loadNAV = (isSilent = false) => {
-      if (!isSilent) setIsNavLoading(true);
+    const loadNAV = (isSilent = false, attempt = 0) => {
+      if (!isSilent && attempt === 0) setIsNavLoading(true);
       fetchNAV({
         period,
         investment: simulatedCapital,
@@ -360,34 +359,55 @@ export default function DynamicStrategyView({
         strategyId: strategy.id,
       })
         .then((data) => {
-          if (isMounted) {
+          if (!isMounted || reqSeq !== navRequestSeqRef.current) return;
+          if (data && Array.isArray(data.nav) && data.nav.length > 0) {
             setNavData(data);
             setIsNavLoading(false);
             setLastRefreshedAt(new Date());
+            return;
           }
+          // Render cold-start or transient empty NAV: retry automatically before falling back
+          if (activeTickers.length > 0 && attempt < 4) {
+            retryTimer = setTimeout(() => {
+              if (isMounted && reqSeq === navRequestSeqRef.current) {
+                loadNAV(true, attempt + 1);
+              }
+            }, 3000 * (attempt + 1));
+            return;
+          }
+          if (data) setNavData(data);
+          setIsNavLoading(false);
         })
         .catch((err) => {
-          if (isMounted) {
-            console.warn("Could not fetch real NAV for strategy", strategy.id, err);
-            setIsNavLoading(false);
+          if (!isMounted || reqSeq !== navRequestSeqRef.current) return;
+          if (activeTickers.length > 0 && attempt < 4) {
+            retryTimer = setTimeout(() => {
+              if (isMounted && reqSeq === navRequestSeqRef.current) {
+                loadNAV(true, attempt + 1);
+              }
+            }, 3000 * (attempt + 1));
+            return;
           }
+          console.warn("Could not fetch real NAV for strategy", strategy.id, err);
+          setIsNavLoading(false);
         });
     };
 
     // Initial load
-    loadNAV(false);
+    loadNAV(false, 0);
 
     // Auto-refresh interval:
     // When period === "1D", poll every 60 seconds (1 minute) for live hourly bars.
     // For other historical periods, poll every 60 minutes (3600 seconds).
     const pollIntervalMs = period === "1D" ? 60 * 1000 : 60 * 60 * 1000;
     const intervalId = setInterval(() => {
-      loadNAV(true);
+      loadNAV(true, 0);
     }, pollIntervalMs);
 
     return () => {
       isMounted = false;
       clearInterval(intervalId);
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [strategy?.id, period, simulatedCapital, numSlots, activeTickers.join(","), navRefreshKey]);
 
@@ -1222,7 +1242,10 @@ export default function DynamicStrategyView({
               min={1}
               step="any"
               value={simulatedCapital}
-              onChange={(e) => setLocalSimulatedCapital(e.target.value === "" ? "" : Number(e.target.value))}
+              onChange={(e) => {
+                userEditedCapitalRef.current = true;
+                setLocalSimulatedCapital(e.target.value === "" ? "" : Number(e.target.value));
+              }}
               style={{
                 width: 90,
                 background: isLight ? "var(--bg-surface)" : "rgba(0,0,0,0.25)",
@@ -2615,16 +2638,54 @@ export default function DynamicStrategyView({
                 height={420}
               />
             ) : (
-              <StrategyChart
-                strategy={strategy}
-                activeInvested={effectiveActiveInvested}
-                period={period}
-                firstInvestDate={effectiveFirstInvestDate}
-                rebalances={rebalances}
-                slotValue={effectiveSlotValue}
-                targetReturns={currentReturns}
-                navData={filteredNavData || navData}
-              />
+              <>
+                {!isNavLoading && (!navData || !Array.isArray(navData.nav) || navData.nav.length <= 1) && activeTickers.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      flexWrap: "wrap",
+                      padding: "8px 12px",
+                      marginBottom: 10,
+                      borderRadius: 8,
+                      fontSize: "0.78rem",
+                      background: isLight ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.10)",
+                      border: isLight ? "1px solid rgba(245, 158, 11, 0.35)" : "1px solid rgba(245, 158, 11, 0.25)",
+                      color: isLight ? "#92400e" : "#fbbf24",
+                    }}
+                  >
+                    <span>⚠️ Mostrando curva simulada temporal mientras el servidor de cotizaciones responde.</span>
+                    <button
+                      type="button"
+                      onClick={handleManualNavRefresh}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        fontSize: "0.74rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        background: isLight ? "#f59e0b" : "rgba(245, 158, 11, 0.22)",
+                        color: isLight ? "#ffffff" : "#fde68a",
+                        border: isLight ? "1px solid #d97706" : "1px solid rgba(245, 158, 11, 0.4)",
+                      }}
+                    >
+                      🔄 Reintentar datos reales
+                    </button>
+                  </div>
+                )}
+                <StrategyChart
+                  strategy={strategy}
+                  activeInvested={effectiveActiveInvested}
+                  period={period}
+                  firstInvestDate={effectiveFirstInvestDate}
+                  rebalances={rebalances}
+                  slotValue={effectiveSlotValue}
+                  targetReturns={currentReturns}
+                  navData={filteredNavData || navData}
+                />
+              </>
             )}
           </>
         )}

@@ -47,19 +47,31 @@ function generateSyntheticData(
     const spPoints = benchmarkPoints;
     const nsdPoints = Array.isArray(navData.nasdaq) ? navData.nasdaq : [];
 
-    const spMap = new Map(spPoints.map((p) => [p.date, p.value]));
-    const nsdMap = new Map(nsdPoints.map((p) => [p.date, p.value]));
+    const toTimeKey = (rawDate) => {
+      const num = Number(rawDate);
+      if (!isNaN(num) && String(rawDate).trim() !== "" && typeof rawDate !== "string") {
+        return num;
+      }
+      if (!isNaN(num) && String(rawDate).trim() !== "" && !String(rawDate).includes("-")) {
+        return num;
+      }
+      return String(rawDate).slice(0, 10);
+    };
+
+    const spMap = new Map(spPoints.map((p) => [toTimeKey(p.date), p.value]));
+    const nsdMap = new Map(nsdPoints.map((p) => [toTimeKey(p.date), p.value]));
 
     const sortedRebalances = Array.isArray(rebalances) && rebalances.length > 0
       ? [...rebalances].sort((a, b) => (a.rebalance_date || a.date || "").localeCompare(b.rebalance_date || b.date || ""))
       : [];
-    const initialCapital = (sortedRebalances.length > 0 && slotValue > 0)
-      ? (sortedRebalances[0].tickers?.length || 0) * slotValue
+    const nonEmptyRebs = sortedRebalances.filter((r) => Array.isArray(r.tickers) && r.tickers.length > 0);
+    const initialCapital = (nonEmptyRebs.length > 0 && slotValue > 0)
+      ? nonEmptyRebs[0].tickers.length * slotValue
       : (baseActive || 500);
 
     const getCap = (dateStr) => {
-      if (sortedRebalances.length > 0 && slotValue > 0) {
-        const valid = sortedRebalances.filter((r) => (r.rebalance_date || r.date) <= dateStr);
+      if (nonEmptyRebs.length > 0 && slotValue > 0) {
+        const valid = nonEmptyRebs.filter((r) => (r.rebalance_date || r.date) <= dateStr);
         if (valid.length > 0) {
           return (valid[valid.length - 1].tickers?.length || 0) * slotValue;
         }
@@ -68,22 +80,47 @@ function generateSyntheticData(
       return baseActive || 500;
     };
 
+    // Strip leading pre-deployment $0 rows (e.g. if backend holds an unallocated period before first real buy)
+    const rawNavList = navData.nav;
+    const firstDeployedIdx = rawNavList.findIndex(
+      (pt) => Number(pt.active_invested ?? 0) > 0 || Number(pt.value ?? pt.stock_value ?? 0) > 0,
+    );
+    const activeNavList = firstDeployedIdx >= 0 ? rawNavList.slice(firstDeployedIdx) : rawNavList;
+
     const sp500 = [];
     const nasdaq = [];
     const strat = [];
     const baseLine = [];
+    const seenTimes = new Set();
 
-    navData.nav.forEach((pt) => {
-      const rawDate = pt.date;
-      // If rawDate is numeric string or number (unix seconds), convert to Number for lightweight-charts
-      const d = (!isNaN(Number(rawDate)) && String(rawDate).trim() !== "") ? Number(rawDate) : rawDate;
-      const stratVal = pt.value || pt.stock_value || baseActive;
-      const capVal = pt.active_invested || getCap(String(rawDate));
+    activeNavList.forEach((pt) => {
+      const d = toTimeKey(pt.date);
+      if (seenTimes.has(d)) return;
+      seenTimes.add(d);
+
+      const rawVal = pt.value ?? pt.stock_value;
+      const stratVal = typeof rawVal === "number" && !isNaN(rawVal) ? rawVal : (Number(rawVal) || baseActive || 0);
+      const rawCap = pt.active_invested;
+      const capVal = typeof rawCap === "number" && !isNaN(rawCap) && rawCap > 0
+        ? rawCap
+        : (typeof d === "string" ? getCap(d) : (baseActive || 500));
+
+      const spValRaw = spMap.get(d);
+      const nsdValRaw = nsdMap.get(d);
+      const spVal = typeof spValRaw === "number" && !isNaN(spValRaw) && spValRaw > 0 ? spValRaw : capVal;
+      const nsdVal = typeof nsdValRaw === "number" && !isNaN(nsdValRaw) && nsdValRaw > 0 ? nsdValRaw : capVal;
+
       strat.push({ time: d, value: stratVal });
       baseLine.push({ time: d, value: capVal });
-      sp500.push({ time: d, value: spMap.get(rawDate) ?? capVal });
-      nasdaq.push({ time: d, value: nsdMap.get(rawDate) ?? capVal });
+      sp500.push({ time: d, value: spVal });
+      nasdaq.push({ time: d, value: nsdVal });
     });
+
+    const sortByTime = (arr) => arr.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+    sortByTime(strat);
+    sortByTime(baseLine);
+    sortByTime(sp500);
+    sortByTime(nasdaq);
 
     if (strat.length > 0) {
       return { sp500, nasdaq, strat, baseLine };
@@ -298,6 +335,7 @@ export default function StrategyChart({
   const chartRef = useRef(null);
   const seriesRef = useRef({});
   const [hoverValues, setHoverValues] = useState(null);
+  const [chartReady, setChartReady] = useState(0);
 
   const [isMobile, setIsMobile] = useState(() => (typeof window !== "undefined" ? window.innerWidth <= 640 : false));
 
@@ -323,6 +361,18 @@ export default function StrategyChart({
     baseLine: true,
   });
 
+  const visibleSeriesRef = useRef(visibleSeries);
+  visibleSeriesRef.current = visibleSeries;
+
+  // Keep benchmark visibility synchronized when strategy metadata loads asynchronously
+  useEffect(() => {
+    setVisibleSeries((prev) => ({
+      ...prev,
+      sp500: strategy?.benchmark !== "NASDAQ",
+      nasdaq: strategy?.benchmark === "NASDAQ",
+    }));
+  }, [strategy?.id, strategy?.benchmark]);
+
   const handleToggle = (key) => {
     setVisibleSeries((prev) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -347,12 +397,18 @@ export default function StrategyChart({
     Object.entries(visibleSeries).forEach(([key, isVis]) => {
       seriesRef.current[key]?.applyOptions({ visible: !!isVis });
     });
-  }, [visibleSeries]);
+  }, [visibleSeries, chartReady]);
 
   const initChart = useCallback(() => {
     if (!containerRef.current) return;
 
+    const initialWidth = containerRef.current.clientWidth || 600;
+    const initialHeight = typeof window !== "undefined" && window.innerWidth <= 640 ? 280 : 320;
+    const curVis = visibleSeriesRef.current;
+
     chartRef.current = createChart(containerRef.current, {
+      width: initialWidth,
+      height: initialHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: chartColors.textColor,
@@ -395,6 +451,7 @@ export default function StrategyChart({
       lineStyle: LineStyle.Dashed,
       priceLineVisible: false,
       lastValueVisible: false,
+      visible: !!curVis.baseLine,
       title: "",
       priceFormat: isMobile
         ? { type: "price", precision: 0, minMove: 1 }
@@ -406,6 +463,7 @@ export default function StrategyChart({
       lineWidth: 1.5,
       priceLineVisible: false,
       lastValueVisible: false,
+      visible: !!curVis.sp500,
       title: "",
       priceFormat: isMobile
         ? { type: "price", precision: 0, minMove: 1 }
@@ -417,6 +475,7 @@ export default function StrategyChart({
       lineWidth: 1.5,
       priceLineVisible: false,
       lastValueVisible: false,
+      visible: !!curVis.nasdaq,
       title: "",
       priceFormat: isMobile
         ? { type: "price", precision: 0, minMove: 1 }
@@ -430,6 +489,7 @@ export default function StrategyChart({
       lineStyle: isStratReal ? LineStyle.Solid : LineStyle.Dashed,
       priceLineVisible: false,
       lastValueVisible: false,
+      visible: !!curVis.strat,
       title: "",
       priceFormat: isMobile
         ? { type: "price", precision: 0, minMove: 1 }
@@ -456,19 +516,24 @@ export default function StrategyChart({
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
+        const w = containerRef.current.clientWidth;
+        if (w <= 0) return;
         const responsiveHeight = window.innerWidth <= 640 ? 280 : 320;
         chartRef.current.applyOptions({
-          width: containerRef.current.clientWidth,
+          width: w,
           height: responsiveHeight,
         });
+        chartRef.current.timeScale().fitContent();
       }
     });
     ro.observe(containerRef.current);
 
+    setChartReady((prev) => prev + 1);
+
     return () => {
       ro.disconnect();
     };
-  }, [strategy?.color, strategy?.benchmark, strategy?.name, isMobile]);
+  }, [strategy?.color, strategy?.benchmark, strategy?.name, strategy?.isRealMoney, isMobile]);
 
   useEffect(() => {
     const cleanup = initChart();
@@ -476,6 +541,7 @@ export default function StrategyChart({
       cleanup?.();
       chartRef.current?.remove();
       chartRef.current = null;
+      seriesRef.current = {};
     };
   }, [initChart]);
 
@@ -581,7 +647,7 @@ export default function StrategyChart({
       seriesRef.current.strat?.setMarkers([]);
     }
     chartRef.current.timeScale().fitContent();
-  }, [chartData, period, isMobile, purchaseMarkers]);
+  }, [chartData, period, isMobile, purchaseMarkers, chartReady]);
 
   const lastSP = chartData.sp500[chartData.sp500.length - 1]?.value;
   const lastNasdaq = chartData.nasdaq[chartData.nasdaq.length - 1]?.value;

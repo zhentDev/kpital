@@ -6,6 +6,7 @@ import { BANK_PRESETS, getBankPreset } from "../utils/bankPresets";
 import {
   directSupabaseLogin,
   directSupabaseFetchMe,
+  directFetchCustomStrategies,
   directFetchRebalances,
   directCreateRebalance,
   directToggleRebalanceActive,
@@ -502,6 +503,14 @@ export async function updateRebalanceDateApi(oldDate, newDate, strategyId = "his
 
 /** CUSTOM STRATEGIES API */
 export async function fetchCustomStrategiesApi() {
+  try {
+    const directData = await directFetchCustomStrategies();
+    if (Array.isArray(directData) && directData.length > 0) {
+      return directData;
+    }
+  } catch (err) {
+    console.warn("[Strategies] Direct Supabase fetch fallback:", err);
+  }
   return await fetchWithFallback("/custom-strategies", "custom_strategies.json");
 }
 
@@ -1516,12 +1525,17 @@ export async function oauthLoginApi(idToken, profile = {}) {
 }
 
 export async function fetchMeApi() {
-  try {
-    const res = await safeFetch(`${getBase()}/auth/me`);
-    if (res && res.ok) return await res.json();
-  } catch {}
-
   const token = localStorage.getItem("kpital_auth_token") || localStorage.getItem("titanes_auth_token");
+  if (!token) return null;
+
+  // Non-JWT tokens (Supabase direct base64 session) would always 401 on legacy Render v1 /auth/me
+  if (token.split(".").length === 3) {
+    try {
+      const res = await safeFetch(`${getBase()}/auth/me`, {}, 0, 500);
+      if (res && res.ok) return await res.json();
+    } catch {}
+  }
+
   return await directSupabaseFetchMe(token);
 }
 

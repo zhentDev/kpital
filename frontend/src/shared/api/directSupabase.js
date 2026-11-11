@@ -778,7 +778,10 @@ export async function directFetchPurchases() {
 
 // ── 5. Direct Custom Strategies & Rebalances ────────────────────────────────
 export async function directFetchCustomStrategies() {
-  const { data, error } = await supabase.from("custom_strategies").select("*");
+  const { data, error } = await supabase
+    .from("custom_strategies")
+    .select("*")
+    .order("created_at", { ascending: true });
   if (error) throw error;
   return (data || []).map((s) => ({
     id: s.id,
@@ -791,6 +794,7 @@ export async function directFetchCustomStrategies() {
     color: s.color,
     isSystem: s.is_system,
     isRealMoney: s.is_real_money,
+    createdAt: s.created_at,
   }));
 }
 

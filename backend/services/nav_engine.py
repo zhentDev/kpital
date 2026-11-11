@@ -280,6 +280,9 @@ def calculate_nav(
         day_active_invested = len(current_shares) * (investment / num_slots) if num_slots > 0 else investment
         eod_total_value = eod_stock_value + current_cash
         if date_str >= display_start:
+            # Skip pre-deployment empty rows before any position has been opened
+            if not nav_series and day_active_invested <= 0 and eod_stock_value <= 0:
+                continue
             nav_series.append(
                 {
                     "date": str(date_str),
@@ -314,6 +317,8 @@ def calculate_nav(
         pt["date"]: pt.get("active_invested", active_invested) for pt in nav_series
     }
 
+    effective_bench_start = nav_series[0]["date"] if (nav_series and not is_intraday) else str(display_start)
+
     def _benchmark_series(col: str) -> list[dict]:
         if col not in prices_df.columns:
             return []
@@ -321,7 +326,7 @@ def calculate_nav(
             bdf = prices_df.select(["date", col]).drop_nulls()
         else:
             bdf = (
-                prices_df.filter(pl.col("date").cast(pl.String) >= str(display_start))
+                prices_df.filter(pl.col("date").cast(pl.String) >= str(effective_bench_start))
                 .select(["date", col])
                 .drop_nulls()
             )

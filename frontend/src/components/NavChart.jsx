@@ -119,11 +119,13 @@ export default function NavChart({
 
   // Dedicated effect to toggle line visibility without destroying the chart canvas
   useEffect(() => {
-    if (!chartRef.current || !seriesRef.current) return;
-    Object.entries(visibleSeries || {}).forEach(([key, isVis]) => {
-      seriesRef.current[key]?.applyOptions({ visible: !!isVis });
-    });
-  }, [visibleSeries]);
+    // Apply initial visibility and re-sync whenever chart instance is recreated
+    if (chartRef.current && seriesRef.current) {
+      Object.entries(visibleSeries || {}).forEach(([key, isVis]) => {
+        seriesRef.current[key]?.applyOptions({ visible: !!isVis });
+      });
+    }
+  }, [visibleSeries, chartReady]);
 
   // Dynamically update scale modes on Right price scale
   useEffect(() => {
@@ -148,7 +150,15 @@ export default function NavChart({
       ? (PriceScaleMode?.Logarithmic ?? 1)
       : (PriceScaleMode?.Normal ?? 0);
 
+    const initialWidth = containerRef.current.clientWidth || 600;
+    const initialHeight =
+      typeof window !== "undefined"
+        ? (window.innerWidth <= 640 ? 290 : window.innerWidth <= 1024 ? 350 : chartHeight)
+        : chartHeight;
+
     chartRef.current = createChart(containerRef.current, {
+      width: initialWidth,
+      height: initialHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: chartColors.textColor,
@@ -349,11 +359,13 @@ export default function NavChart({
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
         const w = containerRef.current.clientWidth;
+        if (w <= 0) return;
         const responsiveHeight = window.innerWidth <= 640 ? 290 : window.innerWidth <= 1024 ? 350 : chartHeight;
         chartRef.current.applyOptions({
           width: w,
           height: responsiveHeight,
         });
+        chartRef.current.timeScale().fitContent();
       }
     });
     ro.observe(containerRef.current);

@@ -208,26 +208,49 @@ export default function App() {
       setLoading(false);
       return;
     }
+    if (mode !== "historical" && mode !== "live") {
+      return;
+    }
     let isCancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchNAV({ tickers, period, investment, numSlots })
-      .then((data) => {
-        if (!isCancelled) {
-          setBaseNavData(data);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!isCancelled) {
-          setError(err);
-          setLoading(false);
-        }
-      });
+    let retryTimer = null;
+
+    const loadMainNav = (attempt = 0) => {
+      if (attempt === 0) {
+        setLoading(true);
+        setError(null);
+      }
+      fetchNAV({ tickers, period, investment, numSlots })
+        .then((data) => {
+          if (isCancelled) return;
+          if (data && Array.isArray(data.nav) && data.nav.length > 0) {
+            setBaseNavData(data);
+            setLoading(false);
+            return;
+          }
+          if (attempt < 3) {
+            retryTimer = setTimeout(() => loadMainNav(attempt + 1), 3000 * (attempt + 1));
+          } else {
+            if (data) setBaseNavData(data);
+            setLoading(false);
+          }
+        })
+        .catch((err) => {
+          if (isCancelled) return;
+          if (attempt < 3) {
+            retryTimer = setTimeout(() => loadMainNav(attempt + 1), 3000 * (attempt + 1));
+          } else {
+            setError(err);
+            setLoading(false);
+          }
+        });
+    };
+
+    loadMainNav(0);
     return () => {
       isCancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [tickers, period, investment, numSlots, refreshKey, isPro]);
+  }, [tickers, period, investment, numSlots, refreshKey, isPro, mode]);
 
   useEffect(() => {
     const handleGlobalChartRefresh = () => {
