@@ -4,6 +4,8 @@
  * and models the full lifecycle integration between liquid Cajitas and Term Deposits (CDTs).
  */
 
+import { getDefaultCdtDayBase } from "./cdtComparator";
+
 export function calculateAccountYield(account, transactions = [], historicalRates = null, allCDTs = [], asOfDate = null) {
   if (!account) {
     return {
@@ -184,7 +186,7 @@ export function calculateAccountYield(account, transactions = [], historicalRate
     const daysElapsed = Math.max(0, Math.min(termDays, Math.floor((today - startD) / (1000 * 60 * 60 * 24))));
 
     // Base 365 exact calendar day convention for Nu Colombia & modern fintech CDTs, base 360 for traditional commercial
-    const dayBase = cdt.dayBase || (cdt.entityId === "ent_nu" || (cdt.name || "").toLowerCase().includes("nu") ? 365 : 360);
+    const dayBase = Number(cdt.dayBase) || getDefaultCdtDayBase(cdt);
     const calculatedAccrued = capital * (Math.pow(1 + rateDecimal, daysElapsed / dayBase) - 1) * reteMul;
     const accruedYield = (cdt.accruedYield !== undefined && cdt.accruedYield !== null)
       ? Number(cdt.accruedYield)
@@ -482,6 +484,6 @@ export function getCDTAccruedYield(cdt, asOfDate = new Date()) {
   refDate.setHours(0, 0, 0, 0);
   const termDays = Number(cdt.termDays || 180);
   const daysElapsed = Math.max(0, Math.min(termDays, Math.floor((refDate - startD) / (1000 * 60 * 60 * 24))));
-  const dayBase = cdt.dayBase || (cdt.entityId === "ent_nu" || (cdt.name || "").toLowerCase().includes("nu") ? 365 : 360);
+  const dayBase = Number(cdt.dayBase) || getDefaultCdtDayBase(cdt);
   return capital * (Math.pow(1 + rateDecimal, daysElapsed / dayBase) - 1) * reteMul;
 }

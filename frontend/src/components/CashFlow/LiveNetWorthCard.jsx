@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { formatCashFlowMoney } from "../../utils/cashFlowFormatters";
+import { getCDTAccruedYield } from "../../utils/yieldCalculator";
 import { useTheme } from "../../context/ThemeContext";
 import "./CashFlow.css";
 
@@ -66,12 +67,14 @@ export default function LiveNetWorthCard({
       }
     }
 
-    // 1.3 Renta Fija / CDTs
+    // 1.3 Renta Fija / CDTs (Solo activos: capital + rendimiento devengado)
     let cdtsCOP = 0;
     (fixedCdts || []).forEach((cdt) => {
-      const amt = Number(cdt.amount || cdt.principal || 0);
+      if (cdt.status === "matured") return;
+      const amt = Number(cdt.capital || cdt.amount || cdt.principal || 0);
+      const accrued = getCDTAccruedYield(cdt);
       const mult = cdt.currency === "USD" ? fxRate : 1;
-      cdtsCOP += amt * mult;
+      cdtsCOP += (amt + accrued) * mult;
     });
 
     // 1.4 Préstamos por Cobrar (Dinero a favor)

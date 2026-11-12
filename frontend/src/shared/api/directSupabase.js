@@ -401,6 +401,112 @@ export async function directFetchFixedIncome() {
   };
 }
 
+function mapFiEntityToRow(e, uid = OWNER_USER_ID) {
+  return {
+    id: e.id,
+    user_id: uid,
+    name: e.name,
+    country: e.country || "🇨🇴",
+    color: e.color || "#0284c7",
+    icon: e.icon || "🏦",
+    extra_json: e,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function mapFiAccountToRow(a, uid = OWNER_USER_ID) {
+  return {
+    id: a.id,
+    user_id: uid,
+    entity_id: a.entityId || a.entity_id,
+    name: a.name,
+    type: a.type || "savings",
+    account_category: a.accountCategory || a.account_category || "savings",
+    sync_type: a.syncType || a.sync_type || "manual",
+    currency: a.currency || "COP",
+    balance: Number(a.balance) || 0,
+    interest_rate_ea: Number(a.interestRateEA ?? a.interest_rate_ea ?? 0),
+    is_tax_exempt_gmf: Boolean(a.isTaxExemptGMF ?? a.is_tax_exempt_gmf),
+    rate_history_json: a.rateHistory || a.rate_history_json || [],
+    extra_json: a,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function mapFiCdtToRow(c, uid = OWNER_USER_ID) {
+  return {
+    id: c.id,
+    user_id: uid,
+    entity_id: c.entityId || c.entity_id,
+    name: c.name,
+    capital: Number(c.capital) || 0,
+    currency: c.currency || "COP",
+    interest_rate_ea: Number(c.interestRateEA ?? c.interest_rate_ea ?? 0),
+    term_days: Number(c.termDays ?? c.term_days ?? 180),
+    start_date: c.startDate || c.start_date || new Date().toISOString().split("T")[0],
+    maturity_date: c.maturityDate || c.maturity_date || new Date().toISOString().split("T")[0],
+    rete_fuente_pct: Number(c.reteFuentePct ?? c.rete_fuente_pct ?? 4),
+    is_auto_renew: Boolean(c.isAutoRenew ?? c.is_auto_renew),
+    status: c.status || "active",
+    extra_json: c,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function directUpsertFixedIncomeEntity(entity) {
+  const { error } = await supabase.from("fi_entities").upsert([mapFiEntityToRow(entity)]);
+  if (error) throw new Error(`[Supabase FI Entity] ${error.message}`);
+  return entity;
+}
+
+export async function directDeleteFixedIncomeEntity(entityId) {
+  if (!entityId) return;
+  const uid = OWNER_USER_ID;
+  const { data: entAccounts } = await supabase
+    .from("fi_accounts")
+    .select("id")
+    .eq("user_id", uid)
+    .eq("entity_id", entityId);
+  const accIds = (entAccounts || []).map((a) => a.id).filter(Boolean);
+  if (accIds.length > 0) {
+    await supabase.from("fi_transactions").delete().eq("user_id", uid).in("account_id", accIds);
+  }
+  await supabase.from("fi_transactions").delete().eq("user_id", uid).eq("entity_id", entityId);
+  await supabase.from("fi_cdts").delete().eq("user_id", uid).eq("entity_id", entityId);
+  await supabase.from("fi_accounts").delete().eq("user_id", uid).eq("entity_id", entityId);
+  const { error } = await supabase.from("fi_entities").delete().eq("user_id", uid).eq("id", entityId);
+  if (error) throw new Error(`[Supabase FI Entity Delete] ${error.message}`);
+  return { success: true, deleted: entityId };
+}
+
+export async function directUpsertFixedIncomeAccount(account) {
+  const { error } = await supabase.from("fi_accounts").upsert([mapFiAccountToRow(account)]);
+  if (error) throw new Error(`[Supabase FI Account] ${error.message}`);
+  return account;
+}
+
+export async function directDeleteFixedIncomeAccount(accountId) {
+  if (!accountId) return;
+  const uid = OWNER_USER_ID;
+  await supabase.from("fi_transactions").delete().eq("user_id", uid).eq("account_id", accountId);
+  const { error } = await supabase.from("fi_accounts").delete().eq("user_id", uid).eq("id", accountId);
+  if (error) throw new Error(`[Supabase FI Account Delete] ${error.message}`);
+  return { success: true, deleted: accountId };
+}
+
+export async function directUpsertFixedIncomeCDT(cdt) {
+  const { error } = await supabase.from("fi_cdts").upsert([mapFiCdtToRow(cdt)]);
+  if (error) throw new Error(`[Supabase FI CDT] ${error.message}`);
+  return cdt;
+}
+
+export async function directDeleteFixedIncomeCDT(cdtId) {
+  if (!cdtId) return;
+  const { error } = await supabase.from("fi_cdts").delete().eq("user_id", OWNER_USER_ID).eq("id", cdtId);
+  if (error) throw new Error(`[Supabase FI CDT Delete] ${error.message}`);
+  return { success: true, deleted: cdtId };
+}
+
 export async function directSaveFixedIncome(state = {}) {
   const { entities, accounts, cdts, transactions, deletedTxIds } = state;
   const uid = OWNER_USER_ID;
@@ -416,60 +522,17 @@ export async function directSaveFixedIncome(state = {}) {
 
   // 2. Upsert entities
   if (Array.isArray(entities) && entities.length > 0) {
-    const entRows = entities.map((e) => ({
-      id: e.id,
-      user_id: uid,
-      name: e.name,
-      country: e.country || "Colombia",
-      color: e.color || "#0284c7",
-      icon: e.icon || "bank",
-      extra_json: e,
-      updated_at: new Date().toISOString(),
-    }));
-    await supabase.from("fi_entities").upsert(entRows);
+    await supabase.from("fi_entities").upsert(entities.map((e) => mapFiEntityToRow(e, uid)));
   }
 
   // 3. Upsert accounts
   if (Array.isArray(accounts) && accounts.length > 0) {
-    const accRows = accounts.map((a) => ({
-      id: a.id,
-      user_id: uid,
-      entity_id: a.entityId || a.entity_id,
-      name: a.name,
-      type: a.type || "savings",
-      account_category: a.accountCategory || a.account_category || "savings",
-      sync_type: a.syncType || a.sync_type || "manual",
-      currency: a.currency || "COP",
-      balance: Number(a.balance) || 0,
-      interest_rate_ea: Number(a.interestRateEA ?? a.interest_rate_ea ?? 0),
-      is_tax_exempt_gmf: Boolean(a.isTaxExemptGMF ?? a.is_tax_exempt_gmf),
-      rate_history_json: a.rateHistory || a.rate_history_json || [],
-      extra_json: a,
-      updated_at: new Date().toISOString(),
-    }));
-    await supabase.from("fi_accounts").upsert(accRows);
+    await supabase.from("fi_accounts").upsert(accounts.map((a) => mapFiAccountToRow(a, uid)));
   }
 
   // 4. Upsert cdts
   if (Array.isArray(cdts) && cdts.length > 0) {
-    const cdtRows = cdts.map((c) => ({
-      id: c.id,
-      user_id: uid,
-      entity_id: c.entityId || c.entity_id,
-      name: c.name,
-      capital: Number(c.capital) || 0,
-      currency: c.currency || "COP",
-      interest_rate_ea: Number(c.interestRateEA ?? c.interest_rate_ea ?? 0),
-      term_days: Number(c.termDays ?? c.term_days ?? 90),
-      start_date: c.startDate || c.start_date || new Date().toISOString().split("T")[0],
-      maturity_date: c.maturityDate || c.maturity_date || new Date().toISOString().split("T")[0],
-      rete_fuente_pct: Number(c.reteFuentePct ?? c.rete_fuente_pct ?? 4),
-      is_auto_renew: Boolean(c.isAutoRenew ?? c.is_auto_renew),
-      status: c.status || "active",
-      extra_json: c,
-      updated_at: new Date().toISOString(),
-    }));
-    await supabase.from("fi_cdts").upsert(cdtRows);
+    await supabase.from("fi_cdts").upsert(cdts.map((c) => mapFiCdtToRow(c, uid)));
   }
 
   // 5. Upsert transactions

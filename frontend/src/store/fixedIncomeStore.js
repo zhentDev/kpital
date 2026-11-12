@@ -240,11 +240,12 @@ export const useFixedIncomeStore = create((set, get) => ({
   // ── Entity Actions ───────────────────────────────
   addEntity: async (entityData) => {
     const newEntity = {
-      id: `ent_${Date.now()}`,
+      id: entityData.id || `ent_${Date.now()}`,
       name: entityData.name.trim(),
       country: entityData.country || "🇨🇴",
       color: entityData.color || "#10b981",
       icon: entityData.icon || "🏦",
+      logoUrl: entityData.logoUrl || undefined,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -255,6 +256,7 @@ export const useFixedIncomeStore = create((set, get) => ({
     } catch {
       set((state) => ({ entities: [...state.entities, newEntity] }));
       toast.error("Error al sincronizar entidad con el servidor");
+      return newEntity;
     }
   },
 
@@ -383,11 +385,13 @@ export const useFixedIncomeStore = create((set, get) => ({
       currency: cdtData.currency || "COP",
       interestRateEA: Number(cdtData.interestRateEA || 0),
       termDays: Number(cdtData.termDays || 180),
+      dayBase: cdtData.dayBase ? Number(cdtData.dayBase) : undefined,
       startDate: cdtData.startDate || new Date().toISOString().slice(0, 10),
       maturityDate: cdtData.maturityDate,
       reteFuentePct: Number(cdtData.reteFuentePct ?? 4.0),
       isAutoRenew: !!cdtData.isAutoRenew,
       status: cdtData.status || "active",
+      accountId: cdtData.accountId || undefined,
       category: cdtData.category || undefined,
       ...(cdtData.status === "matured" ? {
         payoutAmount: Number(cdtData.payoutAmount || 0),
@@ -400,8 +404,11 @@ export const useFixedIncomeStore = create((set, get) => ({
       await createFixedIncomeCDT(newCDT);
       set((state) => ({ cdts: [...state.cdts, newCDT] }));
       toast.success(`CDT ${newCDT.name} registrado`);
+      return newCDT;
     } catch {
       set((state) => ({ cdts: [...state.cdts, newCDT] }));
+      toast.error("No se pudo guardar el CDT en la nube");
+      return newCDT;
     }
   },
 
@@ -417,6 +424,7 @@ export const useFixedIncomeStore = create((set, get) => ({
       set((state) => ({
         cdts: state.cdts.map((c) => (c.id && c.id === cdt.id ? { ...c, ...cdt } : c)),
       }));
+      toast.error("No se pudo actualizar el CDT en la nube");
     }
   },
 
@@ -428,9 +436,7 @@ export const useFixedIncomeStore = create((set, get) => ({
       }));
       toast.success("CDT eliminado");
     } catch {
-      set((state) => ({
-        cdts: state.cdts.filter((c) => c.id !== cdtId),
-      }));
+      toast.error("Error al eliminar el CDT");
     }
   },
 

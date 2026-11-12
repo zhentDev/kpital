@@ -3557,11 +3557,13 @@ export const useCashFlowStore = create(
         });
 
         cdts.forEach((cdt) => {
-          const bal = Number(cdt.investmentAmount || cdt.initialAmount || cdt.amount) || 0;
-          const rateEA = (Number(cdt.rateEA || cdt.nominalRate || cdt.interestRateEA) || 0) / 100;
+          if (cdt.status === "matured") return;
+          const bal = Number(cdt.capital || cdt.investmentAmount || cdt.initialAmount || cdt.amount) || 0;
+          const rateEA = (Number(cdt.interestRateEA || cdt.rateEA || cdt.nominalRate) || 0) / 100;
           const monthlyRate = Math.pow(1 + rateEA, 1 / 12) - 1;
-          totalMonthlyYieldCOP += bal * monthlyRate;
-          totalCashBalanceCOP += bal;
+          const mult = cdt.currency === "USD" ? fxRate : 1;
+          totalMonthlyYieldCOP += bal * monthlyRate * mult;
+          totalCashBalanceCOP += bal * mult;
         });
 
         // 1. Separate Emergency Fund accounts from general savings/fixed income
@@ -3595,8 +3597,10 @@ export const useCashFlowStore = create(
 
         let totalCdtCapitalCOP = 0;
         cdts.forEach((cdt) => {
-          const bal = Number(cdt.investmentAmount || cdt.initialAmount || cdt.amount || cdt.capital) || 0;
-          totalCdtCapitalCOP += bal;
+          if (cdt.status === "matured") return;
+          const bal = Number(cdt.capital || cdt.investmentAmount || cdt.initialAmount || cdt.amount) || 0;
+          const mult = cdt.currency === "USD" ? fxRate : 1;
+          totalCdtCapitalCOP += bal * mult;
         });
 
         const roundedYield = Math.round(totalMonthlyYieldCOP);

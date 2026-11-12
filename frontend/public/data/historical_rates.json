@@ -576,7 +576,8 @@
           "rateEA": 4.6,
           "label": "US Treasury Bills"
         }
-      ]
+      ],
+      "currency": "USD"
     },
     "ent_mejorcdt": {
       "name": "MejorCDT",
@@ -1126,6 +1127,193 @@
           "termDaysMax": 999,
           "rateEA": 11.5,
           "label": "360 Días CDAT"
+        }
+      ]
+    },
+    "ent_koa": {
+      "name": "KOA Compañía de Financiamiento",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 60,
+          "termDaysMax": 119,
+          "rateEA": 11.4,
+          "label": "90 Días Digital KOA"
+        },
+        {
+          "termDaysMin": 120,
+          "termDaysMax": 239,
+          "rateEA": 12.4,
+          "label": "180 Días Digital KOA"
+        },
+        {
+          "termDaysMin": 240,
+          "termDaysMax": 329,
+          "rateEA": 12.6,
+          "label": "270 Días Digital KOA"
+        },
+        {
+          "termDaysMin": 330,
+          "termDaysMax": 450,
+          "rateEA": 12.9,
+          "label": "360 Días Digital KOA"
+        },
+        {
+          "termDaysMin": 451,
+          "termDaysMax": 999,
+          "rateEA": 13.1,
+          "label": "540+ Días Digital KOA"
+        }
+      ]
+    },
+    "ent_ban100": {
+      "name": "Ban100",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 60,
+          "termDaysMax": 120,
+          "rateEA": 11.2,
+          "label": "90 Días Digital"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 12.0,
+          "label": "180 Días Digital"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 12.5,
+          "label": "360 Días Digital"
+        }
+      ]
+    },
+    "ent_credifamilia": {
+      "name": "Credifamilia",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 60,
+          "termDaysMax": 120,
+          "rateEA": 11.1,
+          "label": "90 Días Digital"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 11.9,
+          "label": "180 Días Digital"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 12.4,
+          "label": "360 Días Digital"
+        }
+      ]
+    },
+    "ent_pichincha": {
+      "name": "Banco Pichincha",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 1,
+          "termDaysMax": 120,
+          "rateEA": 10.4,
+          "label": "90 Días Pichincha"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 11.1,
+          "label": "180 Días Pichincha"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 11.6,
+          "label": "360 Días Pichincha"
+        }
+      ]
+    },
+    "ent_bancoomeva": {
+      "name": "Bancoomeva",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 1,
+          "termDaysMax": 120,
+          "rateEA": 10.2,
+          "label": "90 Días Bancoomeva"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 10.9,
+          "label": "180 Días Bancoomeva"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 11.4,
+          "label": "360 Días Bancoomeva"
+        }
+      ]
+    },
+    "ent_coltefinanciera": {
+      "name": "Coltefinanciera",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 1,
+          "termDaysMax": 120,
+          "rateEA": 10.7,
+          "label": "90 Días Coltefinanciera"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 11.4,
+          "label": "180 Días Coltefinanciera"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 11.9,
+          "label": "360 Días Coltefinanciera"
+        }
+      ]
+    },
+    "ent_mibanco": {
+      "name": "Mibanco Colombia",
+      "country": "🇨🇴",
+      "currency": "COP",
+      "cdt_term_rates": [
+        {
+          "termDaysMin": 1,
+          "termDaysMax": 120,
+          "rateEA": 10.5,
+          "label": "90 Días Mibanco"
+        },
+        {
+          "termDaysMin": 121,
+          "termDaysMax": 220,
+          "rateEA": 11.2,
+          "label": "180 Días Mibanco"
+        },
+        {
+          "termDaysMin": 221,
+          "termDaysMax": 999,
+          "rateEA": 11.7,
+          "label": "360 Días Mibanco"
         }
       ]
     }

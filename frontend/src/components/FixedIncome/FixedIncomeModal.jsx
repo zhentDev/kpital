@@ -12,6 +12,11 @@ import {
   CustomSelectDropdown,
 } from "../Common";
 import { useTheme } from "../../context/ThemeContext";
+import {
+  ALL_STANDARD_CDT_DAYS,
+  calculateCdtYield,
+  getDefaultCdtDayBase,
+} from "../../utils/cdtComparator";
 import CdtComparatorWidget from "./CdtComparatorWidget";
 import "./FixedIncomeModal.css";
 
@@ -76,6 +81,9 @@ export default function FixedIncomeModal({
   const [cdtPayoutAmount, setCdtPayoutAmount] = useState("");
   const [cdtPayoutDate, setCdtPayoutDate] = useState("");
   const [cdtCategory, setCdtCategory] = useState("");
+  const [cdtDayBase, setCdtDayBase] = useState(360);
+  const [cdtAccountId, setCdtAccountId] = useState("");
+  const [cdtRateManual, setCdtRateManual] = useState(false);
   const [cdtAvailableTiers, setCdtAvailableTiers] = useState([]);
   const [suggestedRateLabel, setSuggestedRateLabel] = useState("");
 
@@ -117,7 +125,12 @@ export default function FixedIncomeModal({
       const cleanBp = bp.name.toLowerCase().replace(/banco\s+/g, "").trim();
       return (
         !existingNames.has(cleanBp) &&
-        !entities.some((e) => e.id === `ent_${bp.id}` || e.id === bp.id)
+        !entities.some(
+          (e) =>
+            e.id === `ent_${bp.id}` ||
+            e.id === bp.id ||
+            getBankPreset(e.name)?.id === bp.id
+        )
       );
     }).map((bp) => ({
       value: `preset_${bp.id}`,
@@ -199,6 +212,39 @@ export default function FixedIncomeModal({
       };
     });
   }, [accounts, entities]);
+
+  const cdtEntityPocketOptions = useMemo(() => {
+    const cleanSelected = String(selectedEntityId || "").replace(/^preset_|^ent_/, "");
+    const matching = accounts.filter(
+      (a) =>
+        a.entityId === selectedEntityId ||
+        String(a.entityId || "").replace(/^preset_|^ent_/, "") === cleanSelected
+    );
+    const list = matching.length > 0 ? matching : accounts;
+    return [
+      { value: "", label: "Sin Cajita asociada (Aporte directo)", badge: "Opcional" },
+      ...list.map((acc) => {
+        const ent = entities.find((e) => e.id === acc.entityId);
+        return {
+          value: acc.id,
+          label: matching.length > 0 ? acc.name : `${ent?.name || "Banco"} — ${acc.name}`,
+          badge: `$${Number(acc.balance || 0).toLocaleString("en-US")} ${acc.currency || "COP"}`,
+        };
+      }),
+    ];
+  }, [accounts, entities, selectedEntityId]);
+
+  const cdtYieldPreview = useMemo(
+    () =>
+      calculateCdtYield(
+        Number(cdtCapital || 0),
+        Number(cdtRateEA || 0),
+        Number(cdtTermDays || 180),
+        Number(cdtReteFuente ?? 4.0),
+        Number(cdtDayBase || 365)
+      ),
+    [cdtCapital, cdtRateEA, cdtTermDays, cdtReteFuente, cdtDayBase]
+  );
 
   const bankPresetOptions = useMemo(() => {
     return BANK_PRESETS.map((bp) => ({
@@ -300,6 +346,9 @@ export default function FixedIncomeModal({
         setCdtPayoutAmount("");
         setCdtPayoutDate("");
         setCdtCategory("");
+        setCdtAccountId("");
+        setCdtRateManual(false);
+        setCdtDayBase(360);
       } else if (initialTab === "transaction") {
         setTxAccountId(accounts[0]?.id || "");
         setTxDate(new Date().toISOString().slice(0, 10));
@@ -332,6 +381,22 @@ export default function FixedIncomeModal({
       setAccountTaxExempt(editItem.isTaxExemptGMF ?? true);
       setAccountStartDate(editItem.startDate || (editItem.createdAt ? editItem.createdAt.slice(0, 10) : "2023-06-01"));
     } else if (initialTab === "cdt") {
+      const resolvedDayBase = Number(editItem.dayBase) || getDefaultCdtDayBase(editItem);
+      const isPreLiquidate = Boolean(editItem._preLiquidate);
+      const preLiquidateDate =
+        editItem.payoutDate || editItem.maturityDate || new Date().toISOString().slice(0, 10);
+      let resolvedPayout = editItem.payoutAmount ? String(editItem.payoutAmount) : "";
+      if (isPreLiquidate && !resolvedPayout) {
+        const calc = calculateCdtYield(
+          editItem.capital,
+          editItem.interestRateEA,
+          editItem.termDays || 180,
+          editItem.reteFuentePct ?? 4.0,
+          resolvedDayBase
+        );
+        const decimals = (editItem.currency || "COP") === "USD" ? 2 : 0;
+        resolvedPayout = String(Number(calc.totalPayout.toFixed(decimals)));
+      }
       setSelectedEntityId(editItem.entityId || "");
       setCdtName(editItem.name || "");
       setCdtCapital(String(editItem.capital || ""));
@@ -342,10 +407,13 @@ export default function FixedIncomeModal({
       setCdtMaturityDate(editItem.maturityDate || "");
       setCdtReteFuente(editItem.reteFuentePct ?? 4.0);
       setCdtAutoRenew(editItem.isAutoRenew || false);
-      setCdtStatus(editItem.status || "active");
-      setCdtPayoutAmount(String(editItem.payoutAmount || ""));
-      setCdtPayoutDate(editItem.payoutDate || "");
+      setCdtStatus(isPreLiquidate ? "matured" : editItem.status || "active");
+      setCdtPayoutAmount(resolvedPayout);
+      setCdtPayoutDate(isPreLiquidate ? preLiquidateDate : editItem.payoutDate || "");
       setCdtCategory(editItem.category || "");
+      setCdtDayBase(resolvedDayBase);
+      setCdtAccountId(editItem.accountId || "");
+      setCdtRateManual(true);
     } else if (initialTab === "transaction" || editItem.accountId) {
       setTxAccountId(editItem.accountId || accounts[0]?.id || "");
       setTxDate(editItem.date || new Date().toISOString().slice(0, 10));
@@ -436,19 +504,36 @@ export default function FixedIncomeModal({
   // Suggest rates when entity, product type, or term changes
   useEffect(() => {
     if (!selectedEntityId) return;
+    let cancelled = false;
 
     if (activeTab === "cdt") {
-      suggestFixedIncomeRate(selectedEntityId, "cdt", cdtTermDays, cdtStartDate).then((res) => {
-        if (res?.rateEA && !cdtRateEA) {
-          setCdtRateEA(String(res.rateEA));
-        }
-        if (res?.tiers) {
-          setCdtAvailableTiers(res.tiers);
-        }
-        if (res?.label) {
-          setSuggestedRateLabel(res.label);
-        }
-      });
+      suggestFixedIncomeRate(
+        selectedEntityId,
+        "cdt",
+        cdtTermDays,
+        cdtStartDate,
+        historicalRates,
+        entities
+      )
+        .then((res) => {
+          if (cancelled) return;
+          setCdtAvailableTiers(Array.isArray(res?.tiers) ? res.tiers : []);
+          setSuggestedRateLabel(res?.label || "");
+          if (!editItem && !cdtRateManual) {
+            if (res?.rateEA !== undefined && res?.rateEA !== null) {
+              setCdtRateEA(String(res.rateEA));
+            }
+            if (res?.currency) {
+              setCdtCurrency(res.currency);
+            }
+            if (res?.dayBase) {
+              setCdtDayBase(Number(res.dayBase));
+            } else {
+              setCdtDayBase(getDefaultCdtDayBase(selectedEntityId));
+            }
+          }
+        })
+        .catch(() => {});
     } else if (activeTab === "account") {
       if (accountCategory === "payroll" || accountCategory === "digital_wallet") {
         setAccountRateEA("0");
@@ -461,7 +546,10 @@ export default function FixedIncomeModal({
           accountType,
           null,
           new Date().toISOString().slice(0, 10),
+          historicalRates,
+          entities
         ).then((res) => {
+          if (cancelled) return;
           if (res?.rateEA) {
             setAccountRateEA(String(res.rateEA));
           }
@@ -471,7 +559,22 @@ export default function FixedIncomeModal({
         }).catch(() => {});
       }
     }
-  }, [selectedEntityId, activeTab, cdtTermDays, cdtStartDate, accountType, accountCategory, entityDefaultRate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedEntityId,
+    activeTab,
+    cdtTermDays,
+    cdtStartDate,
+    accountType,
+    accountCategory,
+    entityDefaultRate,
+    editItem,
+    cdtRateManual,
+    historicalRates,
+    entities,
+  ]);
 
   // Auto-calculate maturity date when term or start date changes
   useEffect(() => {
@@ -484,7 +587,14 @@ export default function FixedIncomeModal({
 
   const handleSelectCdtOption = (option) => {
     if (option.entityId) {
-      setSelectedEntityId(option.entityId);
+      const matchedOpt =
+        entityOptions.find((o) => o.value === option.entityId) ||
+        entityOptions.find(
+          (o) =>
+            getBankPreset(o.label)?.id &&
+            getBankPreset(o.label)?.id === getBankPreset(option.bankName || "")?.id
+        );
+      setSelectedEntityId(matchedOpt?.value || option.entityId);
     }
     if (option.suggestedName) {
       setCdtName(option.suggestedName);
@@ -501,6 +611,14 @@ export default function FixedIncomeModal({
     if (option.rateEA !== undefined) {
       setCdtRateEA(String(option.rateEA));
     }
+    if (option.currency) {
+      setCdtCurrency(option.currency);
+    }
+    if (option.dayBase) {
+      setCdtDayBase(Number(option.dayBase));
+    }
+    setCdtAccountId("");
+    setCdtRateManual(true);
     toast.success(
       `✨ Sugerencia aplicada: ${option.bankName} (${option.rateEA}% E.A. a ${option.termDays} días)`
     );
@@ -609,13 +727,20 @@ export default function FixedIncomeModal({
       toast.error("Ingresa un capital válido");
       return;
     }
+    if (!cdtTermDays || Number(cdtTermDays) <= 0) {
+      toast.error("Ingresa un plazo en días válido");
+      return;
+    }
 
     let finalEntityId = selectedEntityId;
     if (selectedEntityId.startsWith("preset_")) {
       const pId = selectedEntityId.replace("preset_", "");
       const bp = getBankPreset(pId);
       const existingEnt = entities.find(
-        (ent) => (ent.name || "").toLowerCase() === (bp.name || "").toLowerCase()
+        (ent) =>
+          (ent.name || "").toLowerCase() === (bp.name || "").toLowerCase() ||
+          ent.id === `ent_${bp.id}` ||
+          getBankPreset(ent.name)?.id === bp.id
       );
       if (existingEnt) {
         finalEntityId = existingEnt.id;
@@ -633,17 +758,19 @@ export default function FixedIncomeModal({
 
     const cdtData = {
       entityId: finalEntityId,
-      name: cdtName,
+      name: cdtName.trim(),
       capital: Number(cdtCapital),
-      currency: cdtCurrency,
+      currency: cdtCurrency || "COP",
       interestRateEA: Number(cdtRateEA || 0),
       termDays: Number(cdtTermDays),
+      dayBase: Number(cdtDayBase) || getDefaultCdtDayBase(finalEntityId),
       startDate: cdtStartDate,
       maturityDate: cdtMaturityDate,
-      reteFuentePct: Number(cdtReteFuente),
+      reteFuentePct: Number(cdtReteFuente ?? 4.0),
       isAutoRenew: cdtAutoRenew,
       status: cdtStatus,
-      category: cdtCategory || undefined,
+      category: cdtCategory?.trim() || undefined,
+      accountId: cdtAccountId || undefined,
       ...(cdtStatus === "matured" ? {
         payoutAmount: Number(cdtPayoutAmount || 0),
         payoutDate: cdtPayoutDate || cdtMaturityDate,
@@ -661,6 +788,8 @@ export default function FixedIncomeModal({
     setCdtPayoutAmount("");
     setCdtPayoutDate("");
     setCdtCategory("");
+    setCdtAccountId("");
+    setCdtRateManual(false);
     setCdtStatus("active");
     onClose();
   };
@@ -1018,6 +1147,7 @@ export default function FixedIncomeModal({
                 <CdtComparatorWidget
                   capital={cdtCapital}
                   initialTermDays={cdtTermDays || 180}
+                  initialCurrency={cdtCurrency}
                   historicalRates={historicalRates}
                   portfolioEntities={entities}
                   onSelectOption={handleSelectCdtOption}
@@ -1031,42 +1161,66 @@ export default function FixedIncomeModal({
                 <CustomSelectDropdown
                   options={entityOptions}
                   value={selectedEntityId}
-                  onChange={(val) => setSelectedEntityId(val)}
+                  onChange={(val) => {
+                    setSelectedEntityId(val);
+                    if (!editItem) {
+                      setCdtRateManual(false);
+                      setCdtAccountId("");
+                    }
+                  }}
                   placeholder="Selecciona una entidad..."
                 />
               </div>
 
-              {/* Nu/Bank Term Chips for Instant Plazo & Rate Selection */}
-              {cdtAvailableTiers.length > 0 && (
-                <div>
-                  <div className="fi-form-label" style={{ fontSize: "0.74rem", marginBottom: 6 }}>
-                    Plazos y Tasas Sugeridas para esta Entidad:
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {cdtAvailableTiers.map((tier, idx) => {
-                      const isSelected =
-                        (cdtTermDays >= tier.termDaysMin && cdtTermDays <= tier.termDaysMax) ||
-                        cdtTermDays === tier.termDaysMax;
-                      return (
+              {/* Term Chips: Entity-specific rates or standard Colombian CDT tenors */}
+              <div>
+                <div className="fi-form-label" style={{ fontSize: "0.74rem", marginBottom: 6 }}>
+                  {cdtAvailableTiers.length > 0
+                    ? "Plazos y Tasas Sugeridas para esta Entidad:"
+                    : "Plazos Estándar de CDT (Selección rápida):"}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {cdtAvailableTiers.length > 0
+                    ? cdtAvailableTiers.map((tier, idx) => {
+                        const isSelected =
+                          (cdtTermDays >= tier.termDaysMin && cdtTermDays <= tier.termDaysMax) ||
+                          cdtTermDays === tier.termDaysMax;
+                        return (
+                          <button
+                            type="button"
+                            key={idx}
+                            onClick={() => {
+                              const discreteDays =
+                                ALL_STANDARD_CDT_DAYS.find(
+                                  (d) => d >= tier.termDaysMin && d <= tier.termDaysMax
+                                ) || tier.termDaysMin;
+                              setCdtTermDays(discreteDays);
+                              setCdtRateEA(String(tier.rateEA));
+                              setCdtRateManual(true);
+                            }}
+                            className={`fi-tier-chip ${isSelected ? "selected" : ""}`}
+                          >
+                            {tier.label}: {tier.rateEA}% E.A.
+                          </button>
+                        );
+                      })
+                    : ALL_STANDARD_CDT_DAYS.map((days) => (
                         <button
                           type="button"
-                          key={idx}
+                          key={days}
                           onClick={() => {
-                            const discreteDays = [60, 90, 120, 180, 270, 360, 540, 720, 1080].find(
-                              (d) => d >= tier.termDaysMin && d <= tier.termDaysMax
-                            ) || tier.termDaysMin;
-                            setCdtTermDays(discreteDays);
-                            setCdtRateEA(String(tier.rateEA));
+                            setCdtTermDays(days);
+                            if (!editItem) {
+                              setCdtRateManual(false);
+                            }
                           }}
-                          className={`fi-tier-chip ${isSelected ? "selected" : ""}`}
+                          className={`fi-tier-chip ${Number(cdtTermDays) === days ? "selected" : ""}`}
                         >
-                          {tier.label}: {tier.rateEA}% E.A.
+                          {days} días{days >= 360 ? ` (${days / 360}A)` : ""}
                         </button>
-                      );
-                    })}
-                  </div>
+                      ))}
                 </div>
-              )}
+              </div>
 
               <div>
                 <FloatingInput
@@ -1099,7 +1253,7 @@ export default function FixedIncomeModal({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label className="fi-form-label">
-                    Capital Invertido
+                    Capital Invertido ({cdtCurrency})
                   </label>
                   <CurrencyInput
                     currency={cdtCurrency}
@@ -1109,16 +1263,64 @@ export default function FixedIncomeModal({
                   />
                 </div>
                 <div>
-                  <label className="fi-form-label">
-                    Tasa Pactada (E.A. %)
-                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <label className="fi-form-label" style={{ marginBottom: 0 }}>
+                      Tasa Pactada (E.A. %)
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      {suggestedRateLabel && (
+                        <span
+                          style={{
+                            fontSize: "0.66rem",
+                            padding: "1px 6px",
+                            borderRadius: 6,
+                            background: isLight ? "#fffbeb" : "rgba(245, 158, 11, 0.14)",
+                            color: isLight ? "#b45309" : "#fbbf24",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {suggestedRateLabel}
+                        </span>
+                      )}
+                      {cdtRateManual && !editItem && (
+                        <button
+                          type="button"
+                          onClick={() => setCdtRateManual(false)}
+                          title="Volver a usar tasa sugerida de la entidad"
+                          style={{
+                            fontSize: "0.66rem",
+                            padding: "1px 6px",
+                            borderRadius: 6,
+                            border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.16)",
+                            background: isLight ? "#f8fafc" : "rgba(255,255,255,0.06)",
+                            color: isLight ? "#0f172a" : "#e2e8f0",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ↺ Auto
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <FloatingInput
                     type="number"
                     step="0.01"
                     placeholder="ej. 12.2"
                     suffix="% E.A."
                     value={cdtRateEA}
-                    onChange={(e) => setCdtRateEA(e.target.value)}
+                    onChange={(e) => {
+                      setCdtRateEA(e.target.value);
+                      setCdtRateManual(true);
+                    }}
                     required
                   />
                 </div>
@@ -1126,23 +1328,47 @@ export default function FixedIncomeModal({
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                 <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.75rem",
-                      color: "#94a3b8",
-                      marginBottom: 4,
-                    }}
+                  <label className="fi-form-label">Moneda</label>
+                  <select
+                    value={cdtCurrency}
+                    onChange={(e) => setCdtCurrency(e.target.value)}
+                    className="fi-select"
                   >
+                    <option value="COP">🇨🇴 COP</option>
+                    <option value="USD">🇺🇸 USD</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="fi-form-label">Base Cálculo</label>
+                  <select
+                    value={cdtDayBase}
+                    onChange={(e) => setCdtDayBase(Number(e.target.value))}
+                    className="fi-select"
+                  >
+                    <option value={360}>360 días (Bancos)</option>
+                    <option value={365}>365 días (Nu / Fintech)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="fi-form-label">
                     Plazo (Días)
                   </label>
                   <FloatingInput
                     type="number"
+                    min="1"
                     value={cdtTermDays}
-                    onChange={(e) => setCdtTermDays(Number(e.target.value))}
+                    onChange={(e) => {
+                      setCdtTermDays(Number(e.target.value));
+                      if (!editItem) {
+                        setCdtRateManual(false);
+                      }
+                    }}
                     required
                   />
                 </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label className="fi-form-label">
                     Fecha Apertura
@@ -1190,44 +1416,168 @@ export default function FixedIncomeModal({
                 </div>
               </div>
 
-              {/* Estado y Categoría (solo visible en modo edición) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label className="fi-form-label">
+                    Cajita / Cuenta Asociada (Opcional)
+                  </label>
+                  <select
+                    value={cdtAccountId}
+                    onChange={(e) => setCdtAccountId(e.target.value)}
+                    className="fi-select"
+                  >
+                    {cdtEntityPocketOptions.map((opt) => (
+                      <option key={opt.value || "none"} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="fi-form-label">
+                    Categoría / Bolsa (Opcional)
+                  </label>
+                  <FloatingInput
+                    placeholder="ej. Viaje, Estudios, Reserva"
+                    value={cdtCategory}
+                    onChange={(e) => setCdtCategory(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Simulador en Vivo de Rendimiento del CDT */}
+              {Number(cdtCapital) > 0 && Number(cdtRateEA) > 0 && (
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: isLight
+                      ? "linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)"
+                      : "rgba(16, 185, 129, 0.08)",
+                    border: isLight
+                      ? "1px solid rgba(16, 185, 129, 0.3)"
+                      : "1px solid rgba(16, 185, 129, 0.25)",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                    gap: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: "0.68rem", color: isLight ? "#475569" : "#94a3b8" }}>
+                      Interés Bruto ({cdtTermDays}d · {cdtDayBase}d)
+                    </div>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 700, color: isLight ? "#0f172a" : "#e2e8f0" }}>
+                      +$
+                      {cdtYieldPreview.grossYield.toLocaleString("en-US", {
+                        minimumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                        maximumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                      })}{" "}
+                      {cdtCurrency}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.68rem", color: isLight ? "#475569" : "#94a3b8" }}>
+                      ReteFuente ({cdtReteFuente ?? 4}%)
+                    </div>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 700, color: isLight ? "#dc2626" : "#f87171" }}>
+                      -$
+                      {cdtYieldPreview.reteFuenteAmount.toLocaleString("en-US", {
+                        minimumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                        maximumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.68rem", color: isLight ? "#475569" : "#94a3b8" }}>
+                      Ganancia Neta Estimada
+                    </div>
+                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: isLight ? "#059669" : "#34d399" }}>
+                      +$
+                      {cdtYieldPreview.netYield.toLocaleString("en-US", {
+                        minimumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                        maximumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                      })}{" "}
+                      {cdtCurrency}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "0.68rem", color: isLight ? "#475569" : "#94a3b8" }}>
+                      Total al Vencer
+                    </div>
+                    <div style={{ fontSize: "0.95rem", fontWeight: 800, color: isLight ? "#0f172a" : "#f8fafc" }}>
+                      $
+                      {cdtYieldPreview.totalPayout.toLocaleString("en-US", {
+                        minimumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                        maximumFractionDigits: cdtCurrency === "USD" ? 2 : 0,
+                      })}{" "}
+                      {cdtCurrency}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Estado y Liquidación (solo visible en modo edición) */}
               {editItem?.id && (
                 <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <div>
-                      <label className="fi-form-label">
-                        Estado
-                      </label>
-                      <select
-                        value={cdtStatus}
-                        onChange={(e) => setCdtStatus(e.target.value)}
-                        className="fi-select"
-                        style={{
-                          color: cdtStatus === "matured" ? (isLight ? "#92400e" : "#f59e0b") : "#10b981",
-                          fontWeight: 600,
-                        }}
-                      >
-                        <option value="active">🟢 Activo</option>
-                        <option value="matured">🟡 Vencido / Liquidado</option>
-                      </select>
-                    </div>
-                    <div>
-                      <FloatingInput
-                        label="Categoría / Bolsa"
-                        placeholder="ej. Viaje, Estudios, Deuda"
-                        value={cdtCategory}
-                        onChange={(e) => setCdtCategory(e.target.value)}
-                      />
-                    </div>
+                  <div>
+                    <label className="fi-form-label">
+                      Estado del CDT
+                    </label>
+                    <select
+                      value={cdtStatus}
+                      onChange={(e) => setCdtStatus(e.target.value)}
+                      className="fi-select"
+                      style={{
+                        color: cdtStatus === "matured" ? (isLight ? "#92400e" : "#f59e0b") : "#10b981",
+                        fontWeight: 600,
+                      }}
+                    >
+                      <option value="active">🟢 Activo</option>
+                      <option value="matured">🟡 Vencido / Liquidado</option>
+                    </select>
                   </div>
 
                   {/* Campos de Liquidación (solo si status === matured) */}
                   {cdtStatus === "matured" && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                       <div>
-                        <label className="fi-form-label">
-                          Monto de Salida ($)
-                        </label>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 4,
+                          }}
+                        >
+                          <label className="fi-form-label" style={{ marginBottom: 0 }}>
+                            Monto de Salida ({cdtCurrency})
+                          </label>
+                          {cdtYieldPreview.totalPayout > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const decimals = cdtCurrency === "USD" ? 2 : 0;
+                                setCdtPayoutAmount(
+                                  String(Number(cdtYieldPreview.totalPayout.toFixed(decimals)))
+                                );
+                              }}
+                              style={{
+                                fontSize: "0.66rem",
+                                padding: "1px 6px",
+                                borderRadius: 6,
+                                border: isLight
+                                  ? "1px solid rgba(16,185,129,0.35)"
+                                  : "1px solid rgba(16,185,129,0.3)",
+                                background: isLight ? "#ecfdf5" : "rgba(16,185,129,0.12)",
+                                color: isLight ? "#059669" : "#34d399",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              ✨ Usar Estimado
+                            </button>
+                          )}
+                        </div>
                         <CurrencyInput
                           currency={cdtCurrency}
                           value={cdtPayoutAmount}

@@ -16,24 +16,28 @@ export default function CdtComparatorWidget({
   historicalRates = null,
   portfolioEntities = [],
   onSelectOption = null,
-  compact = false,
+  compact = true,
+  initialCurrency = "COP",
 }) {
   const { theme } = useTheme();
   const isLight = theme === "light";
 
   const [selectedTerm, setSelectedTerm] = useState(initialTermDays);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currencyFilter, setCurrencyFilter] = useState(initialCurrency || "COP");
   const [isExpanded, setIsExpanded] = useState(!compact);
 
-  // Compute ranking for selected term and capital
+  // Compute ranking for selected term, capital, and currency
   const rankingData = useMemo(() => {
+    const defaultCap = currencyFilter === "USD" ? 1000 : 1000000;
     return getRankedCDTRates(
       selectedTerm,
-      Number(capital) > 0 ? Number(capital) : 1000000,
+      Number(capital) > 0 ? Number(capital) : defaultCap,
       historicalRates,
-      portfolioEntities
+      portfolioEntities,
+      currencyFilter
     );
-  }, [selectedTerm, capital, historicalRates, portfolioEntities]);
+  }, [selectedTerm, capital, historicalRates, portfolioEntities, currencyFilter]);
 
   // Filter by user search query
   const filteredList = useMemo(() => {
@@ -46,7 +50,8 @@ export default function CdtComparatorWidget({
     );
   }, [rankingData.rankedList, searchQuery]);
 
-  const displayList = isExpanded ? filteredList : filteredList.slice(0, 3);
+  const showAll = isExpanded || Boolean(searchQuery.trim());
+  const displayList = showAll ? filteredList : filteredList.slice(0, 3);
 
   const containerBg = isLight
     ? "rgba(248, 250, 252, 0.95)"
@@ -114,7 +119,7 @@ export default function CdtComparatorWidget({
                     : "1px solid rgba(16, 185, 129, 0.25)",
                 }}
               >
-                Mercado CO
+                {currencyFilter === "USD" ? "Mercado USD" : currencyFilter === "ALL" ? "COP + USD" : "Mercado CO"}
               </span>
             </div>
             <div style={{ fontSize: "0.72rem", color: textMuted }}>
@@ -175,6 +180,72 @@ export default function CdtComparatorWidget({
         </div>
       </div>
 
+      {/* Search + Currency filter row */}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Buscar entidad (ej. KOA, Ban100, Finandina, Caja Social...)"
+          style={{
+            flex: "1 1 200px",
+            padding: "6px 10px",
+            borderRadius: 8,
+            fontSize: "0.75rem",
+            background: isLight ? "#ffffff" : "rgba(15, 23, 42, 0.75)",
+            color: isLight ? "#0f172a" : "#f8fafc",
+            border: isLight ? "1px solid rgba(203, 213, 225, 0.9)" : "1px solid rgba(255, 255, 255, 0.12)",
+            outline: "none",
+          }}
+        />
+        <div style={{ display: "flex", gap: 4 }}>
+          {[
+            { id: "COP", label: "🇨🇴 COP" },
+            { id: "USD", label: "🇺🇸 USD" },
+            { id: "ALL", label: "Todos" },
+          ].map((currOpt) => {
+            const activeCurr = currencyFilter === currOpt.id;
+            return (
+              <button
+                key={currOpt.id}
+                type="button"
+                onClick={() => setCurrencyFilter(currOpt.id)}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  fontSize: "0.7rem",
+                  fontWeight: activeCurr ? 700 : 500,
+                  cursor: "pointer",
+                  border: activeCurr
+                    ? "1px solid #0ea5e9"
+                    : isLight
+                    ? "1px solid rgba(203, 213, 225, 0.8)"
+                    : "1px solid rgba(255, 255, 255, 0.08)",
+                  background: activeCurr
+                    ? isLight
+                      ? "rgba(14, 165, 233, 0.12)"
+                      : "rgba(14, 165, 233, 0.22)"
+                    : isLight
+                    ? "#ffffff"
+                    : "rgba(255, 255, 255, 0.03)",
+                  color: activeCurr ? (isLight ? "#0284c7" : "#38bdf8") : textMuted,
+                }}
+              >
+                {currOpt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Capital context note */}
       <div
         style={{
@@ -194,10 +265,11 @@ export default function CdtComparatorWidget({
         <span>
           Simulando con capital de:{" "}
           <strong style={{ color: isLight ? "#0f172a" : "#f1f5f9" }}>
-            ${Number(capital || 1000000).toLocaleString("es-CO")} COP
+            ${Number(rankingData.capital || 1000000).toLocaleString("es-CO")}{" "}
+            {currencyFilter === "USD" ? "USD" : "COP"}
           </strong>
         </span>
-        {rankingData.rankedList.length > 3 && (
+        {filteredList.length > 3 && !searchQuery.trim() && (
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
@@ -211,8 +283,8 @@ export default function CdtComparatorWidget({
             }}
           >
             {isExpanded
-              ? `Mostrar menos ▲`
-              : `Ver todos (${rankingData.rankedList.length} bancos) ▼`}
+              ? `Mostrar top 3 ▲`
+              : `Ver todas (${filteredList.length} entidades) ▼`}
           </button>
         )}
       </div>
@@ -305,12 +377,30 @@ export default function CdtComparatorWidget({
                         fontWeight: 700,
                         color: isLight ? "#0f172a" : "#f8fafc",
                         lineHeight: 1.2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        flexWrap: "wrap",
                       }}
                     >
-                      {item.bankName}
+                      <span>{item.bankName}</span>
+                      {item.inPortfolio && (
+                        <span
+                          style={{
+                            fontSize: "0.6rem",
+                            fontWeight: 700,
+                            padding: "1px 5px",
+                            borderRadius: 4,
+                            background: isLight ? "rgba(16, 185, 129, 0.14)" : "rgba(16, 185, 129, 0.2)",
+                            color: isLight ? "#047857" : "#34d399",
+                          }}
+                        >
+                          En Portafolio
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: "0.68rem", color: textMuted }}>
-                      {item.tierLabel}
+                      {item.tierLabel} • {item.currency} ({item.dayBase}d)
                     </div>
                   </div>
                 </div>
@@ -369,7 +459,7 @@ export default function CdtComparatorWidget({
                       color: isLight ? "#047857" : "#34d399",
                     }}
                   >
-                    +${Math.round(item.netYield).toLocaleString("es-CO")} COP
+                    +${Math.round(item.netYield).toLocaleString("es-CO")} {item.currency || "COP"}
                   </div>
                 </div>
 
@@ -383,6 +473,8 @@ export default function CdtComparatorWidget({
                         suggestedName: item.suggestedName,
                         rateEA: item.rateEA,
                         termDays: selectedTerm,
+                        currency: item.currency || "COP",
+                        dayBase: item.dayBase || 365,
                       })
                     }
                     style={{

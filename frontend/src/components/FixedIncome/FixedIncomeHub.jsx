@@ -5,7 +5,7 @@ import { useFixedIncomeStore } from "../../store/fixedIncomeStore";
 import { BANK_PRESETS, computeMissingMonthlyYieldTransactions, getBankPreset, svgToDataUri } from "../../utils/bankPresets";
 import { toastConfirm } from "../../utils/toastAlerts";
 import { calculateAccountYield, getCDTAccruedYield } from "../../utils/yieldCalculator";
-import { getRankedCDTRates } from "../../utils/cdtComparator";
+import { getDefaultCdtDayBase, getRankedCDTRates } from "../../utils/cdtComparator";
 import FixedIncomeModal from "./FixedIncomeModal";
 import FixedIncomeProjectionChart from "./FixedIncomeProjectionChart";
 import StatementImporterModal from "./StatementImporterModal";
@@ -342,8 +342,7 @@ export default function FixedIncomeHub() {
   const handleDeleteCDT = async (cdt) => {
     const ok = await toastConfirm(`¿Estás seguro de eliminar el CDT "${cdt.name}"?`);
     if (ok) {
-      deleteCDT(cdt.id);
-      toast.success(`CDT "${cdt.name}" eliminado`);
+      await deleteCDT(cdt.id);
     }
   };
 
@@ -352,8 +351,7 @@ export default function FixedIncomeHub() {
       `¿Eliminar la entidad "${entity.name}" y todos sus productos asociados?`,
     );
     if (ok) {
-      deleteEntity(entity.id);
-      toast.success(`Entidad "${entity.name}" eliminada`);
+      await deleteEntity(entity.id);
     }
   };
 
@@ -425,8 +423,6 @@ export default function FixedIncomeHub() {
   const chartEntities = useMemo(() => {
     return entities.filter((entity) => {
       const entNameLower = (entity.name || "").toLowerCase();
-      if (entNameLower.includes("nequi") || entNameLower.includes("daviplata")) return false;
-
       const hasYieldAcc = accounts.some(
         (a) =>
           a.entityId === entity.id &&
@@ -435,6 +431,9 @@ export default function FixedIncomeHub() {
           a.type !== "wallet"
       );
       const hasCdt = cdts.some((c) => c.entityId === entity.id);
+      if ((entNameLower.includes("nequi") || entNameLower.includes("daviplata")) && !hasCdt) {
+        return false;
+      }
       return hasYieldAcc || hasCdt;
     });
   }, [entities, accounts, cdts]);
@@ -519,15 +518,16 @@ export default function FixedIncomeHub() {
       const today = new Date();
       const daysElapsed = Math.max(0, Math.floor((today - startDate) / (1000 * 60 * 60 * 24)));
 
-      // Rendimiento acumulado devengado
-      const accruedGain = getCDTAccruedYield(cdt);
+      // Rendimiento acumulado devengado convertido a moneda preferida
+      const accruedGain = convertAmount(getCDTAccruedYield(cdt), cdt.currency);
       cdtsExtraYield += accruedGain;
 
-      const dailyRate = (Math.pow(1 + rateDecimal, 1 / 360) - 1) * reteFuenteMultiplier;
+      const dayBase = Number(cdt.dayBase) || getDefaultCdtDayBase(cdt);
+      const dailyRate = (Math.pow(1 + rateDecimal, 1 / dayBase) - 1) * reteFuenteMultiplier;
       const dailyIncome = capitalVal * dailyRate;
 
       totalDailyIncome += dailyIncome;
-      weightedRateSum += (cdt.interestRateEA || 11.0) * capitalVal;
+      weightedRateSum += Number(cdt.interestRateEA ?? 11.0) * capitalVal;
     });
 
     // Patrimonio total consolidado en Renta Fija = Saldo de Cajitas de Inversión + Capital de CDTs + Rendimientos Devengados de CDTs
@@ -791,7 +791,8 @@ export default function FixedIncomeHub() {
             const startD = new Date(sDate);
             const thisD = new Date(dStr);
             const daysEl = Math.max(0, Math.floor((thisD - startD) / (1000 * 60 * 60 * 24)));
-            const cdtYieldRaw = capRaw * (Math.pow(1 + rEA / 100, daysEl / 360) - 1) * rete;
+            const cdtDayBase = Number(c.dayBase) || getDefaultCdtDayBase(c);
+            const cdtYieldRaw = capRaw * (Math.pow(1 + rEA / 100, daysEl / cdtDayBase) - 1) * rete;
             const cdtYield = convertAmount(cdtYieldRaw, c.currency);
 
             const isLinkedToPocket = investmentAccounts.some((acc) => {
@@ -1611,6 +1612,7 @@ export default function FixedIncomeHub() {
           </button>
           <button
             onClick={() => {
+              setSelectedModalEntityId(selectedEntityView !== "all" ? selectedEntityView : null);
               setEditItem(null);
               setEditType(null);
               setModalTab("cdt");
@@ -2126,6 +2128,7 @@ export default function FixedIncomeHub() {
                 <button
                   type="button"
                   onClick={() => {
+                    setSelectedModalEntityId(topCdtBenchmark?.bestOption?.entityId || null);
                     setEditItem(null);
                     setEditType(null);
                     setModalTab("cdt");
@@ -4079,9 +4082,10 @@ export default function FixedIncomeHub() {
                                       fontWeight: 600,
                                     }}
                                   >
-                                    $
-                                    {cdt.capital.toLocaleString("es-CO", {
-                                      maximumFractionDigits: 0,
+                                    {cdt.currency === "USD" ? "USD $" : "$"}
+                                    {Number(cdt.capital || 0).toLocaleString("es-CO", {
+                                      minimumFractionDigits: cdt.currency === "USD" ? 2 : 0,
+                                      maximumFractionDigits: cdt.currency === "USD" ? 2 : 0,
                                     })}
                                   </td>
                                   <td
@@ -4089,23 +4093,41 @@ export default function FixedIncomeHub() {
                                       padding: "6px 2px",
                                       textAlign: "right",
                                       fontFamily: "JetBrains Mono",
-                                      color: "#22c55e",
+                                      color: isLight ? "#059669" : "#22c55e",
                                       fontWeight: 700,
                                       fontSize: "0.72rem",
                                     }}
                                   >
                                     {(() => {
                                       const gain = getCDTAccruedYield(cdt);
-                                      return `+$${gain.toLocaleString("es-CO", { maximumFractionDigits: 0 })}`;
+                                      const dec = cdt.currency === "USD" ? 2 : 0;
+                                      return `+${cdt.currency === "USD" ? "USD $" : "$"}${gain.toLocaleString("es-CO", {
+                                        minimumFractionDigits: dec,
+                                        maximumFractionDigits: dec,
+                                      })}`;
                                     })()}
                                   </td>
-                                  <td style={{ padding: "6px 2px", textAlign: "right" }}>
+                                  <td style={{ padding: "6px 2px", textAlign: "right", whiteSpace: "nowrap" }}>
+                                    <button
+                                      onClick={() => handleEdit({ ...cdt, _preLiquidate: true }, "cdt")}
+                                      style={{
+                                        background: "transparent",
+                                        border: "none",
+                                        color: isLight ? "#b45309" : "#f59e0b",
+                                        cursor: "pointer",
+                                        fontSize: "0.72rem",
+                                        marginRight: 2,
+                                      }}
+                                      title="Liquidar / Cerrar CDT"
+                                    >
+                                      💰
+                                    </button>
                                     <button
                                       onClick={() => handleEdit(cdt, "cdt")}
                                       style={{
                                         background: "transparent",
                                         border: "none",
-                                        color: "#475569",
+                                        color: "var(--text-secondary)",
                                         cursor: "pointer",
                                         fontSize: "0.7rem",
                                       }}
@@ -4118,7 +4140,7 @@ export default function FixedIncomeHub() {
                                       style={{
                                         background: "transparent",
                                         border: "none",
-                                        color: "#475569",
+                                        color: "var(--text-secondary)",
                                         cursor: "pointer",
                                         fontSize: "0.7rem",
                                       }}
@@ -4144,9 +4166,9 @@ export default function FixedIncomeHub() {
                   return (
                     <div
                       style={{
-                        background: "rgba(16, 185, 129, 0.02)",
+                        background: isLight ? "rgba(16, 185, 129, 0.04)" : "rgba(16, 185, 129, 0.02)",
                         borderRadius: 10,
-                        border: `1px solid ${isMaturedExpanded ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.12)"}`,
+                        border: `1px solid ${isMaturedExpanded ? "rgba(16, 185, 129, 0.25)" : "rgba(16, 185, 129, 0.14)"}`,
                         marginTop: 8,
                         overflow: "hidden",
                         transition: "all 0.2s ease",
@@ -4168,7 +4190,7 @@ export default function FixedIncomeHub() {
                             margin: 0,
                             fontSize: "0.78rem",
                             fontWeight: 700,
-                            color: "#10b981",
+                            color: isLight ? "#059669" : "#10b981",
                             display: "flex",
                             alignItems: "center",
                             gap: 6,
@@ -4179,10 +4201,24 @@ export default function FixedIncomeHub() {
                         <button
                           type="button"
                           style={{
-                            background: isMaturedExpanded ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                            border: `1px solid ${isMaturedExpanded ? "#10b981" : "rgba(255, 255, 255, 0.1)"}`,
+                            background: isMaturedExpanded
+                              ? "rgba(16, 185, 129, 0.2)"
+                              : isLight
+                                ? "#ffffff"
+                                : "rgba(255, 255, 255, 0.05)",
+                            border: `1px solid ${
+                              isMaturedExpanded
+                                ? "#10b981"
+                                : isLight
+                                  ? "rgba(0, 0, 0, 0.12)"
+                                  : "rgba(255, 255, 255, 0.1)"
+                            }`,
                             borderRadius: 6,
-                            color: isMaturedExpanded ? "#10b981" : "#94a3b8",
+                            color: isMaturedExpanded
+                              ? isLight
+                                ? "#059669"
+                                : "#10b981"
+                              : "var(--text-secondary)",
                             padding: "3px 8px",
                             fontSize: "0.68rem",
                             fontWeight: 600,
@@ -4203,13 +4239,13 @@ export default function FixedIncomeHub() {
                               width: "100%",
                               borderCollapse: "collapse",
                               fontSize: "0.7rem",
-                              color: "#94a3b8",
+                              color: "var(--text-secondary)",
                             }}
                           >
                             <thead>
                               <tr
                                 style={{
-                                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                  borderBottom: "1px solid var(--border)",
                                   textAlign: "left",
                                 }}
                               >
@@ -4234,16 +4270,19 @@ export default function FixedIncomeHub() {
                             <tbody>
                               {maturedCDTs.map((cdt, idx) => {
                                 const profit = cdt.netProfit || cdt.payoutAmount - cdt.capital || 0;
+                                const isUsd = cdt.currency === "USD";
+                                const dec = isUsd ? 2 : 0;
+                                const currPrefix = isUsd ? "USD $" : "$";
 
                                 return (
                                   <tr
                                     key={`matured_${cdt.id}_${idx}`}
-                                    style={{ borderBottom: "1px solid rgba(255,255,255,0.02)" }}
+                                    style={{ borderBottom: "1px solid var(--border)" }}
                                   >
                                     <td
                                       style={{
                                         padding: "6px 2px",
-                                        color: "#e2e8f0",
+                                        color: "var(--text-primary)",
                                         fontWeight: 500,
                                       }}
                                     >
@@ -4253,7 +4292,7 @@ export default function FixedIncomeHub() {
                                             .replace(/CDT Nu\s*\(Vencid[^\)]*\)\s*Vencido/i, "")
                                             .trim()}
                                       </div>
-                                      <div style={{ fontSize: "0.62rem", color: "#64748b" }}>
+                                      <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>
                                         {cdt.startDate} ➔ {cdt.payoutDate || cdt.maturityDate}
                                       </div>
                                     </td>
@@ -4261,7 +4300,7 @@ export default function FixedIncomeHub() {
                                       style={{
                                         padding: "6px 2px",
                                         textAlign: "center",
-                                        color: "#e2e8f0",
+                                        color: "var(--text-primary)",
                                       }}
                                     >
                                       {cdt.termDays || 180}d
@@ -4271,11 +4310,13 @@ export default function FixedIncomeHub() {
                                         padding: "6px 2px",
                                         textAlign: "right",
                                         fontFamily: "JetBrains Mono",
+                                        color: "var(--text-primary)",
                                       }}
                                     >
-                                      $
-                                      {cdt.capital.toLocaleString("es-CO", {
-                                        maximumFractionDigits: 0,
+                                      {currPrefix}
+                                      {Number(cdt.capital || 0).toLocaleString("es-CO", {
+                                        minimumFractionDigits: dec,
+                                        maximumFractionDigits: dec,
                                       })}
                                     </td>
                                     <td
@@ -4283,13 +4324,14 @@ export default function FixedIncomeHub() {
                                         padding: "6px 2px",
                                         textAlign: "right",
                                         fontFamily: "JetBrains Mono",
-                                        color: "#f43f5e",
+                                        color: isLight ? "#e11d48" : "#f43f5e",
                                         fontWeight: 600,
                                       }}
                                     >
-                                      $
-                                      {(cdt.payoutAmount || cdt.capital).toLocaleString("es-CO", {
-                                        maximumFractionDigits: 0,
+                                      {currPrefix}
+                                      {Number(cdt.payoutAmount || cdt.capital || 0).toLocaleString("es-CO", {
+                                        minimumFractionDigits: dec,
+                                        maximumFractionDigits: dec,
                                       })}
                                     </td>
                                     <td
@@ -4297,11 +4339,15 @@ export default function FixedIncomeHub() {
                                         padding: "6px 2px",
                                         textAlign: "right",
                                         fontFamily: "JetBrains Mono",
-                                        color: "#10b981",
+                                        color: isLight ? "#059669" : "#10b981",
                                         fontWeight: 700,
                                       }}
                                     >
-                                      +${profit.toLocaleString("es-CO", { maximumFractionDigits: 0 })}
+                                      +{currPrefix}
+                                      {profit.toLocaleString("es-CO", {
+                                        minimumFractionDigits: dec,
+                                        maximumFractionDigits: dec,
+                                      })}
                                     </td>
                                     <td style={{ padding: "6px 2px", textAlign: "right" }}>
                                       <button
@@ -4312,7 +4358,7 @@ export default function FixedIncomeHub() {
                                         style={{
                                           background: "transparent",
                                           border: "none",
-                                          color: "#475569",
+                                          color: "var(--text-secondary)",
                                           cursor: "pointer",
                                           fontSize: "0.7rem",
                                           marginRight: 4,
@@ -4329,7 +4375,7 @@ export default function FixedIncomeHub() {
                                         style={{
                                           background: "transparent",
                                           border: "none",
-                                          color: "#475569",
+                                          color: "var(--text-secondary)",
                                           cursor: "pointer",
                                           fontSize: "0.7rem",
                                         }}
@@ -4358,13 +4404,13 @@ export default function FixedIncomeHub() {
                       flexDirection: "column",
                       alignItems: "center",
                       gap: 12,
-                      background: "rgba(255, 255, 255, 0.02)",
+                      background: isLight ? "#f8fafc" : "rgba(255, 255, 255, 0.02)",
                       borderRadius: 10,
-                      border: "1px dashed rgba(255, 255, 255, 0.1)",
+                      border: "1px dashed var(--border)",
                     }}
                   >
-                    <div style={{ color: "#94a3b8", fontSize: "0.82rem" }}>
-                      Sin cuentas ni CDTs registrados aún en <strong style={{ color: "#f1f5f9" }}>{entity.name}</strong>.
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>
+                      Sin cuentas ni CDTs registrados aún en <strong style={{ color: "var(--text-primary)" }}>{entity.name}</strong>.
                     </div>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
                       <button

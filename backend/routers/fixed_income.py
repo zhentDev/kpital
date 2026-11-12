@@ -7,9 +7,19 @@ and quantitative compound interest projections.
 
 import logging
 import re
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any, Optional
+
+
+def _normalize_entity_token(value: str) -> str:
+    if not value:
+        return ""
+    nfkd = unicodedata.normalize("NFKD", str(value))
+    ascii_str = "".join(c for c in nfkd if not unicodedata.combining(c))
+    cleaned = ascii_str.lower().replace("preset_", "").replace("ent_", "").replace("banco", "")
+    return re.sub(r"[^a-z0-9]", "", cleaned)
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -121,6 +131,13 @@ class CDTModel(BaseModel):
     maturityDate: str
     reteFuentePct: float = 4.0
     isAutoRenew: bool = False
+    status: str = "active"
+    category: str | None = None
+    accountId: str | None = None
+    dayBase: int | None = None
+    payoutAmount: float | None = None
+    payoutDate: str | None = None
+    netProfit: float | None = None
     createdAt: str | None = None
 
 
@@ -269,7 +286,7 @@ def create_cdt(cdt: CDTModel, request: Request):
     user_id = user["sub"] if user else None
     db = load_fixed_income_db(user_id)
     new_id = cdt.id or f"cdt_{int(datetime.now().timestamp() * 1000)}"
-    item = {
+    item: dict[str, Any] = {
         "id": new_id,
         "entityId": cdt.entityId,
         "name": cdt.name,
@@ -281,8 +298,21 @@ def create_cdt(cdt: CDTModel, request: Request):
         "maturityDate": cdt.maturityDate,
         "reteFuentePct": float(cdt.reteFuentePct),
         "isAutoRenew": cdt.isAutoRenew,
-        "createdAt": cdt.createdAt or datetime.now().isoformat()
+        "status": cdt.status or "active",
+        "createdAt": cdt.createdAt or datetime.now().isoformat(),
     }
+    if cdt.category is not None:
+        item["category"] = cdt.category
+    if cdt.accountId:
+        item["accountId"] = cdt.accountId
+    if cdt.dayBase is not None:
+        item["dayBase"] = int(cdt.dayBase)
+    if cdt.payoutAmount is not None:
+        item["payoutAmount"] = float(cdt.payoutAmount)
+    if cdt.payoutDate:
+        item["payoutDate"] = cdt.payoutDate
+    if cdt.netProfit is not None:
+        item["netProfit"] = float(cdt.netProfit)
     db["cdts"].append(item)
     save_fixed_income_db(db, user_id)
     return item
@@ -295,8 +325,9 @@ def update_cdt(cdt_id: str, cdt: CDTModel, request: Request):
     db = load_fixed_income_db(user_id)
     for idx, c in enumerate(db["cdts"]):
         if c["id"] == cdt_id:
-            db["cdts"][idx] = {
+            updated: dict[str, Any] = {
                 **c,
+                "entityId": cdt.entityId,
                 "name": cdt.name,
                 "capital": float(cdt.capital),
                 "currency": cdt.currency,
@@ -305,8 +336,25 @@ def update_cdt(cdt_id: str, cdt: CDTModel, request: Request):
                 "startDate": cdt.startDate,
                 "maturityDate": cdt.maturityDate,
                 "reteFuentePct": float(cdt.reteFuentePct),
-                "isAutoRenew": cdt.isAutoRenew
+                "isAutoRenew": cdt.isAutoRenew,
+                "status": cdt.status or c.get("status", "active"),
             }
+            if cdt.category is not None:
+                updated["category"] = cdt.category
+            if cdt.accountId is not None:
+                if cdt.accountId:
+                    updated["accountId"] = cdt.accountId
+                else:
+                    updated.pop("accountId", None)
+            if cdt.dayBase is not None:
+                updated["dayBase"] = int(cdt.dayBase)
+            if cdt.payoutAmount is not None:
+                updated["payoutAmount"] = float(cdt.payoutAmount)
+            if cdt.payoutDate is not None:
+                updated["payoutDate"] = cdt.payoutDate
+            if cdt.netProfit is not None:
+                updated["netProfit"] = float(cdt.netProfit)
+            db["cdts"][idx] = updated
             save_fixed_income_db(db, user_id)
             return db["cdts"][idx]
     raise HTTPException(status_code=404, detail="CDT not found")
@@ -348,27 +396,47 @@ def suggest_rate(
 ):
     """Suggest exact historical or term-based E.A. interest rate for an entity."""
     rates_db = load_historical_rates_db()
+    entities_map = rates_db.get("entities", {})
     lookup_id = entity_id.replace("preset_", "ent_") if entity_id.startswith("preset_") else entity_id
-    entity_data = rates_db.get("entities", {}).get(lookup_id)
+    entity_data = entities_map.get(lookup_id) or entities_map.get(f"ent_{entity_id}")
 
     if not entity_data:
-        # Fallback: search by entity name in fixed_income database or direct key match
+        # Fallback: search by entity name in fixed_income database or direct normalized key match
         fi_db = load_fixed_income_db()
         target_ent = next((e for e in fi_db.get("entities", []) if e.get("id") == entity_id), None)
-        ent_name_clean = (target_ent.get("name", "") if target_ent else entity_id).lower().replace(" ", "").replace("banco", "").replace("preset_", "").replace("ent_", "")
-        for k, ed in rates_db.get("entities", {}).items():
-            k_clean = k.lower().replace("ent_", "").replace("_", "")
-            ed_name_clean = ed.get("name", "").lower().replace(" ", "").replace("banco", "")
-            if k_clean in ent_name_clean or ent_name_clean in k_clean or ed_name_clean in ent_name_clean or ent_name_clean in ed_name_clean:
+        ent_name_clean = _normalize_entity_token(target_ent.get("name", "") if target_ent else entity_id)
+        for k, ed in entities_map.items():
+            k_clean = _normalize_entity_token(k)
+            ed_name_clean = _normalize_entity_token(ed.get("name", ""))
+            if ent_name_clean and (k_clean == ent_name_clean or ed_name_clean == ent_name_clean):
                 entity_data = ed
                 break
+        if not entity_data and ent_name_clean:
+            for k, ed in entities_map.items():
+                k_clean = _normalize_entity_token(k)
+                ed_name_clean = _normalize_entity_token(ed.get("name", ""))
+                if (k_clean and (k_clean in ent_name_clean or ent_name_clean in k_clean)) or (
+                    ed_name_clean and (ed_name_clean in ent_name_clean or ent_name_clean in ed_name_clean)
+                ):
+                    entity_data = ed
+                    break
 
     if not entity_data:
         if product_type == "cdt":
-            return {"rateEA": 11.5, "label": "CDT Estándar", "tiers": []}
+            return {"rateEA": 11.5, "label": "CDT Estándar", "tiers": [], "currency": "COP", "dayBase": 360}
         return {"rateEA": 12.0, "label": "Cuenta Estándar", "tiers": []}
 
     target_date = date or datetime.now().strftime("%Y-%m-%d")
+    entity_currency = entity_data.get("currency", "COP")
+    clean_ref = _normalize_entity_token(entity_data.get("name", lookup_id))
+    default_day_base = (
+        entity_data.get("dayBase")
+        or (
+            365
+            if any(tok in clean_ref for tok in ("nu", "mejorcdt", "koa", "lulo", "pibank", "plenti", "ibkr"))
+            else 360
+        )
+    )
 
     # If CDT, check term tiers (Nu 60d, 90d, 180d, 360d, 540d, 720d, 1080d etc.)
     if product_type == "cdt":
@@ -391,12 +459,16 @@ def suggest_rate(
                 "rateEA": matched_tier["rateEA"],
                 "label": matched_tier.get("label", f"CDT {term} Días"),
                 "tiers": cdt_tiers,
+                "currency": entity_currency,
+                "dayBase": default_day_base,
                 "notes": f"Tasa CDT {entity_data.get('name')} para {term} días ({matched_tier['rateEA']}%)",
             }
         return {
-            "rateEA": cdt_tiers[-1]["rateEA"] if cdt_tiers else 12.0,
+            "rateEA": cdt_tiers[-1]["rateEA"] if cdt_tiers else 11.5,
             "label": f"CDT {term} Días",
             "tiers": cdt_tiers,
+            "currency": entity_currency,
+            "dayBase": default_day_base,
             "notes": "Tasa referencial",
         }
 

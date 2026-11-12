@@ -3,6 +3,7 @@
  * Automatically falls back to static pre-calculated JSON data on GitHub Pages or when backend is offline!
  */
 import { BANK_PRESETS, getBankPreset } from "../utils/bankPresets";
+import { BUILTIN_CDT_BENCHMARKS, getDefaultCdtDayBase } from "../utils/cdtComparator";
 import {
   directSupabaseLogin,
   directSupabaseFetchMe,
@@ -14,6 +15,12 @@ import {
   directUpdateRebalanceDate,
   directSaveFixedIncome,
   directFetchFixedIncome,
+  directUpsertFixedIncomeEntity,
+  directDeleteFixedIncomeEntity,
+  directUpsertFixedIncomeAccount,
+  directDeleteFixedIncomeAccount,
+  directUpsertFixedIncomeCDT,
+  directDeleteFixedIncomeCDT,
   directFetchCashFlow,
   directDeleteCreditPurchase,
   directSaveCashFlow,
@@ -29,6 +36,8 @@ import {
   directCreatePurchaseSale,
   directDeletePurchaseSale,
 } from "../shared/api/directSupabase";
+
+let _cachedHistoricalRates = null;
 
 const RENDER_BACKEND_BASE = "https://titanes-portfolio-backend.onrender.com/api";
 const LOCAL_BACKEND_BASE = "http://127.0.0.1:8000/api";
@@ -902,7 +911,12 @@ export async function fetchFixedIncomeData(options = {}) {
   // 1. Live Supabase first (SSOT directly from DB)
   try {
     const directData = await directFetchFixedIncome();
-    if (directData && Array.isArray(directData.accounts) && directData.accounts.length > 0) {
+    if (
+      directData &&
+      ((directData.entities && directData.entities.length > 0) ||
+        (directData.accounts && directData.accounts.length > 0) ||
+        (directData.cdts && directData.cdts.length > 0))
+    ) {
       return directData;
     }
   } catch (err) {
@@ -913,73 +927,109 @@ export async function fetchFixedIncomeData(options = {}) {
   return await fetchWithFallback("/fixed-income/data", "fixed_income.json", options);
 }
 
+async function fiWithSupabaseFallback(apiRequest, supabaseFallback) {
+  try {
+    const res = await apiRequest();
+    if (res && res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[FixedIncome] FastAPI unreachable, syncing directly to Supabase:", err);
+  }
+  return await supabaseFallback();
+}
+
 export async function createFixedIncomeEntity(entity) {
-  const res = await safeFetch(`${getBase()}/fixed-income/entities`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(entity),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/entities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entity),
+      }),
+    () => directUpsertFixedIncomeEntity(entity)
+  );
 }
 
 export async function updateFixedIncomeEntityApi(id, entity) {
-  const res = await safeFetch(`${getBase()}/fixed-income/entities/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(entity),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/entities/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entity),
+      }),
+    () => directUpsertFixedIncomeEntity({ ...entity, id })
+  );
 }
 
 export async function deleteFixedIncomeEntityApi(id) {
-  const res = await safeFetch(`${getBase()}/fixed-income/entities/${id}`, { method: "DELETE" });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () => safeFetch(`${getBase()}/fixed-income/entities/${id}`, { method: "DELETE" }),
+    () => directDeleteFixedIncomeEntity(id)
+  );
 }
 
 export async function createFixedIncomeAccount(account) {
-  const res = await safeFetch(`${getBase()}/fixed-income/accounts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(account),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/accounts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(account),
+      }),
+    () => directUpsertFixedIncomeAccount(account)
+  );
 }
 
 export async function updateFixedIncomeAccountApi(id, account) {
-  const res = await safeFetch(`${getBase()}/fixed-income/accounts/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(account),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/accounts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(account),
+      }),
+    () => directUpsertFixedIncomeAccount({ ...account, id })
+  );
 }
 
 export async function deleteFixedIncomeAccountApi(id) {
-  const res = await safeFetch(`${getBase()}/fixed-income/accounts/${id}`, { method: "DELETE" });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () => safeFetch(`${getBase()}/fixed-income/accounts/${id}`, { method: "DELETE" }),
+    () => directDeleteFixedIncomeAccount(id)
+  );
 }
 
 export async function createFixedIncomeCDT(cdt) {
-  const res = await safeFetch(`${getBase()}/fixed-income/cdts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cdt),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/cdts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cdt),
+      }),
+    () => directUpsertFixedIncomeCDT(cdt)
+  );
 }
 
 export async function updateFixedIncomeCDTApi(id, cdt) {
-  const res = await safeFetch(`${getBase()}/fixed-income/cdts/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cdt),
-  });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () =>
+      safeFetch(`${getBase()}/fixed-income/cdts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cdt),
+      }),
+    () => directUpsertFixedIncomeCDT({ ...cdt, id })
+  );
 }
 
 export async function deleteFixedIncomeCDTApi(id) {
-  const res = await safeFetch(`${getBase()}/fixed-income/cdts/${id}`, { method: "DELETE" });
-  return res.json();
+  return fiWithSupabaseFallback(
+    () => safeFetch(`${getBase()}/fixed-income/cdts/${id}`, { method: "DELETE" }),
+    () => directDeleteFixedIncomeCDT(id)
+  );
 }
 
 export async function syncFixedIncomeStateApi(state) {
@@ -1001,6 +1051,8 @@ export async function suggestFixedIncomeRate(
   productType = "savings",
   termDays = null,
   date = null,
+  historicalRatesArg = null,
+  portfolioEntities = []
 ) {
   const params = new URLSearchParams({
     entity_id: entityId,
@@ -1012,38 +1064,133 @@ export async function suggestFixedIncomeRate(
   try {
     const res = await safeFetch(`${getBase()}/fixed-income/rates/suggest?${params}`);
     if (res.ok) return await res.json();
-  } catch (e) {
-    // Fallback defaults below
+  } catch {
+    // Fallback to client-side rate resolution
   }
 
-  const cleanId = String(entityId || "").replace("preset_", "").replace("ent_", "");
-  const bp = getBankPreset(cleanId);
-  const baseRate = bp?.defaultRateEA || (productType === "cdt" ? 10.5 : 9.0);
+  let ratesDb = historicalRatesArg?.entities && Object.keys(historicalRatesArg.entities).length > 0
+    ? historicalRatesArg
+    : _cachedHistoricalRates;
+  if (!ratesDb?.entities || Object.keys(ratesDb.entities).length === 0) {
+    ratesDb = await fetchHistoricalRates();
+  }
+
+  const cleanEntityId = String(entityId || "");
+  const cleanSlug = cleanEntityId.replace(/^preset_|^ent_/, "");
+  const matchedEntObj = (portfolioEntities || []).find((e) => e.id === cleanEntityId);
+  const bpById = getBankPreset(cleanSlug);
+  const bp = bpById.id !== "generic"
+    ? bpById
+    : getBankPreset(matchedEntObj?.name || cleanEntityId);
+  const canonicalSlug = bp.id !== "generic" ? bp.id : cleanSlug;
+
+  const entitiesMap = ratesDb?.entities || {};
+  let entityRatesData =
+    entitiesMap[cleanEntityId] ||
+    entitiesMap[`ent_${canonicalSlug}`] ||
+    entitiesMap[canonicalSlug] ||
+    null;
+
+  if (!entityRatesData && matchedEntObj?.name) {
+    const targetClean = matchedEntObj.name.toLowerCase().replace(/banco\s+/g, "").trim();
+    entityRatesData = Object.values(entitiesMap).find((ed) => {
+      const edClean = (ed?.name || "").toLowerCase().replace(/banco\s+/g, "").trim();
+      return edClean && (edClean.includes(targetClean) || targetClean.includes(edClean));
+    }) || null;
+  }
+
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const defaultCurrency = entityRatesData?.currency || bp?.currency || "COP";
+  const defaultDayBase = entityRatesData?.dayBase || getDefaultCdtDayBase(canonicalSlug || matchedEntObj?.name);
+
+  if (productType === "cdt") {
+    const term = Number(termDays) || 180;
+    let cdtTiers = entityRatesData?.cdt_term_rates || [];
+    const history = entityRatesData?.cdt_term_rates_history || [];
+    if (date && history.length > 0) {
+      const period = history.find((p) => (p.from || "") <= targetDate && targetDate <= (p.to || "9999-12-31"));
+      if (period?.tiers) cdtTiers = period.tiers;
+    }
+
+    if (cdtTiers.length === 0) {
+      const benchmark = BUILTIN_CDT_BENCHMARKS.find((b) => b.presetId === canonicalSlug);
+      if (benchmark) {
+        cdtTiers = benchmark.tiers.map((t) => ({
+          termDaysMin: t.min,
+          termDaysMax: t.max,
+          rateEA: t.rateEA,
+          label: t.label,
+        }));
+      }
+    }
+
+    if (cdtTiers.length > 0) {
+      const matchedTier =
+        cdtTiers.find((t) => {
+          const min = t.termDaysMin ?? t.min ?? 1;
+          const max = t.termDaysMax ?? t.max ?? 9999;
+          return term >= min && term <= max;
+        }) || cdtTiers[cdtTiers.length - 1];
+
+      return {
+        rateEA: matchedTier.rateEA,
+        label: matchedTier.label || `CDT ${bp?.name || canonicalSlug} ${term} Días`,
+        tiers: cdtTiers,
+        currency: defaultCurrency,
+        dayBase: defaultDayBase,
+      };
+    }
+
+    const fallbackRate = bp?.defaultRateEA > 0 ? bp.defaultRateEA : 10.5;
+    return {
+      rateEA: fallbackRate,
+      label: matchedEntObj?.name || bp?.name || "Tasa Personalizable CDT",
+      tiers: [],
+      currency: defaultCurrency,
+      dayBase: defaultDayBase,
+    };
+  }
+
+  const savingsRates = entityRatesData?.savings_rates || [];
+  if (savingsRates.length > 0) {
+    const matched = savingsRates.find((i) => i.from <= targetDate && targetDate <= i.to) || savingsRates[savingsRates.length - 1];
+    return {
+      rateEA: matched.rateEA,
+      label: `${entityRatesData.name || bp.name} (${matched.notes || "Vigente"})`,
+      tiers: [],
+      currency: defaultCurrency,
+    };
+  }
 
   return {
-    rateEA: baseRate,
-    label: bp ? `Tasa Sugerida ${bp.name}` : "Tasa Estándar",
-    tiers: productType === "cdt" ? [
-      { termDaysMin: 1, termDaysMax: 120, rateEA: Number((baseRate + 0.5).toFixed(2)), label: "90 Días" },
-      { termDaysMin: 121, termDaysMax: 220, rateEA: Number((baseRate + 1.2).toFixed(2)), label: "180 Días" },
-      { termDaysMin: 221, termDaysMax: 999, rateEA: Number((baseRate + 1.5).toFixed(2)), label: "360 Días" },
-    ] : [],
+    rateEA: bp?.defaultRateEA ?? 9.0,
+    label: bp?.id !== "generic" ? `Tasa Sugerida ${bp.name}` : "Tasa Estándar",
+    tiers: [],
+    currency: defaultCurrency,
   };
 }
 
 export async function fetchHistoricalRates() {
   try {
     const res = await safeFetch(`${getBase()}/fixed-income/rates`);
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const json = await res.json();
+      _cachedHistoricalRates = json;
+      return json;
+    }
   } catch (e) {
     try {
       const staticRes = await fetch(getStaticDataPath("historical_rates.json"));
-      if (staticRes.ok) return await staticRes.json();
+      if (staticRes.ok) {
+        const json = await staticRes.json();
+        _cachedHistoricalRates = json;
+        return json;
+      }
     } catch (err) {
       console.error("Error fetching historical rates database:", e);
     }
   }
-  return { entities: {} };
+  return _cachedHistoricalRates || { entities: {} };
 }
 
 export async function calculateCompoundHistory(entityId, deposits, currentDate = null) {

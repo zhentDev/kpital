@@ -34,7 +34,7 @@ export const BANK_PRESETS = [
     icon: "🟢",
     payoutFrequency: "daily",
     defaultRateEA: 10.00,
-    suggestedProducts: ["Lulo Cuenta", "Bolsillo Lulo (9.5% - 10.0%)", "Lulo Pro"],
+    suggestedProducts: ["Lulo Cuenta", "Bolsillo Lulo (9.5% - 10.0%)", "Lulo Pro", "CDT Lulo Bank"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#0f172a"/><circle cx="50" cy="50" r="32" fill="#00e575"/><text x="50" y="58" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="28" fill="#0f172a" text-anchor="middle">L</text></svg>`,
   },
   {
@@ -273,9 +273,101 @@ export const BANK_PRESETS = [
     color: "#005aa9",
     icon: "💎",
     payoutFrequency: "monthly",
+    dayBase: 360,
     defaultRateEA: 11.00,
-    suggestedProducts: ["Cuenta Ahorro Serfinanza", "CDT Serfinanza"],
+    suggestedProducts: ["Cuenta Ahorro Serfinanza", "CDT Serfinanza", "CDT Digital Serfinanza"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#005aa9"/><text x="50" y="60" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="30" fill="#ffffff" text-anchor="middle">BS</text></svg>`,
+  },
+  {
+    id: "koa",
+    name: "KOA Compañía de Financiamiento",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#0ea5e9",
+    icon: "🦈",
+    payoutFrequency: "at_maturity",
+    dayBase: 365,
+    defaultRateEA: 12.50,
+    suggestedProducts: ["CDT Digital KOA", "CDT KOA 180 Días", "CDT KOA 360 Días", "Cuenta KOA"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#0c4a6e"/><text x="50" y="60" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="28" fill="#38bdf8" text-anchor="middle">KOA</text></svg>`,
+  },
+  {
+    id: "ban100",
+    name: "Ban100",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#16a34a",
+    icon: "💯",
+    payoutFrequency: "at_maturity",
+    dayBase: 360,
+    defaultRateEA: 12.00,
+    suggestedProducts: ["CDT Digital Ban100", "CDT Ban100 360 Días", "Cuenta de Ahorros Ban100"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#14532d"/><text x="50" y="60" font-family="'JetBrains Mono', sans-serif" font-weight="900" font-size="24" fill="#4ade80" text-anchor="middle">B100</text></svg>`,
+  },
+  {
+    id: "credifamilia",
+    name: "Credifamilia",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#f97316",
+    icon: "🏡",
+    payoutFrequency: "at_maturity",
+    dayBase: 360,
+    defaultRateEA: 11.80,
+    suggestedProducts: ["CDT Digital Credifamilia", "CDT Tasa Fija Credifamilia"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#9a3412"/><text x="50" y="60" font-family="'Inter', sans-serif" font-weight="900" font-size="26" fill="#fed7aa" text-anchor="middle">CF</text></svg>`,
+  },
+  {
+    id: "pichincha",
+    name: "Banco Pichincha",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#facc15",
+    icon: "🟨",
+    payoutFrequency: "monthly",
+    dayBase: 360,
+    defaultRateEA: 10.50,
+    suggestedProducts: ["CDT Digital Pichincha", "CDT Pichincha", "Cuenta Ahorro Pichincha"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#eab308"/><rect x="24" y="24" width="52" height="52" rx="12" fill="#0f172a"/><text x="50" y="60" font-family="'Inter', sans-serif" font-weight="900" font-size="28" fill="#facc15" text-anchor="middle">P</text></svg>`,
+  },
+  {
+    id: "bancoomeva",
+    name: "Bancoomeva",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#059669",
+    icon: "🌿",
+    payoutFrequency: "monthly",
+    dayBase: 360,
+    defaultRateEA: 10.40,
+    suggestedProducts: ["CDT Bancoomeva", "CDAT Digital Bancoomeva", "Cuenta Ahorroflex"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#065f46"/><text x="50" y="60" font-family="'Inter', sans-serif" font-weight="900" font-size="24" fill="#6ee7b7" text-anchor="middle">BM</text></svg>`,
+  },
+  {
+    id: "coltefinanciera",
+    name: "Coltefinanciera",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#2563eb",
+    icon: "🔷",
+    payoutFrequency: "at_maturity",
+    dayBase: 360,
+    defaultRateEA: 11.40,
+    suggestedProducts: ["CDT Coltefinanciera", "CDT Digital Coltefinanciera"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#1e3a8a"/><text x="50" y="60" font-family="'Inter', sans-serif" font-weight="900" font-size="24" fill="#93c5fd" text-anchor="middle">CF</text></svg>`,
+  },
+  {
+    id: "mibanco",
+    name: "Mibanco Colombia",
+    country: "🇨🇴",
+    currency: "COP",
+    color: "#16a34a",
+    icon: "🌱",
+    payoutFrequency: "monthly",
+    dayBase: 360,
+    defaultRateEA: 11.10,
+    suggestedProducts: ["CDT Digital Mibanco", "CDT Mibanco", "Cuenta Ahorro Mibanco"],
+    logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#15803d"/><text x="50" y="60" font-family="'Inter', sans-serif" font-weight="900" font-size="24" fill="#fde047" text-anchor="middle">MI</text></svg>`,
   },
   {
     id: "mejorcdt",
@@ -285,8 +377,9 @@ export const BANK_PRESETS = [
     color: "#00c48c",
     icon: "📜",
     payoutFrequency: "at_maturity",
+    dayBase: 365,
     defaultRateEA: 11.50,
-    suggestedProducts: ["CDT Multibanco MejorCDT"],
+    suggestedProducts: ["CDT Multibanco MejorCDT", "CDT KOA (vía MejorCDT)", "CDT Ban100 (vía MejorCDT)", "CDT Credifamilia (vía MejorCDT)"],
     logoSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%"><rect width="100" height="100" rx="22" fill="#0b2922"/><path d="M28 66V34l22 18 22-18v32h-8V47.5L50 60.5 36 47.5V66h-8z" fill="#00c48c"/></svg>`,
   },
   {
@@ -425,6 +518,27 @@ export function getBankPreset(nameOrId = "") {
   }
   if (q.includes("confiar")) {
     return BANK_PRESETS.find((p) => p.id === "confiar") || BANK_PRESETS[0];
+  }
+  if (q === "koa" || q.includes("koacompania") || q.includes("koacf")) {
+    return BANK_PRESETS.find((p) => p.id === "koa") || BANK_PRESETS[0];
+  }
+  if (q.includes("ban100")) {
+    return BANK_PRESETS.find((p) => p.id === "ban100") || BANK_PRESETS[0];
+  }
+  if (q.includes("credifamilia")) {
+    return BANK_PRESETS.find((p) => p.id === "credifamilia") || BANK_PRESETS[0];
+  }
+  if (q.includes("pichincha")) {
+    return BANK_PRESETS.find((p) => p.id === "pichincha") || BANK_PRESETS[0];
+  }
+  if (q.includes("bancoomeva") || q.includes("coomeva")) {
+    return BANK_PRESETS.find((p) => p.id === "bancoomeva") || BANK_PRESETS[0];
+  }
+  if (q.includes("coltefinanciera")) {
+    return BANK_PRESETS.find((p) => p.id === "coltefinanciera") || BANK_PRESETS[0];
+  }
+  if (q.includes("mibanco")) {
+    return BANK_PRESETS.find((p) => p.id === "mibanco") || BANK_PRESETS[0];
   }
 
   for (const p of BANK_PRESETS) {
