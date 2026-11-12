@@ -834,7 +834,7 @@ def _call_gemini_chat(messages: List[Dict[str, str]], api_key: str, model: str) 
         for m in messages
         if m["role"] != "system"
     ]
-    model_id = (model or "gemini-2.5-flash").strip()
+    model_id = (model or "gemini-flash-latest").strip().removeprefix("models/")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
     payload = {
         "systemInstruction": {"parts": [{"text": system_msg}]},
@@ -914,7 +914,7 @@ def chat_with_economic_ai(
         used_model = model or DEFAULT_OLLAMA_MODEL
         reply = _call_ollama_chat(messages, used_model)
     elif prov == "gemini":
-        used_model = model or "gemini-2.5-flash"
+        used_model = model or "gemini-flash-latest"
         reply = _call_gemini_chat(messages, api_key or "", used_model)
     elif prov == "anthropic":
         used_model = model or "claude-3-5-haiku-latest"

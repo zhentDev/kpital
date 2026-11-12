@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 import { fetchFxHistory, generateWarrenPromptApi } from "../api/client";
 import { useTheme } from "../context/ThemeContext";
@@ -15,6 +16,7 @@ import {
   AI_PROVIDERS,
   askEconomicAI,
   clearStoredAIKeys,
+  fetchAvailableProviderModels,
   fetchLocalOllamaModels,
   isRunningLocally,
   loadAIConfig,
@@ -81,6 +83,8 @@ export default function WarrenAIModal({ isOpen, onClose }) {
   });
   const [showApiKey, setShowApiKey] = useState(false);
   const [ollamaInfo, setOllamaInfo] = useState({ available: false, models: [] });
+  const [detectedModelsByProvider, setDetectedModelsByProvider] = useState({});
+  const [loadingModels, setLoadingModels] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
 
   // Chat state
@@ -133,6 +137,15 @@ export default function WarrenAIModal({ isOpen, onClose }) {
         .catch(() => {});
     }
   }, [isOpen, fiInitialized, cfInitialized, initFetchFixedIncome, initFetchCashFlow, isLocal]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && !sendingChat) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, sendingChat, onClose]);
 
   useEffect(() => {
     if (messages.length > 0 || sendingChat) {
@@ -206,15 +219,57 @@ export default function WarrenAIModal({ isOpen, onClose }) {
   const providerMeta = AI_PROVIDERS[providerId] || AI_PROVIDERS.gemini;
   const activeKey = aiConfig.apiKeysByProvider?.[providerId] || "";
   const activeBaseUrl = aiConfig.baseUrlsByProvider?.[providerId] ?? (providerMeta.baseUrl || "");
+  const liveDetected = detectedModelsByProvider[providerId] || [];
   const availableModels =
-    providerId === "ollama" && ollamaInfo.models?.length > 0
-      ? ollamaInfo.models
-      : providerMeta.suggestedModels || [];
+    liveDetected.length > 0
+      ? liveDetected
+      : providerId === "ollama" && ollamaInfo.models?.length > 0
+        ? ollamaInfo.models
+        : providerMeta.suggestedModels || [];
   const activeModel =
     aiConfig.modelsByProvider?.[providerId] ||
+    (liveDetected.length > 0 ? liveDetected[0] : "") ||
     (providerId === "ollama" && ollamaInfo.default_model) ||
     providerMeta.defaultModel ||
     "";
+
+  const handleDetectModels = async ({ silent = false } = {}) => {
+    if (providerId === "prompt_only") return;
+    if (providerMeta.requiresKey && !activeKey.trim()) {
+      if (!silent) toast.error(`Ingresa primero tu API Key para ${providerMeta.name}`);
+      return;
+    }
+    setLoadingModels(true);
+    try {
+      const res = await fetchAvailableProviderModels({
+        providerId,
+        apiKey: activeKey,
+        baseUrl: activeBaseUrl,
+      });
+      if (!res.available || res.models.length === 0) {
+        if (!silent) toast.error(res.error || "No se encontraron modelos disponibles.");
+        return;
+      }
+      setDetectedModelsByProvider((prev) => ({ ...prev, [providerId]: res.models }));
+      if (
+        res.recommendedModel &&
+        (!aiConfig.modelsByProvider?.[providerId] || !res.models.includes(activeModel))
+      ) {
+        updateConfig((prev) => ({
+          ...prev,
+          modelsByProvider: {
+            ...prev.modelsByProvider,
+            [providerId]: res.recommendedModel,
+          },
+        }));
+      }
+      if (!silent) {
+        toast.success(`${res.models.length} modelos detectados en ${providerMeta.name}`);
+      }
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   const copyText = (text, id = "generic") => {
     if (!text) return;
@@ -251,7 +306,18 @@ export default function WarrenAIModal({ isOpen, onClose }) {
         scope: "macro",
         useLocalProxy: aiConfig.useLocalProxy,
       });
-      toast.success(`Conexión exitosa con ${providerMeta.name} (${res.modelUsed})`);
+      if (res.availableModels?.length > 0) {
+        setDetectedModelsByProvider((prev) => ({ ...prev, [providerId]: res.availableModels }));
+      }
+      if (res.modelUsed && res.modelUsed !== activeModel) {
+        updateConfig((prev) => ({
+          ...prev,
+          modelsByProvider: { ...prev.modelsByProvider, [providerId]: res.modelUsed },
+        }));
+      }
+      toast.success(
+        `Conexión exitosa con ${providerMeta.name} (${res.modelUsed})${res.fallbackUsed ? " — modelo ajustado automáticamente" : ""}`,
+      );
       setShowConfig(false);
     } catch (err) {
       toast.error(err.message || "Error probando la conexión");
@@ -302,6 +368,17 @@ export default function WarrenAIModal({ isOpen, onClose }) {
         scope,
         useLocalProxy: aiConfig.useLocalProxy,
       });
+
+      if (res.availableModels?.length > 0) {
+        setDetectedModelsByProvider((prev) => ({ ...prev, [providerId]: res.availableModels }));
+      }
+      if (res.fallbackUsed && res.modelUsed) {
+        updateConfig((prev) => ({
+          ...prev,
+          modelsByProvider: { ...prev.modelsByProvider, [providerId]: res.modelUsed },
+        }));
+        toast.success(`Modelo ajustado automáticamente a ${res.modelUsed}`);
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -384,8 +461,11 @@ export default function WarrenAIModal({ isOpen, onClose }) {
     codeBg: isLight ? "#f1f5f9" : "rgba(0, 0, 0, 0.45)",
   };
 
-  return (
+  return createPortal(
     <div
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !sendingChat) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -399,10 +479,12 @@ export default function WarrenAIModal({ isOpen, onClose }) {
       }}
     >
       <div
+        aria-label="Asistente Económico IA y WarrenAI"
         style={{
           width: "100%",
           maxWidth: "880px",
           maxHeight: "92vh",
+          margin: "0 auto",
           display: "flex",
           flexDirection: "column",
           borderRadius: "18px",
@@ -812,37 +894,100 @@ export default function WarrenAIModal({ isOpen, onClose }) {
                         >
                           Modelo (selecciona o escribe cualquiera)
                         </label>
-                        <input
-                          id="ai-model-input"
-                          type="text"
-                          list={`kpital-models-${providerId}`}
-                          value={activeModel}
-                          placeholder={providerMeta.defaultModel || "Ej: gpt-4o-mini"}
-                          onChange={(e) =>
-                            updateConfig((prev) => ({
-                              ...prev,
-                              modelsByProvider: {
-                                ...prev.modelsByProvider,
-                                [providerId]: e.target.value,
-                              },
-                            }))
-                          }
-                          style={{
-                            width: "100%",
-                            padding: "8px 10px",
-                            borderRadius: "8px",
-                            background: C.inputBg,
-                            border: `1px solid ${C.border}`,
-                            color: C.text,
-                            fontSize: "0.82rem",
-                            boxSizing: "border-box",
-                          }}
-                        />
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <input
+                            id="ai-model-input"
+                            type="text"
+                            list={`kpital-models-${providerId}`}
+                            value={activeModel}
+                            placeholder={providerMeta.defaultModel || "Ej: gpt-4o-mini"}
+                            onChange={(e) =>
+                              updateConfig((prev) => ({
+                                ...prev,
+                                modelsByProvider: {
+                                  ...prev.modelsByProvider,
+                                  [providerId]: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              background: C.inputBg,
+                              border: `1px solid ${C.border}`,
+                              color: C.text,
+                              fontSize: "0.82rem",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleDetectModels({ silent: false })}
+                            disabled={loadingModels}
+                            title="Consultar qué modelos activos permite tu API key"
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "8px",
+                              border: `1px solid ${C.border}`,
+                              background: C.cardBg,
+                              color: C.textSec,
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              cursor: loadingModels ? "wait" : "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {loadingModels ? "..." : "🔄 Modelos"}
+                          </button>
+                        </div>
                         <datalist id={`kpital-models-${providerId}`}>
                           {availableModels.map((m) => (
                             <option key={m} value={m} />
                           ))}
                         </datalist>
+                        {availableModels.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "5px",
+                              flexWrap: "wrap",
+                              marginTop: "6px",
+                            }}
+                          >
+                            {availableModels.slice(0, 6).map((m) => {
+                              const isSel = activeModel === m;
+                              return (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() =>
+                                    updateConfig((prev) => ({
+                                      ...prev,
+                                      modelsByProvider: {
+                                        ...prev.modelsByProvider,
+                                        [providerId]: m,
+                                      },
+                                    }))
+                                  }
+                                  style={{
+                                    padding: "2px 8px",
+                                    borderRadius: "999px",
+                                    border: `1px solid ${isSel ? C.accentBorder : C.border}`,
+                                    background: isSel ? C.accentSoft : C.cardBg,
+                                    color: isSel ? C.accent : C.textMuted,
+                                    fontSize: "0.7rem",
+                                    fontWeight: isSel ? 700 : 500,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {m}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1405,6 +1550,7 @@ export default function WarrenAIModal({ isOpen, onClose }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

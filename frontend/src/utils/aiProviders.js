@@ -27,8 +27,15 @@ export const AI_PROVIDERS = {
     badge: "Gratis / CORS OK",
     requiresKey: true,
     supportsBaseUrl: false,
-    defaultModel: "gemini-2.5-flash",
-    suggestedModels: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+    defaultModel: "gemini-flash-latest",
+    suggestedModels: [
+      "gemini-flash-latest",
+      "gemini-3.8-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.6-flash",
+      "gemini-3-flash-preview",
+      "gemini-3.1-pro-preview",
+    ],
     keyPlaceholder: "AIzaSy...",
     helpUrl: "https://aistudio.google.com/apikey",
     helpText:
@@ -246,12 +253,155 @@ function mapHttpError(status, detail = "", providerId = "") {
     return `Autenticación rechazada (${status}) por ${providerId || "el proveedor"}. Verifica que tu API Key sea válida y tenga permisos activos.`;
   }
   if (status === 404) {
-    return `Endpoint o modelo no encontrado (404) en ${providerId}. Revisa el nombre exacto del modelo o la Base URL.`;
+    return `Endpoint o modelo no encontrado (404) en ${providerId}${cleanDetail ? `: ${cleanDetail}` : ""}. Revisa el nombre exacto del modelo o pulsa "Detectar modelos".`;
   }
   if (status === 429) {
     return `Límite de cuota o peticiones excedido (429) en ${providerId}. Espera unos segundos o cambia a otro proveedor/modelo.`;
   }
   return `Error HTTP ${status} de ${providerId || "la IA"}${cleanDetail ? `: ${cleanDetail}` : ""}`;
+}
+
+function scoreGeminiModel(modelId) {
+  const id = String(modelId || "").toLowerCase();
+  if (!id.startsWith("gemini-")) return -1;
+  if (id === "gemini-flash-latest") return 10000;
+  if (id === "gemini-pro-latest") return 6500;
+
+  let score = 1000;
+  const verMatch = id.match(/^gemini-(\d+(?:\.\d+)?)/);
+  if (verMatch) {
+    score += Number(verMatch[1]) * 500;
+  }
+  if (id.includes("flash") && !id.includes("lite")) score += 400;
+  else if (id.includes("flash-lite")) score += 250;
+  else if (id.includes("pro")) score += 150;
+
+  if (id.includes("preview") || id.includes("exp")) score -= 60;
+  // Penalize legacy deprecated 1.x / 2.x IDs when newer versions exist
+  if (/^gemini-(1\.|2\.0|2\.5-flash$)/.test(id)) score -= 800;
+  return score;
+}
+
+/**
+ * Picks the strongest available Gemini text/chat model from a `v1beta/models` list.
+ */
+export function pickBestGeminiFallbackModel(modelsList = [], excludeModels = []) {
+  const excluded = new Set(excludeModels.map((m) => String(m || "").toLowerCase()));
+  const candidates = (modelsList || [])
+    .map((m) =>
+      String(m || "")
+        .replace(/^models\//i, "")
+        .trim(),
+    )
+    .filter((m) => m && !excluded.has(m.toLowerCase()));
+
+  candidates.sort((a, b) => scoreGeminiModel(b) - scoreGeminiModel(a));
+  return candidates[0] || null;
+}
+
+const EXCLUDED_GEMINI_KEYWORDS = [
+  "embedding",
+  "imagen",
+  "veo",
+  "aqa",
+  "tts",
+  "audio",
+  "robotics",
+  "computer-use",
+  "bisect",
+];
+
+/**
+ * Queries the provider's live model catalog using the user's API key.
+ */
+export async function fetchAvailableProviderModels({ providerId, apiKey = "", baseUrl = "" } = {}) {
+  try {
+    if (providerId === "prompt_only") {
+      return { available: false, models: [], recommendedModel: null, error: null };
+    }
+    if (providerId === "ollama") {
+      const info = await fetchLocalOllamaModels();
+      return {
+        available: Boolean(info?.available),
+        models: info?.models || [],
+        recommendedModel: info?.default_model || info?.models?.[0] || null,
+        error: info?.available ? null : "Ollama no está accesible en este equipo.",
+      };
+    }
+
+    if (providerId === "gemini") {
+      const key = String(apiKey || "").trim();
+      if (!key) {
+        return {
+          available: false,
+          models: [],
+          recommendedModel: null,
+          error: "Ingresa tu API Key de Google Gemini para listar modelos.",
+        };
+      }
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=100`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error?.message || `HTTP ${res.status} al consultar modelos Gemini`);
+      }
+      const models = (data?.models || [])
+        .filter((m) => (m?.supportedGenerationMethods || []).includes("generateContent"))
+        .map((m) =>
+          String(m?.name || "")
+            .replace(/^models\//i, "")
+            .trim(),
+        )
+        .filter(
+          (name) =>
+            name?.startsWith("gemini-") &&
+            !EXCLUDED_GEMINI_KEYWORDS.some((kw) => name.toLowerCase().includes(kw)),
+        );
+
+      models.sort((a, b) => scoreGeminiModel(b) - scoreGeminiModel(a));
+      return {
+        available: models.length > 0,
+        models,
+        recommendedModel: pickBestGeminiFallbackModel(models),
+        error: models.length > 0 ? null : "No se encontraron modelos Gemini compatibles.",
+      };
+    }
+
+    const providerMeta = AI_PROVIDERS[providerId] || AI_PROVIDERS.custom;
+    const rawBase = (baseUrl || providerMeta.baseUrl || "").trim().replace(/\/+$/, "");
+    if (!rawBase) {
+      return { available: false, models: [], recommendedModel: null, error: "Falta Base URL." };
+    }
+    const endpoint = `${rawBase.replace(/\/chat\/completions$/i, "")}/models`;
+    const headers = {};
+    if (String(apiKey || "").trim()) {
+      headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+    }
+    const res = await fetch(endpoint, { headers, signal: AbortSignal.timeout(10000) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error?.message || `HTTP ${res.status} al consultar modelos`);
+    }
+    const models = (data?.data || [])
+      .map((m) => m?.id)
+      .filter(Boolean)
+      .slice(0, 60);
+    return {
+      available: models.length > 0,
+      models,
+      recommendedModel: models[0] || null,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      available: false,
+      models: [],
+      recommendedModel: null,
+      error: err?.message || "No se pudieron listar los modelos.",
+    };
+  }
 }
 
 /**
@@ -277,7 +427,8 @@ export function buildProviderRequestSpec({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
-    const safeModel = encodeURIComponent(resolvedModel || "gemini-2.5-flash");
+    const cleanModel = (resolvedModel || "gemini-flash-latest").replace(/^models\//i, "");
+    const safeModel = encodeURIComponent(cleanModel);
     const safeKey = encodeURIComponent(apiKey.trim());
     return {
       kind: "gemini",
@@ -288,7 +439,7 @@ export function buildProviderRequestSpec({
         contents,
         generationConfig: { temperature: 0.35, maxOutputTokens: 2048 },
       },
-      modelUsed: resolvedModel || "gemini-2.5-flash",
+      modelUsed: cleanModel,
     };
   }
 
@@ -443,6 +594,38 @@ async function callViaLocalBackendProxy({
   };
 }
 
+async function executeProviderFetch(spec, providerId) {
+  const res = await fetch(spec.url, {
+    method: "POST",
+    headers: spec.headers,
+    body: JSON.stringify(spec.body),
+    signal: AbortSignal.timeout(45000),
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    const errMsg =
+      errJson?.error?.message ||
+      errJson?.message ||
+      errJson?.detail ||
+      (await res.text().catch(() => ""));
+    const err = new Error(
+      mapHttpError(res.status, errMsg, AI_PROVIDERS[providerId]?.name || providerId),
+    );
+    err.httpStatus = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  const reply = extractReplyFromJson(spec.kind, data);
+  if (!reply) {
+    throw new Error(
+      "El modelo respondió vacío. Intenta reformular tu pregunta o elegir otro modelo.",
+    );
+  }
+  return reply;
+}
+
 /**
  * Sends a multi-turn economic question to the configured provider.
  */
@@ -489,40 +672,41 @@ export async function askEconomicAI({
   });
 
   try {
-    const res = await fetch(spec.url, {
-      method: "POST",
-      headers: spec.headers,
-      body: JSON.stringify(spec.body),
-      signal: AbortSignal.timeout(45000),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => null);
-      const errMsg =
-        errJson?.error?.message ||
-        errJson?.message ||
-        errJson?.detail ||
-        (await res.text().catch(() => ""));
-      throw new Error(
-        mapHttpError(res.status, errMsg, AI_PROVIDERS[providerId]?.name || providerId),
-      );
-    }
-
-    const data = await res.json();
-    const reply = extractReplyFromJson(spec.kind, data);
-    if (!reply) {
-      throw new Error(
-        "El modelo respondió vacío. Intenta reformular tu pregunta o elegir otro modelo.",
-      );
-    }
-
+    const reply = await executeProviderFetch(spec, providerId);
     return {
       reply,
       modelUsed: spec.modelUsed,
       providerId,
       viaProxy: false,
+      fallbackUsed: false,
     };
   } catch (err) {
+    // Auto-heal deprecated/404 Gemini models (e.g. legacy cached `gemini-2.5-flash`) via live `v1beta/models`
+    if (providerId === "gemini" && err?.httpStatus === 404 && apiKey.trim()) {
+      const catalog = await fetchAvailableProviderModels({ providerId: "gemini", apiKey });
+      const fallbackModel = pickBestGeminiFallbackModel(catalog.models, [spec.modelUsed]);
+      if (fallbackModel) {
+        const retrySpec = buildProviderRequestSpec({
+          providerId,
+          model: fallbackModel,
+          apiKey,
+          baseUrl,
+          contextText,
+          history,
+          question: cleanQ,
+        });
+        const retryReply = await executeProviderFetch(retrySpec, providerId);
+        return {
+          reply: retryReply,
+          modelUsed: retrySpec.modelUsed,
+          providerId,
+          viaProxy: false,
+          fallbackUsed: true,
+          availableModels: catalog.models,
+        };
+      }
+    }
+
     // Network / CORS / Mixed-content error handling
     const msg = String(err?.message || err);
     const isNetworkOrCors =

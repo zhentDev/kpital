@@ -375,6 +375,16 @@ function filterSpecificTickers(positionIndex, userQuestion) {
     "patrimonio",
     "economia",
     "economía",
+    "estrategia",
+    "estrategias",
+    "portafolio",
+    "portafolios",
+    "cartera",
+    "acciones",
+    "etf",
+    "etfs",
+    "recomienda",
+    "recomiendas",
   ];
   if (broadEconomicTerms.some((term) => qLower.includes(term))) {
     return [];
