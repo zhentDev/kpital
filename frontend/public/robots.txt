@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://zhentdev.github.io/titanes-portfolio/sitemap.xml
+Sitemap: https://zhent.homes/sitemap.xml

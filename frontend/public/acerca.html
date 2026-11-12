@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>Acerca de Kpital | Kpital</title>
+    <meta name="description" content="Plataforma educativa de ingeniería financiera, calculadoras de renta fija y análisis cuantitativo patrimonial." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://zhent.homes/acerca.html" />
+    <script>
+      (function () {
+        var saved = localStorage.getItem("kpital_theme") || "light";
+        document.documentElement.setAttribute("data-theme", saved);
+      })();
+    </script>
+    <link rel="stylesheet" href="./portal-pages.css" />
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5026153133538836" crossorigin="anonymous"></script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Acerca de Kpital","url":"https://zhent.homes/acerca.html"}</script>
+  </head>
+  <body>
+    <header class="kp-header">
+      <div class="kp-header-inner">
+        <a class="kp-brand" href="./">
+          <span class="kp-brand-badge">K</span>
+          <span>Kpital · Zhent</span>
+        </a>
+        <nav class="kp-nav" aria-label="Navegación principal">
+          <a href="./" class="">Calculadoras</a>
+          <a href="./guias.html" class="">Guías Financieras</a>
+          <a href="./acerca.html" class="active">Acerca de</a>
+          <a href="./privacidad.html" class="">Privacidad</a>
+          <a href="./terminos.html" class="">Términos</a>
+          <a href="./contacto.html" class="">Contacto</a>
+        </nav>
+        <button type="button" id="kp-theme-btn" class="kp-theme-toggle">Cambiar Tema</button>
+      </div>
+    </header>
+
+    <main class="kp-main">
+      
+        <article class="kp-card">
+          <h1>Acerca de Kpital</h1>
+          <p style="color: var(--text-muted);">Plataforma educativa de ingeniería financiera, calculadoras de renta fija y análisis cuantitativo patrimonial.</p>
+          
+      <section>
+        <h2>Nuestra Misión</h2>
+        <p>Kpital nació con un propósito claro: democratizar herramientas de análisis patrimonial y matemática financiera transparente para ahorradores e inversionistas de habla hispana, especialmente en Colombia y Latinoamérica.</p>
+<p>En lugar de ofrecer reglas vagas o estimaciones opacas, Kpital combina simuladores gratuitos abiertos al público (CDTs con cálculo de ReteFuente del 4%, deflactación real por inflación IPC, liquidación legal de nómina dependiente e independiente y proyección de interés compuesto/DCA) con guías técnicas que explican cada fórmula paso a paso.</p>
+      </section>
+    
+
+      <section>
+        <h2>Metodología y Transparencia Matemática</h2>
+        <p>Cada cálculo publicado en nuestra plataforma aplica convenciones financieras estándar y verificables: base calendario 365 para títulos de renta fija E.A., ecuación de Fisher para tasas reales deflactadas, aportes normativos de seguridad social colombiana (Salud, Pensión, FSP, Auxilio de Transporte e IBC del 40%) y métricas institucionales de riesgo-retorno.</p>
+<p>Adicionalmente, los usuarios registrados que deseen llevar un seguimiento privado de sus propios portafolios, lotes bursátiles y flujo de caja disponen de una Terminal Privada cifrada bajo autenticación de sesión, completamente separada del contenido educativo público.</p>
+      </section>
+    
+
+      <section>
+        <h2>Independencia Editorial</h2>
+        <p>Kpital (Zhent) es un proyecto independiente de software financiero y divulgación educativa. No somos una entidad bancaria, sociedad comisionista de bolsa ni asesor financiero regulado. Las comparativas de tasas de CDTs o cuentas de alto rendimiento sirven únicamente como referencia orientativa pública.</p>
+      </section>
+    
+        </article>
+      
+    </main>
+
+    <footer class="kp-footer">
+      <div class="kp-footer-inner">
+        <div class="kp-footer-links">
+          <a href="./">Inicio & Calculadoras</a>
+          <a href="./guias.html">Biblioteca de Guías</a>
+          <a href="./guia-cdt-retefuente-colombia.html">Guía CDT Colombia</a>
+          <a href="./guia-inflacion-rentabilidad-real.html">Inflación & Rentabilidad Real</a>
+          <a href="./guia-interes-compuesto-etfs-dca.html">Interés Compuesto & DCA</a>
+          <a href="./guia-nomina-colombia-presupuesto.html">Nómina Colombia & 50/30/20</a>
+          <a href="./acerca.html">Acerca de</a>
+          <a href="./privacidad.html">Política de Privacidad</a>
+          <a href="./terminos.html">Términos de Uso</a>
+          <a href="./contacto.html">Contacto</a>
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-muted);">
+          © 2026 Zhent · Kpital Inteligencia Financiera · Contenido educativo e informativo; no constituye asesoría financiera regulada.
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var btn = document.getElementById("kp-theme-btn");
+        function syncLabel() {
+          var t = document.documentElement.getAttribute("data-theme") || "light";
+          if (btn) btn.textContent = t === "light" ? "🌙 Modo Nocturno" : "☀️ Modo Diurno";
+        }
+        syncLabel();
+        if (btn) {
+          btn.addEventListener("click", function () {
+            var cur = document.documentElement.getAttribute("data-theme") || "light";
+            var next = cur === "light" ? "dark" : "light";
+            document.documentElement.setAttribute("data-theme", next);
+            localStorage.setItem("kpital_theme", next);
+            syncLabel();
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

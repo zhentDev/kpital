@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import { useAuthStore } from "../store/authStore";
 import { useTheme } from "../context/ThemeContext";
 
-export default function AuthWall() {
+export default function AuthWall({ isModal = false, onClose = null }) {
   const { login, register, isLoading, signInWithProvider } = useAuthStore();
   const { theme, toggleTheme } = useTheme();
 
@@ -24,6 +24,176 @@ export default function AuthWall() {
   const handleGoogleOAuth = async () => {
     await signInWithProvider("google");
   };
+
+  if (isModal) {
+    return (
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg, 14px)",
+          width: "100%",
+          boxShadow: "0 20px 50px rgba(0, 0, 0, 0.45)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 20px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-surface)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: "1.05rem" }}>🛡️</span>
+            <strong style={{ fontSize: "0.95rem", color: "var(--text-primary)" }}>
+              Acceso a Terminal Privada Kpital
+            </strong>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cerrar ventana de acceso"
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border)",
+                color: "var(--text-secondary)",
+                borderRadius: 8,
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-surface)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setTab("login")}
+            style={{
+              padding: "12px 16px",
+              fontWeight: tab === "login" ? 700 : 500,
+              color: tab === "login" ? "var(--accent-primary)" : "var(--text-muted)",
+              borderBottom: tab === "login" ? "2px solid var(--accent-primary)" : "2px solid transparent",
+              background: "transparent",
+              borderTop: "none",
+              borderLeft: "none",
+              borderRight: "none",
+              cursor: "pointer",
+              fontSize: "0.9rem",
+            }}
+          >
+            🔑 Iniciar Sesión
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("register")}
+            style={{
+              padding: "12px 16px",
+              fontWeight: tab === "register" ? 700 : 500,
+              color: tab === "register" ? "var(--accent-primary)" : "var(--text-muted)",
+              borderBottom: tab === "register" ? "2px solid var(--accent-primary)" : "2px solid transparent",
+              background: "transparent",
+              borderTop: "none",
+              borderLeft: "none",
+              borderRight: "none",
+              cursor: "pointer",
+              fontSize: "0.9rem",
+            }}
+          >
+            ✨ Crear Cuenta
+          </button>
+        </div>
+        <div style={{ padding: "22px 24px" }}>
+          <button
+            type="button"
+            onClick={handleGoogleOAuth}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              padding: "11px 16px",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm, 6px)",
+              color: "var(--text-primary)",
+              fontWeight: 600,
+              fontSize: "0.875rem",
+              cursor: "pointer",
+              marginBottom: 16,
+            }}
+          >
+            <span>Continuar con Google</span>
+          </button>
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {tab === "register" && (
+              <input
+                type="text"
+                required
+                placeholder="Nombre completo"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="public-input"
+              />
+            )}
+            <input
+              type="email"
+              required
+              placeholder="tu@correo.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="public-input"
+            />
+            <input
+              type="password"
+              required
+              placeholder="Contraseña"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="public-input"
+            />
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                marginTop: 4,
+                padding: "12px",
+                background: "var(--accent-primary)",
+                color: theme === "light" ? "#ffffff" : "#031524",
+                border: "none",
+                borderRadius: "var(--radius-sm, 6px)",
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                cursor: isLoading ? "not-allowed" : "pointer",
+                opacity: isLoading ? 0.7 : 1,
+              }}
+            >
+              {isLoading
+                ? "Verificando credenciales..."
+                : tab === "login"
+                  ? "Desbloquear Terminal 🔓"
+                  : "Crear Cuenta 🚀"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

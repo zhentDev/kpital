@@ -24,7 +24,7 @@ import { InfoTooltip } from "./components/Common";
 import AffiliateBanner from "./components/Common/AffiliateBanner";
 import AuthModal from "./components/AuthModal";
 import FxRateExplorer from "./components/Common/FxRateExplorer";
-import AuthWall from "./components/AuthWall";
+import PublicPortal from "./components/Public/PublicPortal";
 import StrategyPaywall from "./components/StrategyPaywall";
 import QuantumOrbitalLoader from "./components/QuantumOrbitalLoader";
 import { useAuthStore } from "./store/authStore";
@@ -663,32 +663,8 @@ export default function App() {
     }
   }, [mode, period, periodEnabled, setPeriod, getHighestEnabledPeriod]);
 
-  // Si la sesión aún se está verificando, mostrar pantalla de carga suave con la animación cuántica
-  if (!isInitialized) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "var(--bg-main)",
-          padding: 20,
-        }}
-      >
-        <div style={{ width: "100%", maxWidth: 860 }}>
-          <QuantumOrbitalLoader
-            message="Iniciando Terminal Cuantitativa…"
-            submessage="Verificando sesión segura y sincronizando modelos estocásticos"
-            height={500}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Muro de Privacidad: Si no hay usuario autenticado, bloquear acceso a datos financieros
+  // Portal Público de Acceso: Si no hay usuario autenticado (incluso mientras verifica sesión en segundo plano),
+  // se muestran calculadoras abiertas, guías educativas y páginas legales (cumpliendo políticas de Google AdSense).
   if (!user) {
     return (
       <>
@@ -718,7 +694,7 @@ export default function App() {
             },
           }}
         />
-        <AuthWall />
+        <PublicPortal isCheckingSession={!isInitialized} />
       </>
     );
   }
