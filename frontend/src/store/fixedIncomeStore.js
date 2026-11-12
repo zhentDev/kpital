@@ -50,10 +50,11 @@ export const useFixedIncomeStore = create((set, get) => ({
 
       const currentUser = useAuthStore.getState()?.user;
       const currentEmail = currentUser?.email || getCurrentUserEmail();
+      const authInitialized = useAuthStore.getState()?.isInitialized;
       const isOwner = isMainOwnerUser(currentEmail);
 
-      if (!isOwner) {
-        // Terminal virgen/limpia para cuentas que no sean la principal
+      if (authInitialized && currentEmail && !isOwner) {
+        // Terminal virgen/limpia para cuentas secundarias explícitas
         set({
           entities: [],
           accounts: [],

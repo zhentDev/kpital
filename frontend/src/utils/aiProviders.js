@@ -27,14 +27,13 @@ export const AI_PROVIDERS = {
     badge: "Gratis / CORS OK",
     requiresKey: true,
     supportsBaseUrl: false,
-    defaultModel: "gemini-flash-latest",
+    defaultModel: "gemini-2.0-flash",
     suggestedModels: [
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
       "gemini-flash-latest",
-      "gemini-3.8-flash",
-      "gemini-3.5-flash-lite",
-      "gemini-3.6-flash",
-      "gemini-3-flash-preview",
-      "gemini-3.1-pro-preview",
     ],
     keyPlaceholder: "AIzaSy...",
     helpUrl: "https://aistudio.google.com/apikey",
@@ -267,8 +266,12 @@ function mapHttpError(status, detail = "", providerId = "") {
 function scoreGeminiModel(modelId) {
   const id = String(modelId || "").toLowerCase();
   if (!id.startsWith("gemini-")) return -1;
-  if (id === "gemini-flash-latest") return 10000;
-  if (id === "gemini-pro-latest") return 6500;
+  if (id === "gemini-2.0-flash") return 12000;
+  if (id === "gemini-2.0-flash-lite") return 11000;
+  if (id === "gemini-1.5-flash") return 10000;
+  if (id === "gemini-1.5-pro") return 9500;
+  if (id === "gemini-flash-latest") return 9000;
+  if (id === "gemini-pro-latest") return 8500;
 
   let score = 1000;
   const verMatch = id.match(/^gemini-(\d+(?:\.\d+)?)/);
@@ -276,12 +279,10 @@ function scoreGeminiModel(modelId) {
     score += Number(verMatch[1]) * 500;
   }
   if (id.includes("flash") && !id.includes("lite")) score += 400;
-  else if (id.includes("flash-lite")) score += 250;
-  else if (id.includes("pro")) score += 150;
+  else if (id.includes("flash-lite")) score += 350;
+  else if (id.includes("pro")) score += 200;
 
   if (id.includes("preview") || id.includes("exp")) score -= 60;
-  // Penalize legacy deprecated 1.x / 2.x IDs when newer versions exist
-  if (/^gemini-(1\.|2\.0|2\.5-flash$)/.test(id)) score -= 800;
   return score;
 }
 

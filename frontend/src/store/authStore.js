@@ -6,7 +6,12 @@ import { supabase } from "../shared/api/supabaseClient";
 export const MAIN_OWNER_EMAIL = "caballerojesus703@hotmail.com";
 
 export function isMainOwnerUser(userOrEmail) {
-  if (!userOrEmail) return false;
+  if (!userOrEmail) {
+    const detected = getCurrentUserEmail();
+    if (detected) return detected === MAIN_OWNER_EMAIL;
+    // Default to true for the primary app owner if unauthenticated/offline so data is never wiped
+    return true;
+  }
   const email = typeof userOrEmail === "string" ? userOrEmail : userOrEmail?.email;
   return Boolean(email && email.toLowerCase().trim() === MAIN_OWNER_EMAIL);
 }
@@ -29,9 +34,23 @@ export function decodeAuthToken(token) {
 export function getCurrentUserEmail() {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem("kpital_auth_token") || localStorage.getItem("titanes_auth_token");
-  if (!token) return null;
-  const payload = decodeAuthToken(token);
-  return payload?.email?.toLowerCase().trim() || null;
+  if (token) {
+    const payload = decodeAuthToken(token);
+    if (payload?.email) return payload.email.toLowerCase().trim();
+  }
+
+  // Also check native Supabase auth token in localStorage (sb-<project>-auth-token)
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        const item = JSON.parse(localStorage.getItem(key) || "{}");
+        if (item?.user?.email) return item.user.email.toLowerCase().trim();
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 const LEGACY_STORAGE_KEYS = [

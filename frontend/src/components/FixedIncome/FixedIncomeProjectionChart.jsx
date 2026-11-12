@@ -9,6 +9,7 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
   const seriesRef = useRef({});
 
   const { theme } = useTheme();
+  const isLight = theme === "light";
   const chartColors = getChartColors(theme);
 
   // Individual series visibility state
@@ -395,11 +396,19 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
             type="button"
             onClick={() => setIsLogScale(!isLogScale)}
             style={{
-              background: isLogScale ? "rgba(56, 189, 248, 0.2)" : "rgba(255,255,255,0.05)",
-              border: `1px solid ${isLogScale ? "#38bdf8" : "rgba(255,255,255,0.12)"}`,
+              background: isLogScale
+                ? isLight ? "rgba(2, 132, 199, 0.15)" : "rgba(56, 189, 248, 0.2)"
+                : isLight ? "#f1f5f9" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${
+                isLogScale
+                  ? isLight ? "#0284c7" : "#38bdf8"
+                  : isLight ? "#cbd5e1" : "rgba(255,255,255,0.12)"
+              }`,
               borderRadius: 12,
               padding: "2px 8px",
-              color: isLogScale ? "#38bdf8" : "#94a3b8",
+              color: isLogScale
+                ? isLight ? "#0284c7" : "#38bdf8"
+                : isLight ? "#475569" : "#94a3b8",
               fontSize: "0.68rem",
               fontWeight: 700,
               cursor: "pointer",
@@ -417,10 +426,10 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
           <div
             style={{
               display: "flex",
-              background: "rgba(255,255,255,0.04)",
+              background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.04)",
               borderRadius: 14,
               padding: 2,
-              border: "1px solid rgba(255,255,255,0.08)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.08)",
             }}
           >
             <button
@@ -428,7 +437,7 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               onClick={() => setPresetView("ALL")}
               style={{
                 background: isAll ? "rgba(16, 185, 129, 0.2)" : "transparent",
-                color: isAll ? "#10b981" : "#94a3b8",
+                color: isAll ? (isLight ? "#059669" : "#10b981") : (isLight ? "#475569" : "#94a3b8"),
                 border: isAll ? "1px solid rgba(16, 185, 129, 0.4)" : "none",
                 borderRadius: 12,
                 padding: "2px 8px",
@@ -444,9 +453,9 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               type="button"
               onClick={() => setPresetView("PROFIT")}
               style={{
-                background: isProfitOnly ? "rgba(0, 229, 255, 0.2)" : "transparent",
-                color: isProfitOnly ? "#00e5ff" : "#94a3b8",
-                border: isProfitOnly ? "1px solid rgba(0, 229, 255, 0.4)" : "none",
+                background: isProfitOnly ? (isLight ? "rgba(2, 132, 199, 0.18)" : "rgba(0, 229, 255, 0.2)") : "transparent",
+                color: isProfitOnly ? (isLight ? "#0284c7" : "#00e5ff") : (isLight ? "#475569" : "#94a3b8"),
+                border: isProfitOnly ? `1px solid ${isLight ? "rgba(2, 132, 199, 0.4)" : "rgba(0, 229, 255, 0.4)"}` : "none",
                 borderRadius: 12,
                 padding: "2px 8px",
                 fontSize: "0.68rem",
@@ -461,9 +470,9 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               type="button"
               onClick={() => setPresetView("PATRIMONY")}
               style={{
-                background: isPatrimonyOnly ? "rgba(245, 158, 11, 0.2)" : "transparent",
-                color: isPatrimonyOnly ? "#f59e0b" : "#94a3b8",
-                border: isPatrimonyOnly ? "1px solid rgba(245, 158, 11, 0.4)" : "none",
+                background: isPatrimonyOnly ? (isLight ? "rgba(217, 119, 6, 0.15)" : "rgba(245, 158, 11, 0.2)") : "transparent",
+                color: isPatrimonyOnly ? (isLight ? "#d97706" : "#f59e0b") : (isLight ? "#475569" : "#94a3b8"),
+                border: isPatrimonyOnly ? `1px solid ${isLight ? "rgba(217, 119, 6, 0.4)" : "rgba(245, 158, 11, 0.4)"}` : "none",
                 borderRadius: 12,
                 padding: "2px 8px",
                 fontSize: "0.68rem",
@@ -478,9 +487,9 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               type="button"
               onClick={() => setPresetView("RATE")}
               style={{
-                background: isRateOnly ? "rgba(192, 132, 252, 0.2)" : "transparent",
-                color: isRateOnly ? "#c084fc" : "#94a3b8",
-                border: isRateOnly ? "1px solid rgba(192, 132, 252, 0.4)" : "none",
+                background: isRateOnly ? (isLight ? "rgba(147, 51, 234, 0.15)" : "rgba(192, 132, 252, 0.2)") : "transparent",
+                color: isRateOnly ? (isLight ? "#9333ea" : "#c084fc") : (isLight ? "#475569" : "#94a3b8"),
+                border: isRateOnly ? `1px solid ${isLight ? "rgba(147, 51, 234, 0.4)" : "rgba(192, 132, 252, 0.4)"}` : "none",
                 borderRadius: 12,
                 padding: "2px 8px",
                 fontSize: "0.68rem",
@@ -504,19 +513,19 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              background: visibleSeries.rate ? "rgba(192, 132, 252, 0.15)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${visibleSeries.rate ? "rgba(192, 132, 252, 0.5)" : "rgba(255,255,255,0.08)"}`,
+              background: visibleSeries.rate ? (isLight ? "rgba(147, 51, 234, 0.12)" : "rgba(192, 132, 252, 0.15)") : (isLight ? "#f8fafc" : "rgba(255,255,255,0.03)"),
+              border: `1px solid ${visibleSeries.rate ? (isLight ? "rgba(147, 51, 234, 0.4)" : "rgba(192, 132, 252, 0.5)") : (isLight ? "#cbd5e1" : "rgba(255,255,255,0.08)")}`,
               borderRadius: 8,
               padding: "3px 8px",
-              color: visibleSeries.rate ? "#c084fc" : "#64748b",
+              color: visibleSeries.rate ? (isLight ? "#9333ea" : "#c084fc") : (isLight ? "#64748b" : "#64748b"),
               fontSize: "0.7rem",
               fontWeight: 600,
               cursor: "pointer",
-              opacity: visibleSeries.rate ? 1 : 0.4,
+              opacity: visibleSeries.rate ? 1 : 0.45,
               transition: "all 0.15s ease",
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.rate ? "#c084fc" : "#64748b" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.rate ? (isLight ? "#9333ea" : "#c084fc") : "#64748b" }} />
             <span>Tasa Ponderada (%)</span>
             <span style={{ fontSize: "0.62rem" }}>{visibleSeries.rate ? "👁️" : "✕"}</span>
           </button>
@@ -529,19 +538,19 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              background: visibleSeries.balance ? "rgba(16, 185, 129, 0.15)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${visibleSeries.balance ? "rgba(16, 185, 129, 0.5)" : "rgba(255,255,255,0.08)"}`,
+              background: visibleSeries.balance ? (isLight ? "rgba(5, 150, 105, 0.12)" : "rgba(16, 185, 129, 0.15)") : (isLight ? "#f8fafc" : "rgba(255,255,255,0.03)"),
+              border: `1px solid ${visibleSeries.balance ? (isLight ? "rgba(5, 150, 105, 0.4)" : "rgba(16, 185, 129, 0.5)") : (isLight ? "#cbd5e1" : "rgba(255,255,255,0.08)")}`,
               borderRadius: 8,
               padding: "3px 8px",
-              color: visibleSeries.balance ? "#10b981" : "#64748b",
+              color: visibleSeries.balance ? (isLight ? "#059669" : "#10b981") : (isLight ? "#64748b" : "#64748b"),
               fontSize: "0.7rem",
               fontWeight: 600,
               cursor: "pointer",
-              opacity: visibleSeries.balance ? 1 : 0.4,
+              opacity: visibleSeries.balance ? 1 : 0.45,
               transition: "all 0.15s ease",
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.balance ? "#10b981" : "#64748b" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.balance ? (isLight ? "#059669" : "#10b981") : "#64748b" }} />
             <span>Saldo Total</span>
             <span style={{ fontSize: "0.62rem" }}>{visibleSeries.balance ? "👁️" : "✕"}</span>
           </button>
@@ -554,19 +563,19 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              background: visibleSeries.capital ? "rgba(245, 158, 11, 0.15)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${visibleSeries.capital ? "rgba(245, 158, 11, 0.5)" : "rgba(255,255,255,0.08)"}`,
+              background: visibleSeries.capital ? (isLight ? "rgba(217, 119, 6, 0.12)" : "rgba(245, 158, 11, 0.15)") : (isLight ? "#f8fafc" : "rgba(255,255,255,0.03)"),
+              border: `1px solid ${visibleSeries.capital ? (isLight ? "rgba(217, 119, 6, 0.4)" : "rgba(245, 158, 11, 0.5)") : (isLight ? "#cbd5e1" : "rgba(255,255,255,0.08)")}`,
               borderRadius: 8,
               padding: "3px 8px",
-              color: visibleSeries.capital ? "#f59e0b" : "#64748b",
+              color: visibleSeries.capital ? (isLight ? "#d97706" : "#f59e0b") : (isLight ? "#64748b" : "#64748b"),
               fontSize: "0.7rem",
               fontWeight: 600,
               cursor: "pointer",
-              opacity: visibleSeries.capital ? 1 : 0.4,
+              opacity: visibleSeries.capital ? 1 : 0.45,
               transition: "all 0.15s ease",
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.capital ? "#f59e0b" : "#64748b" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.capital ? (isLight ? "#d97706" : "#f59e0b") : "#64748b" }} />
             <span>Capital Base</span>
             <span style={{ fontSize: "0.62rem" }}>{visibleSeries.capital ? "👁️" : "✕"}</span>
           </button>
@@ -579,19 +588,19 @@ function FixedIncomeProjectionChart({ projectionData, currency = "COP", mode = "
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              background: visibleSeries.earnings ? "rgba(0, 229, 255, 0.15)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${visibleSeries.earnings ? "rgba(0, 229, 255, 0.5)" : "rgba(255,255,255,0.08)"}`,
+              background: visibleSeries.earnings ? (isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(0, 229, 255, 0.15)") : (isLight ? "#f8fafc" : "rgba(255,255,255,0.03)"),
+              border: `1px solid ${visibleSeries.earnings ? (isLight ? "rgba(2, 132, 199, 0.4)" : "rgba(0, 229, 255, 0.5)") : (isLight ? "#cbd5e1" : "rgba(255,255,255,0.08)")}`,
               borderRadius: 8,
               padding: "3px 8px",
-              color: visibleSeries.earnings ? "#00e5ff" : "#64748b",
+              color: visibleSeries.earnings ? (isLight ? "#0284c7" : "#00e5ff") : (isLight ? "#64748b" : "#64748b"),
               fontSize: "0.7rem",
               fontWeight: 600,
               cursor: "pointer",
-              opacity: visibleSeries.earnings ? 1 : 0.4,
+              opacity: visibleSeries.earnings ? 1 : 0.45,
               transition: "all 0.15s ease",
             }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.earnings ? "#00e5ff" : "#64748b" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: visibleSeries.earnings ? (isLight ? "#0284c7" : "#00e5ff") : "#64748b" }} />
             <span>Ganancia Neta</span>
             <span style={{ fontSize: "0.62rem" }}>{visibleSeries.earnings ? "👁️" : "✕"}</span>
           </button>

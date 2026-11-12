@@ -221,10 +221,11 @@ export const useCashFlowStore = create(
 
         const currentUser = useAuthStore.getState()?.user;
         const currentEmail = currentUser?.email || getCurrentUserEmail();
+        const authInitialized = useAuthStore.getState()?.isInitialized;
         const isOwner = isMainOwnerUser(currentEmail);
 
-        if (!isOwner) {
-          // Usuario no principal: Terminal 100% limpia/virgen (sin movimientos ni presupuestos previos)
+        if (authInitialized && currentEmail && !isOwner) {
+          // Usuario secundario explícito: Terminal 100% limpia/virgen (sin movimientos ni presupuestos previos)
           set({
             startPeriod: INCOME_SYSTEM_START_PERIOD,
             activePeriod: INCOME_SYSTEM_START_PERIOD,

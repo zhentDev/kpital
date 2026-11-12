@@ -6,10 +6,12 @@ Updates account balances, registers transactions in DuckDB and fixed_income.json
 and keeps the dual database in perfect sync.
 """
 
+import json
 import logging
 import os
 import re
 import unicodedata
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +33,60 @@ router = APIRouter()
 
 # Timezone Colombia (UTC-5)
 COLOMBIA_TZ = timezone(timedelta(hours=-5))
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ixnidzllqwbkexsrmgwz.supabase.co").rstrip("/")
+SUPABASE_KEY = os.getenv(
+    "SUPABASE_SERVICE_ROLE_KEY",
+    os.getenv("SUPABASE_KEY", "sb_publishable_4Gbn-hZLX764m-gz-LAhRg_914uGNIR"),
+)
+
+
+def _push_to_supabase_rest(table: str, rows: list[dict[str, Any]]) -> bool:
+    """Direct push to Supabase REST API with merge-duplicates resolution."""
+    if not rows or not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/{table}"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(rows).encode("utf-8"),
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            return resp.status in (200, 201)
+    except Exception as e:
+        logger.warning(f"[Webhook Supabase Sync] Failed to push to {table}: {e}")
+        return False
+
+
+def _patch_supabase_rest(table: str, query_filter: str, payload: dict[str, Any]) -> bool:
+    """Direct PATCH to update existing record(s) in Supabase REST API."""
+    if not payload or not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/{table}?{query_filter}"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="PATCH",
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            return resp.status in (200, 204)
+    except Exception as e:
+        logger.warning(f"[Webhook Supabase Patch] Failed to patch {table}: {e}")
+        return False
+
 
 
 def get_current_colombia_time() -> datetime:
@@ -934,6 +990,42 @@ def register_mobile_transaction(
     # 7. Persist to DuckDB, Postgres, and JSON (Fixed Income)
     save_fixed_income_db(db, effective_uid)
 
+    # 7b. Real-time direct push to Supabase PostgreSQL REST API (Single Source of Truth)
+    try:
+        fi_row = {
+            "id": tx_id,
+            "user_id": effective_uid,
+            "account_id": account["id"],
+            "entity_id": entity["id"],
+            "date": tx_date,
+            "time": tx_time,
+            "description": clean_desc,
+            "amount": signed_amount,
+            "currency": account.get("currency", "COP"),
+            "type": tx_type,
+            "category": tx_category,
+            "source": "macrodroid_webhook",
+            "extra_json": new_tx,
+            "created_at": now_colombia.isoformat(),
+        }
+        _push_to_supabase_rest("fi_transactions", [fi_row])
+
+        # Real-time update of account balance in Supabase
+        _patch_supabase_rest(
+            "fi_accounts",
+            f"id=eq.{account['id']}&user_id=eq.{effective_uid}",
+            {"balance": new_balance, "updated_at": now_colombia.isoformat()},
+        )
+        if cascaded and principal_acc:
+            _patch_supabase_rest(
+                "fi_accounts",
+                f"id=eq.{principal_acc['id']}&user_id=eq.{effective_uid}",
+                {"balance": new_principal_bal, "updated_at": now_colombia.isoformat()},
+            )
+        logger.info(f"[Webhook] Pushed FI transaction {tx_id} directly to Supabase REST.")
+    except Exception as e:
+        logger.warning(f"[Webhook] Non-blocking Supabase FI push error: {e}")
+
     # 8. Dual-sync to Cash Flow (for real-time monthly budget tracking & card limit release)
     cf_synced = False
     card_limit_released = False
@@ -1109,6 +1201,58 @@ def register_mobile_transaction(
             save_cash_flow_db(cf, effective_uid)
             cf_synced = True
             logger.info(f"[Webhook] Dual-synced transaction {tx_id} to Cash Flow expensesLog (period {active_period}).")
+
+        # Real-time direct push to Supabase PostgreSQL REST API (Single Source of Truth)
+        if cf_synced and cf_tx:
+            try:
+                cf_row = {
+                    "id": cf_tx["id"],
+                    "user_id": effective_uid,
+                    "period": active_period,
+                    "date": tx_date,
+                    "time": tx_time,
+                    "type": cf_tx.get("type", "debit"),
+                    "amount": amount_val,
+                    "currency": cf_tx.get("currency", "COP"),
+                    "description": clean_desc,
+                    "budget_item_id": cf_tx.get("budgetItemId"),
+                    "budget_item_name": cf_tx.get("budgetItemName"),
+                    "budget_item_type": cf_tx.get("budgetItemType"),
+                    "payment_source_json": cf_tx.get("paymentSource"),
+                    "extra_json": cf_tx,
+                    "created_at": now_colombia.isoformat(),
+                }
+                _push_to_supabase_rest("cf_movements", [cf_row])
+
+                if is_cc_purchase and matched_cc:
+                    cp_item = {
+                        "id": f"cp_{tx_id}",
+                        "user_id": effective_uid,
+                        "card_id": matched_cc["id"],
+                        "description": clean_desc,
+                        "total_amount": amount_val,
+                        "installments_count": 1,
+                        "monthly_installment": amount_val,
+                        "start_period": active_period,
+                        "date": tx_date,
+                        "extra_json": {
+                            "id": f"cp_{tx_id}",
+                            "date": tx_date,
+                            "amount": amount_val,
+                            "cardId": matched_cc["id"],
+                            "createdAt": now_colombia.isoformat(),
+                            "description": clean_desc,
+                            "startPeriod": active_period,
+                            "totalAmount": amount_val,
+                            "installmentsCount": 1,
+                            "monthlyInstallment": amount_val,
+                        },
+                        "created_at": now_colombia.isoformat(),
+                    }
+                    _push_to_supabase_rest("cf_credit_purchases", [cp_item])
+                logger.info(f"[Webhook] Pushed CF movement {cf_tx['id']} directly to Supabase REST.")
+            except Exception as e:
+                logger.warning(f"[Webhook] Non-blocking Supabase CF push error: {e}")
     except Exception as e:
         logger.error(f"[Webhook] Failed to dual-sync to Cash Flow: {e}")
 

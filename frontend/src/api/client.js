@@ -907,6 +907,32 @@ export async function syncPurchasesMigration(purchasePortfolios, individualPurch
 
 /** ── FIXED INCOME & SAVINGS ACCOUNTS API ── */
 
+async function reconcileRenderFixedIncomeInBackground(directData) {
+  try {
+    const res = await safeFetch(`${getBase()}/fixed-income/data`, { timeoutMs: 8000 });
+    if (!res || !res.ok) return;
+    const renderData = await res.json();
+    const renderTxs = Array.isArray(renderData?.transactions) ? renderData.transactions : [];
+    if (renderTxs.length === 0) return;
+
+    const existingIds = new Set((directData?.transactions || []).map((t) => t.id));
+    const missingTxs = renderTxs.filter((t) => t?.id && !existingIds.has(t.id));
+
+    if (missingTxs.length > 0) {
+      console.info(
+        `[FixedIncome Sync] Auto-reconciling ${missingTxs.length} missing transactions from Render to Supabase...`,
+      );
+      const mergedTxs = [...missingTxs, ...(directData.transactions || [])];
+      await directSaveFixedIncome({
+        ...directData,
+        transactions: mergedTxs,
+      });
+    }
+  } catch (err) {
+    console.warn("[FixedIncome Sync] Background reconciliation skipped:", err);
+  }
+}
+
 export async function fetchFixedIncomeData(options = {}) {
   // 1. Live Supabase first (SSOT directly from DB)
   try {
@@ -915,8 +941,10 @@ export async function fetchFixedIncomeData(options = {}) {
       directData &&
       ((directData.entities && directData.entities.length > 0) ||
         (directData.accounts && directData.accounts.length > 0) ||
-        (directData.cdts && directData.cdts.length > 0))
+        (directData.cdts && directData.cdts.length > 0) ||
+        (directData.transactions && directData.transactions.length > 0))
     ) {
+      reconcileRenderFixedIncomeInBackground(directData);
       return directData;
     }
   } catch (err) {
@@ -928,15 +956,27 @@ export async function fetchFixedIncomeData(options = {}) {
 }
 
 async function fiWithSupabaseFallback(apiRequest, supabaseFallback) {
+  // Always execute Supabase direct mutation first (SSOT)
+  let directResult = null;
+  if (typeof supabaseFallback === "function") {
+    try {
+      directResult = await supabaseFallback();
+    } catch (err) {
+      console.warn("[FixedIncome] Supabase direct mutation fallback error:", err);
+    }
+  }
+
+  // Background sync with Render backend
   try {
     const res = await apiRequest();
     if (res && res.ok) {
       return await res.json();
     }
   } catch (err) {
-    console.warn("[FixedIncome] FastAPI unreachable, syncing directly to Supabase:", err);
+    console.warn("[FixedIncome] Render backend sync skipped or error:", err);
   }
-  return await supabaseFallback();
+
+  return directResult || { success: true, directSupabase: true };
 }
 
 export async function createFixedIncomeEntity(entity) {
@@ -1033,17 +1073,27 @@ export async function deleteFixedIncomeCDTApi(id) {
 }
 
 export async function syncFixedIncomeStateApi(state) {
+  // 1. Direct to Supabase PostgreSQL (SSOT) - instantaneous persistence
+  try {
+    await directSaveFixedIncome(state);
+  } catch (err) {
+    console.warn("[FixedIncome] Direct Supabase save error:", err);
+  }
+
+  // 2. Background sync to Render backend
   try {
     const res = await safeFetch(`${getBase()}/fixed-income/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
-    });
+      timeoutMs: 15000,
+    }, 2, 1000);
     if (res && res.ok) return await res.json();
   } catch (err) {
-    console.warn("[FixedIncome] Error al sincronizar con backend, probando Supabase directo:", err);
+    console.warn("[FixedIncome] Render backend sync notice:", err);
   }
-  return await directSaveFixedIncome(state);
+
+  return { success: true, directSupabase: true };
 }
 
 export async function suggestFixedIncomeRate(
@@ -1467,11 +1517,38 @@ export async function applyUpdatedAccountRate({ accountId, newRate, effectiveDat
 
 // ── Cash Flow & Budget Allocation API ────────────────────────────
 
+async function reconcileRenderCashFlowInBackground(directData) {
+  try {
+    const res = await safeFetch(`${getBase()}/cash-flow`, { timeoutMs: 8000 });
+    if (!res || !res.ok) return;
+    const renderData = await res.json();
+    const renderExpenses = Array.isArray(renderData?.expensesLog) ? renderData.expensesLog : [];
+    if (renderExpenses.length === 0) return;
+
+    const existingIds = new Set((directData?.expensesLog || []).map((m) => m.id));
+    const missingExpenses = renderExpenses.filter((m) => m?.id && !existingIds.has(m.id));
+
+    if (missingExpenses.length > 0) {
+      console.info(
+        `[CashFlow Sync] Auto-reconciling ${missingExpenses.length} missing movements from Render to Supabase...`,
+      );
+      const mergedLog = [...missingExpenses, ...(directData.expensesLog || [])];
+      await directSaveCashFlow({
+        ...directData,
+        expensesLog: mergedLog,
+      });
+    }
+  } catch (err) {
+    console.warn("[CashFlow Sync] Background reconciliation skipped:", err);
+  }
+}
+
 export async function fetchCashFlowData(options = {}) {
   // 1. Live Supabase first (SSOT directly from DB)
   try {
     const directData = await directFetchCashFlow();
     if (directData && (Array.isArray(directData.expensesLog) || Array.isArray(directData.inflows))) {
+      reconcileRenderCashFlowInBackground(directData);
       return directData;
     }
   } catch (err) {
