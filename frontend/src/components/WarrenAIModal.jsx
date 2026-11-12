@@ -153,6 +153,57 @@ export default function WarrenAIModal({ isOpen, onClose }) {
     }
   }, [messages, sendingChat]);
 
+  const currentProviderId = aiConfig.providerId || "gemini";
+  const currentProviderMeta = AI_PROVIDERS[currentProviderId] || AI_PROVIDERS.gemini;
+  const currentKey = aiConfig.apiKeysByProvider?.[currentProviderId] || "";
+  const currentBaseUrl =
+    aiConfig.baseUrlsByProvider?.[currentProviderId] ?? (currentProviderMeta.baseUrl || "");
+  const alreadyHasDetected = (detectedModelsByProvider[currentProviderId] || []).length > 0;
+
+  // Automatically fetch live models from the provider as soon as a key is present
+  useEffect(() => {
+    if (!isOpen || currentProviderId === "prompt_only" || alreadyHasDetected) return;
+    if (currentProviderMeta.requiresKey && currentKey.trim().length < 12) return;
+    if (
+      !currentProviderMeta.requiresKey &&
+      currentProviderId === "custom" &&
+      !currentBaseUrl.trim()
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoadingModels(true);
+      try {
+        const res = await fetchAvailableProviderModels({
+          providerId: currentProviderId,
+          apiKey: currentKey,
+          baseUrl: currentBaseUrl,
+        });
+        if (cancelled || !res.available || res.models.length === 0) return;
+        setDetectedModelsByProvider((prev) => ({
+          ...prev,
+          [currentProviderId]: res.models,
+        }));
+      } finally {
+        if (!cancelled) setLoadingModels(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    isOpen,
+    currentProviderId,
+    currentProviderMeta.requiresKey,
+    currentKey,
+    currentBaseUrl,
+    alreadyHasDetected,
+  ]);
+
   const contextResult = useMemo(
     () =>
       buildEconomicContextFromState({
@@ -759,19 +810,66 @@ export default function WarrenAIModal({ isOpen, onClose }) {
                   <span style={{ fontSize: "0.8rem", fontWeight: 700, color: C.text }}>
                     🔌 Proveedor: {providerMeta.name}
                   </span>
-                  {activeModel && (
-                    <span
-                      style={{
-                        fontSize: "0.73rem",
-                        padding: "2px 8px",
-                        borderRadius: "6px",
-                        background: C.indigoSoft,
-                        color: C.indigo,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {activeModel}
-                    </span>
+                  {providerId !== "prompt_only" && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <select
+                        aria-label="Modelo de IA activo"
+                        value={activeModel}
+                        onChange={(e) =>
+                          updateConfig((prev) => ({
+                            ...prev,
+                            modelsByProvider: {
+                              ...prev.modelsByProvider,
+                              [providerId]: e.target.value,
+                            },
+                          }))
+                        }
+                        style={{
+                          fontSize: "0.73rem",
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          background: C.indigoSoft,
+                          border: `1px solid ${C.border}`,
+                          color: C.indigo,
+                          fontWeight: 600,
+                          maxWidth: "230px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {(availableModels.includes(activeModel) || !activeModel
+                          ? availableModels
+                          : [activeModel, ...availableModels]
+                        ).map((m) => (
+                          <option
+                            key={m}
+                            value={m}
+                            style={{
+                              background: isLight ? "#ffffff" : "#0f172a",
+                              color: isLight ? "#0f172a" : "#f8fafc",
+                            }}
+                          >
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleDetectModels({ silent: false })}
+                        disabled={loadingModels}
+                        title="Cargar modelos disponibles desde tu API Key"
+                        style={{
+                          fontSize: "0.72rem",
+                          padding: "3px 7px",
+                          borderRadius: "6px",
+                          border: `1px solid ${C.border}`,
+                          background: C.cardBg,
+                          color: C.textSec,
+                          cursor: loadingModels ? "wait" : "pointer",
+                        }}
+                      >
+                        {loadingModels ? "⏳" : "🔄"}
+                      </button>
+                    </div>
                   )}
                   <span
                     style={{
@@ -783,7 +881,9 @@ export default function WarrenAIModal({ isOpen, onClose }) {
                     {!providerMeta.requiresKey
                       ? "• Sin API Key requerida"
                       : activeKey.trim()
-                        ? "• API Key configurada ✓"
+                        ? liveDetected.length > 0
+                          ? `• Key OK (${liveDetected.length} modelos)`
+                          : "• API Key configurada ✓"
                         : "• Falta API Key"}
                   </span>
                 </div>

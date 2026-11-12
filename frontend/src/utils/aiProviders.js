@@ -258,6 +258,9 @@ function mapHttpError(status, detail = "", providerId = "") {
   if (status === 429) {
     return `Límite de cuota o peticiones excedido (429) en ${providerId}. Espera unos segundos o cambia a otro proveedor/modelo.`;
   }
+  if (status === 503) {
+    return `Alta demanda temporal (503) en ${providerId}${cleanDetail ? `: ${cleanDetail}` : ""}. Cambia a otro modelo (ej. flash-lite) o intenta en unos segundos.`;
+  }
   return `Error HTTP ${status} de ${providerId || "la IA"}${cleanDetail ? `: ${cleanDetail}` : ""}`;
 }
 
@@ -681,30 +684,52 @@ export async function askEconomicAI({
       fallbackUsed: false,
     };
   } catch (err) {
-    // Auto-heal deprecated/404 Gemini models (e.g. legacy cached `gemini-2.5-flash`) via live `v1beta/models`
-    if (providerId === "gemini" && err?.httpStatus === 404 && apiKey.trim()) {
+    // Auto-heal deprecated (404), overloaded (503) or rate-limited (429) Gemini models via live `v1beta/models`
+    const retryableGemini =
+      providerId === "gemini" &&
+      apiKey.trim() &&
+      (err?.httpStatus === 404 || err?.httpStatus === 503 || err?.httpStatus === 429);
+
+    if (retryableGemini) {
       const catalog = await fetchAvailableProviderModels({ providerId: "gemini", apiKey });
-      const fallbackModel = pickBestGeminiFallbackModel(catalog.models, [spec.modelUsed]);
-      if (fallbackModel) {
-        const retrySpec = buildProviderRequestSpec({
-          providerId,
-          model: fallbackModel,
-          apiKey,
-          baseUrl,
-          contextText,
-          history,
-          question: cleanQ,
-        });
-        const retryReply = await executeProviderFetch(retrySpec, providerId);
-        return {
-          reply: retryReply,
-          modelUsed: retrySpec.modelUsed,
-          providerId,
-          viaProxy: false,
-          fallbackUsed: true,
-          availableModels: catalog.models,
-        };
+      const tried = new Set([spec.modelUsed]);
+      let lastErr = err;
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const fallbackModel = pickBestGeminiFallbackModel(catalog.models, [...tried]);
+        if (!fallbackModel) break;
+        tried.add(fallbackModel);
+        try {
+          const retrySpec = buildProviderRequestSpec({
+            providerId,
+            model: fallbackModel,
+            apiKey,
+            baseUrl,
+            contextText,
+            history,
+            question: cleanQ,
+          });
+          const retryReply = await executeProviderFetch(retrySpec, providerId);
+          return {
+            reply: retryReply,
+            modelUsed: retrySpec.modelUsed,
+            providerId,
+            viaProxy: false,
+            fallbackUsed: true,
+            availableModels: catalog.models,
+          };
+        } catch (retryErr) {
+          lastErr = retryErr;
+          if (
+            retryErr?.httpStatus !== 404 &&
+            retryErr?.httpStatus !== 503 &&
+            retryErr?.httpStatus !== 429
+          ) {
+            throw retryErr;
+          }
+        }
       }
+      throw lastErr;
     }
 
     // Network / CORS / Mixed-content error handling
