@@ -271,33 +271,30 @@ export default function HoldingsTable({
             </button>
           )}
 
-          {onOpenWarren &&
-            typeof window !== "undefined" &&
-            (window.location.hostname === "localhost" ||
-              window.location.hostname === "127.0.0.1") && (
-              <button
-                type="button"
-                onClick={onOpenWarren}
-                title="Generar análisis de cartera con WarrenAI (Solo disponible en Local)"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "3px 9px",
-                  borderRadius: "12px",
-                  border: "1px solid rgba(16, 185, 129, 0.3)",
-                  background: "rgba(16, 185, 129, 0.08)",
-                  color: "#34d399",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <span>🤖</span>
-                <span>WarrenAI</span>
-              </button>
-            )}
+          {onOpenWarren && (
+            <button
+              type="button"
+              onClick={onOpenWarren}
+              title="Abrir Asistente Económico IA / WarrenAI con el contexto completo"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 9px",
+                borderRadius: "12px",
+                border: isLight ? "1px solid rgba(5, 150, 105, 0.35)" : "1px solid rgba(16, 185, 129, 0.3)",
+                background: isLight ? "rgba(5, 150, 105, 0.1)" : "rgba(16, 185, 129, 0.08)",
+                color: isLight ? "#059669" : "#34d399",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>🤖</span>
+              <span>IA Económica</span>
+            </button>
+          )}
 
           <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Unidad:</span>
           <div

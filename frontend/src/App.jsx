@@ -1067,6 +1067,20 @@ export default function App() {
             <span>🌊 Distribución & Flujo</span>
           </button>
 
+          {/* 5. Asistente Económico IA / WarrenAI */}
+          <button
+            type="button"
+            className={`nav-pill-btn ai ${showWarrenModal ? "active" : ""}`}
+            title="Conectar API de IA o generar prompt con todo tu contexto económico y financiero"
+            onClick={() => {
+              setShowWarrenModal(true);
+              setStratOpen(false);
+              setPurchasesOpen(false);
+            }}
+          >
+            <span>🤖 Asistente IA</span>
+          </button>
+
 
 
           {/* 6. Selector Modo Diurno / Nocturno (Compacto & Elegante) */}

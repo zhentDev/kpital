@@ -1738,3 +1738,21 @@ export async function fetchWarrenSummaryApi() {
   return res.json();
 }
 
+export async function fetchOllamaModelsApi() {
+  const res = await safeFetch(`${getBase()}/warren/ollama/models`);
+  if (!res || !res.ok) return { available: false, models: [] };
+  return res.json();
+}
+
+export async function postEconomicChatApi(payload) {
+  const res = await safeFetch(`${getBase()}/warren/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res) throw new Error("Sin respuesta del backend local");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || "Error consultando el asistente económico");
+  return data;
+}
+
