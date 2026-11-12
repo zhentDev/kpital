@@ -25,7 +25,7 @@
 /* Modal Window Container */
 .fi-modal-container {
   width: 100%;
-  max-width: 660px;
+  max-width: 740px;
   min-height: 590px;
   max-height: calc(100vh - 64px);
   display: flex;
@@ -48,12 +48,11 @@
 /* Header Tabs */
 .fi-modal-header-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 .fi-modal-header-tabs::-webkit-scrollbar {
@@ -67,19 +66,20 @@
 
 /* Individual Tab Button */
 .fi-modal-tab-btn {
-  flex: 1;
-  padding: 14px 10px;
+  flex: 1 1 auto;
+  min-width: max-content;
+  padding: 13px 10px;
   background: transparent;
   color: #94a3b8;
   border: none;
   border-bottom: 2px solid transparent;
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: 0.79rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   white-space: nowrap;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: inherit;

@@ -1222,9 +1222,17 @@ export default function FixedIncomeHub() {
             gap: 6,
             padding: "6px 14px",
             borderRadius: 8,
-            background: selectedEntityView === "all" ? "rgba(56, 189, 248, 0.2)" : "rgba(15, 23, 42, 0.6)",
-            border: `1px solid ${selectedEntityView === "all" ? "#38bdf8" : "rgba(255, 255, 255, 0.08)"}`,
-            color: selectedEntityView === "all" ? "#38bdf8" : "#94a3b8",
+            background: selectedEntityView === "all"
+              ? isLight ? "rgba(2, 132, 199, 0.12)" : "rgba(56, 189, 248, 0.2)"
+              : isLight ? "#ffffff" : "rgba(15, 23, 42, 0.6)",
+            border: `1px solid ${
+              selectedEntityView === "all"
+                ? isLight ? "#0284c7" : "#38bdf8"
+                : isLight ? "rgba(15, 23, 42, 0.14)" : "rgba(255, 255, 255, 0.08)"
+            }`,
+            color: selectedEntityView === "all"
+              ? isLight ? "#0284c7" : "#38bdf8"
+              : isLight ? "#475569" : "#94a3b8",
             fontSize: "0.78rem",
             fontWeight: 700,
             cursor: "pointer",
@@ -1247,9 +1255,17 @@ export default function FixedIncomeHub() {
                 gap: 6,
                 padding: "6px 14px",
                 borderRadius: 8,
-                background: isSelected ? `${ent.color}33` : "rgba(15, 23, 42, 0.6)",
-                border: `1px solid ${isSelected ? ent.color : "rgba(255, 255, 255, 0.08)"}`,
-                color: isSelected ? "#fff" : "#94a3b8",
+                background: isSelected
+                  ? `${ent.color}${isLight ? "20" : "33"}`
+                  : isLight ? "#ffffff" : "rgba(15, 23, 42, 0.6)",
+                border: `1px solid ${
+                  isSelected
+                    ? ent.color
+                    : isLight ? "rgba(15, 23, 42, 0.14)" : "rgba(255, 255, 255, 0.08)"
+                }`,
+                color: isSelected
+                  ? isLight ? "#0f172a" : "#ffffff"
+                  : isLight ? "#475569" : "#94a3b8",
                 fontSize: "0.78rem",
                 fontWeight: isSelected ? 800 : 600,
                 cursor: "pointer",
@@ -1645,9 +1661,9 @@ export default function FixedIncomeHub() {
               display: "flex",
               alignItems: "center",
               gap: 6,
-              background: "rgba(255, 255, 255, 0.08)",
-              color: "#f1f5f9",
-              border: "1px solid rgba(255,255,255,0.15)",
+              background: isLight ? "#f1f5f9" : "rgba(255, 255, 255, 0.08)",
+              color: isLight ? "#0f172a" : "#f1f5f9",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.15)",
               padding: "8px 16px",
               borderRadius: 8,
               fontWeight: 600,
@@ -1665,10 +1681,10 @@ export default function FixedIncomeHub() {
           <div
             style={{
               display: "flex",
-              background: "rgba(0,0,0,0.3)",
+              background: isLight ? "#f1f5f9" : "rgba(0,0,0,0.3)",
               borderRadius: 18,
               padding: 3,
-              border: "1px solid rgba(255,255,255,0.1)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
             }}
           >
             <button
@@ -1677,9 +1693,9 @@ export default function FixedIncomeHub() {
                 padding: "5px 12px",
                 borderRadius: 15,
                 border: "none",
-                background: preferredCurrency === "COP" ? "#10b981" : "transparent",
-                color: preferredCurrency === "COP" ? "#000" : "#94a3b8",
-                fontWeight: preferredCurrency === "COP" ? 700 : 400,
+                background: preferredCurrency === "COP" ? (isLight ? "#059669" : "#10b981") : "transparent",
+                color: preferredCurrency === "COP" ? (isLight ? "#ffffff" : "#000") : (isLight ? "#475569" : "#94a3b8"),
+                fontWeight: preferredCurrency === "COP" ? 700 : 500,
                 fontSize: "0.75rem",
                 cursor: "pointer",
               }}
@@ -1692,9 +1708,9 @@ export default function FixedIncomeHub() {
                 padding: "5px 12px",
                 borderRadius: 15,
                 border: "none",
-                background: preferredCurrency === "USD" ? "#00e5ff" : "transparent",
-                color: preferredCurrency === "USD" ? "#000" : "#94a3b8",
-                fontWeight: preferredCurrency === "USD" ? 700 : 400,
+                background: preferredCurrency === "USD" ? (isLight ? "#0284c7" : "#00e5ff") : "transparent",
+                color: preferredCurrency === "USD" ? (isLight ? "#ffffff" : "#000") : (isLight ? "#475569" : "#94a3b8"),
+                fontWeight: preferredCurrency === "USD" ? 700 : 500,
                 fontSize: "0.75rem",
                 cursor: "pointer",
               }}
@@ -1707,10 +1723,10 @@ export default function FixedIncomeHub() {
           <div
             style={{
               display: "flex",
-              background: "rgba(0,0,0,0.3)",
+              background: isLight ? "#f1f5f9" : "rgba(0,0,0,0.3)",
               borderRadius: 18,
               padding: 3,
-              border: "1px solid rgba(255,255,255,0.1)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
             }}
           >
             <button
@@ -1719,9 +1735,9 @@ export default function FixedIncomeHub() {
                 padding: "5px 12px",
                 borderRadius: 15,
                 border: "none",
-                background: projectionMode === "NOMINAL" ? "#38bdf8" : "transparent",
-                color: projectionMode === "NOMINAL" ? "#000" : "#94a3b8",
-                fontWeight: projectionMode === "NOMINAL" ? 700 : 400,
+                background: projectionMode === "NOMINAL" ? (isLight ? "#0284c7" : "#38bdf8") : "transparent",
+                color: projectionMode === "NOMINAL" ? (isLight ? "#ffffff" : "#000") : (isLight ? "#475569" : "#94a3b8"),
+                fontWeight: projectionMode === "NOMINAL" ? 700 : 500,
                 fontSize: "0.75rem",
                 cursor: "pointer",
               }}
@@ -1734,9 +1750,9 @@ export default function FixedIncomeHub() {
                 padding: "5px 12px",
                 borderRadius: 15,
                 border: "none",
-                background: projectionMode === "REAL" ? "#f59e0b" : "transparent",
-                color: projectionMode === "REAL" ? "#000" : "#94a3b8",
-                fontWeight: projectionMode === "REAL" ? 700 : 400,
+                background: projectionMode === "REAL" ? (isLight ? "#d97706" : "#f59e0b") : "transparent",
+                color: projectionMode === "REAL" ? (isLight ? "#ffffff" : "#000") : (isLight ? "#475569" : "#94a3b8"),
+                fontWeight: projectionMode === "REAL" ? 700 : 500,
                 fontSize: "0.75rem",
                 cursor: "pointer",
               }}
@@ -1749,10 +1765,10 @@ export default function FixedIncomeHub() {
           <div
             style={{
               display: "flex",
-              background: "rgba(0,0,0,0.3)",
+              background: isLight ? "#f1f5f9" : "rgba(0,0,0,0.3)",
               borderRadius: 18,
               padding: 3,
-              border: "1px solid rgba(255,255,255,0.1)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
             }}
           >
             {["1M", "3M", "6M", "1Y", "3Y", "5Y", "MAX"].map((t) => {
@@ -1772,12 +1788,12 @@ export default function FixedIncomeHub() {
                     padding: "5px 10px",
                     borderRadius: 15,
                     border: "none",
-                    background: isSelected ? "#820ad1" : "transparent",
-                    color: isSelected ? "#fff" : "#94a3b8",
-                    fontWeight: isSelected ? 700 : 400,
+                    background: isSelected ? (isLight ? "#7c3aed" : "#820ad1") : "transparent",
+                    color: isSelected ? "#ffffff" : (isLight ? "#475569" : "#94a3b8"),
+                    fontWeight: isSelected ? 700 : 500,
                     fontSize: "0.75rem",
                     cursor: isLocked ? "not-allowed" : "pointer",
-                    opacity: isLocked ? 0.35 : 1,
+                    opacity: isLocked ? 0.42 : 1,
                   }}
                 >
                   {t}
@@ -1791,14 +1807,22 @@ export default function FixedIncomeHub() {
       {/* ── INTERACTIVE 10-YEAR FUTURE PROJECTION SIMULATOR ──────── */}
       <div
         style={{
-          background: futureYears > 0 ? "rgba(15, 23, 42, 0.85)" : "rgba(15, 23, 42, 0.5)",
-          border: `1px solid ${futureYears > 0 ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.08)"}`,
+          background: isLight
+            ? (futureYears > 0 ? "#eff6ff" : "#f8fafc")
+            : (futureYears > 0 ? "rgba(15, 23, 42, 0.85)" : "rgba(15, 23, 42, 0.5)"),
+          border: `1px solid ${
+            isLight
+              ? (futureYears > 0 ? "rgba(2, 132, 199, 0.35)" : "rgba(15, 23, 42, 0.12)")
+              : (futureYears > 0 ? "rgba(56, 189, 248, 0.4)" : "rgba(255, 255, 255, 0.08)")
+          }`,
           borderRadius: 14,
           padding: "12px 18px",
           display: "flex",
           flexDirection: "column",
           gap: 10,
-          boxShadow: futureYears > 0 ? "0 4px 20px rgba(56, 189, 248, 0.15)" : "0 4px 16px rgba(0, 0, 0, 0.2)",
+          boxShadow: isLight
+            ? "0 4px 16px rgba(15, 23, 42, 0.05)"
+            : (futureYears > 0 ? "0 4px 20px rgba(56, 189, 248, 0.15)" : "0 4px 16px rgba(0, 0, 0, 0.2)"),
           transition: "all 0.2s ease",
         }}
       >
@@ -1809,7 +1833,9 @@ export default function FixedIncomeHub() {
                 width: 32,
                 height: 32,
                 borderRadius: 8,
-                background: futureYears > 0 ? "rgba(56, 189, 248, 0.2)" : "rgba(255, 255, 255, 0.05)",
+                background: futureYears > 0
+                  ? (isLight ? "rgba(2, 132, 199, 0.14)" : "rgba(56, 189, 248, 0.2)")
+                  : (isLight ? "#e2e8f0" : "rgba(255, 255, 255, 0.05)"),
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1819,12 +1845,23 @@ export default function FixedIncomeHub() {
               🔮
             </div>
             <div>
-              <div style={{ fontWeight: 800, color: futureYears > 0 ? "#38bdf8" : "#f1f5f9", fontSize: "0.86rem", display: "flex", alignItems: "center", gap: 6 }}>
+              <div
+                style={{
+                  fontWeight: 800,
+                  color: futureYears > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#0f172a" : "#f1f5f9"),
+                  fontSize: "0.86rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
                 <span>Simulador Proyectivo a Futuro</span>
                 <span
                   style={{
-                    background: futureYears > 0 ? "#38bdf8" : "rgba(255,255,255,0.1)",
-                    color: futureYears > 0 ? "#000" : "#94a3b8",
+                    background: futureYears > 0
+                      ? (isLight ? "#0284c7" : "#38bdf8")
+                      : (isLight ? "#e2e8f0" : "rgba(255,255,255,0.1)"),
+                    color: futureYears > 0 ? (isLight ? "#ffffff" : "#000") : (isLight ? "#334155" : "#94a3b8"),
                     padding: "1px 8px",
                     borderRadius: 12,
                     fontSize: "0.7rem",
@@ -1834,7 +1871,7 @@ export default function FixedIncomeHub() {
                   {futureYears === 0 ? "0 Años (Hoy)" : `+${futureYears} Años (${Math.round(futureYears * 12)} meses)`}
                 </span>
               </div>
-              <div style={{ fontSize: "0.68rem", color: "#94a3b8", marginTop: 2 }}>
+              <div style={{ fontSize: "0.68rem", color: isLight ? "#475569" : "#94a3b8", marginTop: 2 }}>
                 Interés compuesto a partir de hoy con tu capital actual y tasa vigente ({Number(metrics.weightedEA ?? 0).toFixed(2)}% E.A.)
               </div>
             </div>
@@ -1849,12 +1886,13 @@ export default function FixedIncomeHub() {
                 setShowSimulator(!showSimulator);
               }}
               style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
+                background: isLight ? "#ffffff" : "rgba(255,255,255,0.06)",
+                border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.12)",
                 borderRadius: 6,
                 padding: "4px 10px",
-                color: "var(--text-muted)",
+                color: isLight ? "#334155" : "var(--text-muted)",
                 fontSize: "0.74rem",
+                fontWeight: 600,
                 cursor: "pointer",
               }}
             >

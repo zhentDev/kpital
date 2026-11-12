@@ -1123,9 +1123,9 @@ export default function FixedIncomeModal({
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
-                    background: "#10b981",
+                    background: isLight ? "#059669" : "#10b981",
                     border: "none",
-                    color: "#000",
+                    color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
                     cursor: "pointer",
                   }}
@@ -1614,9 +1614,9 @@ export default function FixedIncomeModal({
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
-                    background: "#f59e0b",
+                    background: isLight ? "#d97706" : "#f59e0b",
                     border: "none",
-                    color: "#000",
+                    color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
                     cursor: "pointer",
                   }}
@@ -1813,9 +1813,9 @@ export default function FixedIncomeModal({
                     style={{
                       padding: "8px 20px",
                       borderRadius: 8,
-                      background: "#10b981",
+                      background: isLight ? "#059669" : "#10b981",
                       border: "none",
-                      color: "#000",
+                      color: isLight ? "#ffffff" : "#000",
                       fontWeight: 700,
                       cursor: "pointer",
                     }}
@@ -1902,9 +1902,9 @@ export default function FixedIncomeModal({
                       height: 42,
                       padding: 2,
                       borderRadius: 8,
-                      border: "1px solid rgba(125,125,125,0.2)",
+                      border: isLight ? "1px solid rgba(0, 0, 0, 0.16)" : "1px solid rgba(255, 255, 255, 0.15)",
                       cursor: "pointer",
-                      background: "transparent",
+                      background: isLight ? "#ffffff" : "rgba(255, 255, 255, 0.04)",
                     }}
                   />
                 </div>
@@ -1924,9 +1924,9 @@ export default function FixedIncomeModal({
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
-                    background: "#00e5ff",
+                    background: isLight ? "#0284c7" : "#00e5ff",
                     border: "none",
-                    color: "#000",
+                    color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
                     cursor: "pointer",
                   }}
