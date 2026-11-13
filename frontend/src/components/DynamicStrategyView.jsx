@@ -2691,102 +2691,26 @@ export default function DynamicStrategyView({
         )}
       </div>
 
-      {/* ── Detalle de Posiciones (Posiciones Reales vs Ganancias Cerradas en Simuladas) ── */}
-      {strategy.isRealMoney ? (
-        (filteredHoldings.length > 0 || navData?.closed_holdings?.length > 0) && (
+      {/* ── Detalle de Posiciones (Posiciones Activas y Ventas Cerradas) ── */}
+      {(filteredHoldings.length > 0 || navData?.closed_holdings?.length > 0) && (
+        <div
+          className="card fade-up"
+          style={{
+            padding: "20px",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
           <div
-            className="card fade-up"
             style={{
-              padding: "20px",
-              position: "relative",
-              overflow: "hidden",
+              opacity: isNavLoading ? 0.38 : 1,
+              filter: isNavLoading ? "blur(1.5px)" : "none",
+              pointerEvents: isNavLoading ? "none" : "auto",
+              transition: "opacity 0.25s ease, filter 0.25s ease",
             }}
           >
-            <div
-              style={{
-                opacity: isNavLoading ? 0.38 : 1,
-                filter: isNavLoading ? "blur(1.5px)" : "none",
-                pointerEvents: isNavLoading ? "none" : "auto",
-                transition: "opacity 0.25s ease, filter 0.25s ease",
-              }}
-            >
-              <HoldingsTable
-                holdings={filteredHoldings}
-                closedHoldings={navData?.closed_holdings || []}
-                summary={{
-                  ...(navData?.summary || {}),
-                  active_invested: effectiveActiveInvested,
-                }}
-                investment={simulatedCapital}
-                numSlots={numSlots}
-                unit={unit}
-                onToggleUnit={() => setUnit((u) => (u === "pct" ? "usd" : "pct"))}
-                onToggleTicker={handleToggleTicker}
-                onRemoveTicker={handleRemoveTickerFromSlot}
-                isRealMoney={true}
-                closedOnly={false}
-                onExportExcel={() => exportPortfolioExcel(strategy.id, simulatedCapital, numSlots)}
-                strategyId={strategy.id}
-              />
-            </div>
-            {isNavLoading && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 12,
-                  background: isLight
-                    ? "rgba(255, 255, 255, 0.6)"
-                    : "rgba(10, 15, 29, 0.6)",
-                  backdropFilter: "blur(4px)",
-                  zIndex: 10,
-                  borderRadius: "var(--radius)",
-                  animation: "fadeIn 0.2s ease-out",
-                }}
-              >
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "10px 22px",
-                    borderRadius: "30px",
-                    background: isLight
-                      ? "rgba(255, 255, 255, 0.95)"
-                      : "rgba(17, 24, 41, 0.95)",
-                    border: `1px solid ${isLight ? "rgba(2, 132, 199, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
-                    boxShadow: isLight
-                      ? "0 8px 30px rgba(0, 0, 0, 0.08)"
-                      : "0 10px 40px rgba(0, 0, 0, 0.5)",
-                    color: isLight ? "#0284c7" : "#38bdf8",
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-block",
-                      animation: "spin 0.8s linear infinite",
-                      fontSize: "1.1rem",
-                    }}
-                  >
-                    🔄
-                  </span>
-                  <span>Sincronizando posiciones de la estrategia ({period})…</span>
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      ) : (
-        navData?.closed_holdings?.length > 0 && (
-          <div className="card fade-up" style={{ padding: "20px" }}>
             <HoldingsTable
-              holdings={[]}
+              holdings={filteredHoldings}
               closedHoldings={navData?.closed_holdings || []}
               summary={{
                 ...(navData?.summary || {}),
@@ -2798,13 +2722,64 @@ export default function DynamicStrategyView({
               onToggleUnit={() => setUnit((u) => (u === "pct" ? "usd" : "pct"))}
               onToggleTicker={handleToggleTicker}
               onRemoveTicker={handleRemoveTickerFromSlot}
-              isRealMoney={false}
-              closedOnly={true}
+              isRealMoney={Boolean(strategy.isRealMoney)}
+              closedOnly={false}
               onExportExcel={() => exportPortfolioExcel(strategy.id, simulatedCapital, numSlots)}
               strategyId={strategy.id}
             />
           </div>
-        )
+          {isNavLoading && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                background: isLight
+                  ? "rgba(255, 255, 255, 0.6)"
+                  : "rgba(10, 15, 29, 0.6)",
+                backdropFilter: "blur(4px)",
+                zIndex: 10,
+                borderRadius: "var(--radius)",
+                animation: "fadeIn 0.2s ease-out",
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 22px",
+                  borderRadius: "30px",
+                  background: isLight
+                    ? "rgba(255, 255, 255, 0.95)"
+                    : "rgba(17, 24, 41, 0.95)",
+                  border: `1px solid ${isLight ? "rgba(2, 132, 199, 0.3)" : "rgba(56, 189, 248, 0.3)"}`,
+                  boxShadow: isLight
+                    ? "0 8px 30px rgba(0, 0, 0, 0.08)"
+                    : "0 10px 40px rgba(0, 0, 0, 0.5)",
+                  color: isLight ? "#0284c7" : "#38bdf8",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    animation: "spin 0.8s linear infinite",
+                    fontSize: "1.1rem",
+                  }}
+                >
+                  🔄
+                </span>
+                <span>Sincronizando posiciones de la estrategia ({period})…</span>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Constellation Grid Visualizer (Slots) ────── */}

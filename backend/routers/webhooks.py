@@ -215,6 +215,10 @@ def resolve_entity(db: dict[str, Any], entity_query: str) -> dict[str, Any]:
         "nubank": "Nu Colombia",
         "cuenta nu": "Nu Colombia",
         "tarjeta nu": "Nu Colombia",
+        "entidad bancaria": "Nu Colombia",
+        "entidad bancaria co": "Nu Colombia",
+        "entidad": "Nu Colombia",
+        "banco": "Nu Colombia",
         "rappi": "RappiPay",
         "rappipay": "RappiPay",
         "rappicuenta": "RappiPay",
@@ -253,6 +257,13 @@ def resolve_entity(db: dict[str, Any], entity_query: str) -> dict[str, Any]:
         e_norm = normalize_text(e.get("name"))
         if resolved_norm in e_norm or e_norm in resolved_norm:
             return e
+
+    # 2b. Never create generic dummy entities (e.g. "Entidad Bancaria", "Banco", "Entidad", "")
+    if any(g in resolved_norm for g in ["entidad bancaria", "entidad", "banco", "bank", "desconocid"]) or len(resolved_norm) < 3:
+        nu_ent = next((e for e in entities if "nu" in normalize_text(e.get("name"))), None)
+        if nu_ent:
+            logger.warning(f"[Webhook] Generic entity query '{entity_query}' mapped to main entity '{nu_ent.get('name')}'")
+            return nu_ent
 
     # 3. Not found -> auto-create new entity so expense is never discarded
     clean_id_suffix = re.sub(r"[^a-z0-9]", "", resolved_norm)[:12] or "bank"
@@ -724,6 +735,15 @@ def register_mobile_transaction(
 
     # 1. Parse amount
     amount_val = parse_cop_amount(payload.amount)
+    # Check if raw_text has a significantly higher amount (e.g. truncated "COP24,845.00" -> 24.84)
+    if payload.raw_text and 0 < amount_val < 100:
+        m_raw_amt = re.search(r"(?:COP|\$|por\s+)\s*([\d\.,]+)", payload.raw_text, re.IGNORECASE)
+        if m_raw_amt:
+            candidate_amt = parse_cop_amount(m_raw_amt.group(1))
+            if candidate_amt >= 1000:
+                logger.info(f"[Webhook] Rescuing truncated amount {amount_val} -> {candidate_amt} from raw_text '{payload.raw_text}'")
+                amount_val = candidate_amt
+
     if amount_val <= 0:
         raise HTTPException(
             status_code=400,
@@ -772,33 +792,43 @@ def register_mobile_transaction(
             if "rappi" not in normalize_text(payload.entity):
                 logger.info(f"[Webhook] Auto-correcting entity from '{payload.entity}' to 'RappiPay' based on notification text.")
                 payload.entity = "RappiPay"
-        elif any(k in search_context for k in ["nubank", "cuenta nu", "tarjeta nu"]):
+        elif any(k in search_context for k in ["nubank", "cuenta nu", "tarjeta nu", " nu ", "con nu", "nu debit", "nu mastercard", "5639", "3887"]):
             if "nu" not in normalize_text(payload.entity):
                 logger.info(f"[Webhook] Auto-correcting entity from '{payload.entity}' to 'Nu Colombia' based on notification text.")
                 payload.entity = "Nu Colombia"
-    elif "finandina" in search_context:
-        # Finandina notifica por SMS (remitente 890809), p.ej.:
-        # "Banco Finandina te informa que recibiste $350.000 con exito a la llave Bre-B ..."
-        if "finandina" not in normalize_text(payload.entity):
-            logger.info(f"[Webhook] Auto-correcting entity from '{payload.entity}' to 'Finandina' based on SMS text.")
-            payload.entity = "Finandina"
-        # Los movimientos Bre-B / transferencias llegan a la cuenta principal FlexiDigital +
-        if not payload.account or normalize_text(payload.account) in ("", "sms", "mensaje", "finandina", "banco finandina"):
-            payload.account = "FlexiDigital + (Principal)"
+        elif any(k in search_context for k in ["finandina", "flexidigital"]):
+            if "finandina" not in normalize_text(payload.entity):
+                logger.info(f"[Webhook] Auto-correcting entity from '{payload.entity}' to 'Finandina' based on SMS text.")
+                payload.entity = "Finandina"
+        elif any(k in search_context for k in ["nequi"]):
+            if "nequi" not in normalize_text(payload.entity):
+                payload.entity = "Nequi"
+        elif any(k in search_context for k in ["daviplata"]):
+            if "daviplata" not in normalize_text(payload.entity):
+                payload.entity = "Daviplata"
+        elif any(k in search_context for k in ["caja social", "bcs"]):
+            if "caja social" not in normalize_text(payload.entity):
+                payload.entity = "Banco Caja Social"
 
-    # If entity is Google Wallet, resolve bank from card mention in notification text
-    if normalize_text(payload.entity) in ("google wallet", "billetera de google", "google pay", "gpay"):
+    # If entity is generic or placeholder (Google Wallet, "Entidad Bancaria", "Entidad", "Banco", or empty)
+    if normalize_text(payload.entity) in ("google wallet", "billetera de google", "google pay", "gpay", "entidad bancaria", "entidad bancaria co", "entidad", "banco", ""):
+        matched_target = None
         for bank_alias, target_bank in [
             ("nu", "Nu Colombia"),
+            ("5639", "Nu Colombia"),
+            ("3887", "Nu Colombia"),
+            ("mastercard debit", "Nu Colombia"),
             ("rappi", "RappiPay"),
             ("caja social", "Banco Caja Social"),
             ("finandina", "Finandina"),
             ("plenti", "Plenti (Ahorros)"),
-            ("nequi", "Nequi Colombia"),
+            ("nequi", "Nequi"),
+            ("daviplata", "Daviplata"),
         ]:
             if bank_alias in search_context:
-                payload.entity = target_bank
+                matched_target = target_bank
                 break
+        payload.entity = matched_target or "Nu Colombia"
 
     # 3. Resolve Entity and Account
     entity = resolve_entity(db, payload.entity)
