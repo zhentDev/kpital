@@ -2511,9 +2511,13 @@ export const useCashFlowStore = create(
               };
 
               // If this is a split loan and a specific participant was settled:
-              let updatedParticipants = tx.participants;
-              if (Array.isArray(tx.participants) && settlementData.participantId) {
-                updatedParticipants = tx.participants.map((p) => {
+              const baseParticipants = Array.isArray(settlementData.currentParticipants)
+                ? settlementData.currentParticipants
+                : (Array.isArray(tx.participants) ? tx.participants : []);
+
+              let updatedParticipants = baseParticipants;
+              if (baseParticipants.length > 0 && settlementData.participantId) {
+                updatedParticipants = baseParticipants.map((p) => {
                   if (p.id === settlementData.participantId) {
                     const prevPaid = Number(p.paidAmount) || (p.paid ? (Number(p.customShare) || Number(p.share) || newSettledAmount) : 0);
                     const totalPaid = prevPaid + newSettledAmount;
@@ -2663,7 +2667,7 @@ export const useCashFlowStore = create(
         toast.success(msg, { icon: "🎉" });
       },
 
-      updateExpenseLoanSplit: (txId, splitConfig) => {
+      updateExpenseLoanSplit: (txId, splitConfig, options = {}) => {
         set((state) => {
           const updatedExpensesLog = (state.expensesLog || []).map((tx) => {
             if (tx.id === txId) {
@@ -2678,7 +2682,9 @@ export const useCashFlowStore = create(
           return { expensesLog: updatedExpensesLog, debts: updatedDebts };
         });
         get().syncStateWithBackend();
-        toast.success("Configuración de división guardada", { icon: "👥" });
+        if (!options?.silent) {
+          toast.success("Configuración de división guardada", { icon: "👥" });
+        }
       },
 
       revertParticipantPayment: (txId, participantId) => {

@@ -372,10 +372,34 @@ select optgroup {
   border-bottom-color: rgba(0, 0, 0, 0.07) !important;
 }
 
-/* React Hot Toast Theme Support */
+/* React Hot Toast Theme Support & Global Elevation */
 [data-theme="light"] [role="status"] {
   color: #0f172a !important;
   font-weight: 600 !important;
+}
+
+div[style*="pointer-events: none"][style*="position: fixed"] {
+  z-index: 99999999 !important;
+}
+
+@keyframes kpitalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes kpitalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 [data-theme="light"] div[class*="go"] {

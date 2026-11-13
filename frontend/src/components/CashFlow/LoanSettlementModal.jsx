@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import CurrencyInput from "../Common/CurrencyInput";
 import DynamicDatePicker from "../Common/DynamicDatePicker";
 import GlassModalWrapper from "../Common/GlassModalWrapper";
@@ -143,9 +143,12 @@ export default function LoanSettlementModal({
     }
   }, [savingsPockets, selectedPocketId]);
 
-  // Sync state if transaction changes
+  const currentTxIdRef = useRef(transaction?.id);
+
+  // Sync state ONLY when opening a different transaction
   useEffect(() => {
-    if (transaction) {
+    if (transaction && transaction.id !== currentTxIdRef.current) {
+      currentTxIdRef.current = transaction.id;
       const base = Number(transaction.loanAmount) > 0 ? Number(transaction.loanAmount) : Number(transaction.amount) || 0;
       const prev = Array.isArray(transaction.settlements) ? transaction.settlements : [];
       const settled = prev.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
@@ -158,7 +161,7 @@ export default function LoanSettlementModal({
         setUserIncluded(Boolean(transaction.userIncluded));
       }
     }
-  }, [transaction]);
+  }, [transaction?.id]);
 
   // --- SPLIT CALCULATIONS WITH PARTIAL / CUSTOM BONIFICACIÓN SUPPORT ---
   const externalParticipants = useMemo(() => participants.filter((p) => !p.isUser), [participants]);
@@ -210,7 +213,60 @@ export default function LoanSettlementModal({
   const remainingAfterThisDirect = Math.max(0, currentPendingBalance - (Number(settlementAmount) || 0));
   const isFullSettlementDirect = Number(settlementAmount) >= currentPendingBalance;
 
-  // Add a participant
+  // Centralized split recalculation and persistence helper (Single Source of Truth)
+  const persistSplitConfig = (updatedList, incUser = userIncluded, silent = true) => {
+    const ext = updatedList.filter((p) => !p.isUser);
+    const nonCust = ext.filter(
+      (p) => p.customShare === undefined || p.customShare === null || p.customShare === ""
+    ).length + (incUser ? 1 : 0);
+    const custTot = ext
+      .filter((p) => p.customShare !== undefined && p.customShare !== null && p.customShare !== "")
+      .reduce((sum, p) => sum + (Number(p.customShare) || 0), 0);
+    const remDist = Math.max(0, totalAmountToSplit - custTot);
+    const shPer = nonCust > 0 ? Math.round(remDist / nonCust) : 0;
+
+    const mapped = updatedList.map((p) => {
+      const eff = (p.customShare !== undefined && p.customShare !== null && p.customShare !== "")
+        ? Number(p.customShare) || 0
+        : shPer;
+      return {
+        ...p,
+        share: eff,
+        customShare: p.customShare !== undefined && p.customShare !== null && p.customShare !== "" ? Number(p.customShare) : null,
+      };
+    });
+
+    const totRec = mapped.filter((p) => !p.isUser).reduce((sum, p) => sum + p.share, 0);
+    const uShare = incUser ? Math.max(0, totalAmountToSplit - totRec) : 0;
+    const totPd = mapped.filter((p) => !p.isUser).reduce((acc, p) => {
+      const s = p.share;
+      return acc + (Number(p.paidAmount) || (p.paid ? s : 0));
+    }, 0);
+    const pendRec = Math.max(0, totRec - totPd);
+    const allPd = mapped.filter((p) => !p.isUser).length > 0 &&
+      mapped.filter((p) => !p.isUser).every((p) => {
+        const s = p.share;
+        const pd = Number(p.paidAmount) || (p.paid ? s : 0);
+        return Math.max(0, s - pd) === 0;
+      });
+
+    if (onUpdateSplit) {
+      onUpdateSplit(transaction.id, {
+        isSplit: true,
+        userIncluded: incUser,
+        userShare: uShare,
+        loanRecipient: mapped.map((p) => p.name).join(", "),
+        loanAmount: totRec,
+        remainingLoan: pendRec,
+        loanStatus: allPd ? "settled" : totPd > 0 ? "partially_settled" : "pending",
+        participants: mapped,
+      }, { silent });
+    }
+
+    return mapped;
+  };
+
+  // Add a participant (immediately persisted)
   const handleAddParticipant = () => {
     const trimmed = newParticipantName.trim();
     if (!trimmed) return;
@@ -223,16 +279,25 @@ export default function LoanSettlementModal({
     const updated = [...participants, newPart];
     setParticipants(updated);
     setNewParticipantName("");
+    persistSplitConfig(updated, userIncluded, true);
+    toast.success(`"${trimmed}" agregado a la división`, { icon: "➕" });
   };
 
-  // Remove a participant
+  // Remove a participant (immediately persisted to store & Supabase)
   const handleRemoveParticipant = (id) => {
     if (participants.length <= 1) {
       toast.error("Debe haber al menos un participante.");
       return;
     }
+    const toRemove = participants.find((p) => p.id === id);
+    if (toRemove && (toRemove.paid || Number(toRemove.paidAmount) > 0)) {
+      toast.error(`No puedes eliminar a "${toRemove.name}" porque ya tiene pagos registrados. Desmarca su pago primero.`);
+      return;
+    }
     const updated = participants.filter((p) => p.id !== id);
     setParticipants(updated);
+    persistSplitConfig(updated, userIncluded, true);
+    toast.success(`"${toRemove?.name || "Participante"}" eliminado de la división`, { icon: "🗑️" });
   };
 
   // Quick split generator helper (e.g. split into 3, 4, 5 people)
@@ -247,32 +312,18 @@ export default function LoanSettlementModal({
       });
     }
     setParticipants(list);
+    persistSplitConfig(list, userIncluded, true);
     toast.success(`Dividido en ${count} participantes`, { icon: "👥" });
+  };
+
+  const handleToggleUserIncluded = (newVal) => {
+    setUserIncluded(newVal);
+    persistSplitConfig(participants, newVal, true);
   };
 
   // Save Split Configuration to Store & Backend
   const handleSaveSplitConfig = () => {
-    const updatedParticipants = participants.map((p) => {
-      const effShare = getParticipantShare(p);
-      return {
-        ...p,
-        share: effShare,
-        customShare: p.customShare !== undefined && p.customShare !== null && p.customShare !== "" ? Number(p.customShare) : null,
-      };
-    });
-
-    if (onUpdateSplit) {
-      onUpdateSplit(transaction.id, {
-        isSplit: true,
-        userIncluded,
-        userShare,
-        loanRecipient: updatedParticipants.map((p) => p.name).join(", "),
-        loanAmount: totalReceivableFromOthers,
-        remainingLoan: pendingReceivableFromOthers,
-        loanStatus: isAllExternalPaid ? "settled" : totalPaidByOthers > 0 ? "partially_settled" : "pending",
-        participants: updatedParticipants,
-      });
-    }
+    persistSplitConfig(participants, userIncluded, false);
     onClose();
   };
 
@@ -284,18 +335,18 @@ export default function LoanSettlementModal({
 
   const handleSaveCustomShare = (pId) => {
     const val = Number(customShareInput);
-    setParticipants((prev) =>
-      prev.map((p) => (p.id === pId ? { ...p, customShare: val > 0 ? val : null } : p))
-    );
+    const updated = participants.map((p) => (p.id === pId ? { ...p, customShare: val > 0 ? val : null } : p));
+    setParticipants(updated);
     setEditingParticipantId(null);
+    persistSplitConfig(updated, userIncluded, true);
     toast.success("Cuota personalizada actualizada", { icon: "✏️" });
   };
 
   const handleResetCustomShare = (pId) => {
-    setParticipants((prev) =>
-      prev.map((p) => (p.id === pId ? { ...p, customShare: null } : p))
-    );
+    const updated = participants.map((p) => (p.id === pId ? { ...p, customShare: null } : p));
+    setParticipants(updated);
     setEditingParticipantId(null);
+    persistSplitConfig(updated, userIncluded, true);
     toast.success("Restablecido a reparto equitativo", { icon: "🔄" });
   };
 
@@ -394,6 +445,7 @@ export default function LoanSettlementModal({
           ? `Abono parcial / bonificación de ${settlingParticipant.name} ($${Math.round(amountToPay).toLocaleString("es-CO")}) por ${transaction.description || "Gasto compartido"}`
           : `Pago cuota de ${settlingParticipant.name} (Gasto compartido: ${transaction.description || "Préstamo"})`,
         currency,
+        currentParticipants: participants,
       });
     }
 
@@ -451,6 +503,7 @@ export default function LoanSettlementModal({
         isPartial: false,
         note: `Cruce de cuentas / gasto dividido con ${participant.name} (Sin ingreso)`,
         currency,
+        currentParticipants: participants,
       });
     }
 
@@ -640,7 +693,7 @@ export default function LoanSettlementModal({
                 <input
                   type="checkbox"
                   checked={userIncluded}
-                  onChange={(e) => setUserIncluded(e.target.checked)}
+                  onChange={(e) => handleToggleUserIncluded(e.target.checked)}
                   style={{ opacity: 0, width: 0, height: 0 }}
                 />
                 <span
