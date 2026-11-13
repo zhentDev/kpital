@@ -289,11 +289,13 @@ def clean_account_query(query: str | None) -> str:
     if not query:
         return ""
     s = str(query).strip()
-    # 1. Strip common leading emojis and icons (e.g. ⭐, 💳, 📦, ❌)
+    # 1. Strip common leading emojis, icons, and stray punctuation (e.g. ⭐, 💳, 📦, ❌, ,, ), .)
     s = re.sub(r"^[\W_]+", "", s).strip()
     # 2. Remove trailing parenthetical balances, limits, or cupo notes
     # (e.g. '(Cupo libre: $470,300)', '($1,475,511)', '($0)', '($296,484)')
     s = re.sub(r"\s*\([^)]*(?:\$|\d|cupo|saldo)[^)]*\)\s*$", "", s, flags=re.IGNORECASE).strip()
+    # Strip any trailing orphan closing parentheses, brackets or commas left from chopped string
+    s = re.sub(r"[\)\],]+$", "", s).strip()
     # 3. Strip bank prefix like 'Nu - Cajita' or 'Nu: Cajita' safely without corrupting interior colons
     if " - " in s:
         parts = s.split(" - ", 1)
@@ -361,7 +363,25 @@ def resolve_account(db: dict[str, Any], entity: dict[str, Any], account_query: s
         if a.get("id") == account_query or normalize_text(a.get("name")) == aq_norm:
             return a
 
-    # 6. Account not found -> Auto-create account under this entity
+    # 6. Account not found -> Guard against invalid / fragmented / junk names (e.g. ",150)", "150", ")")
+    letters_only = re.sub(r"[^A-Za-z0-9áéíóúÁÉÍÓÚñÑ]", "", cleaned_query)
+    is_invalid_name = (
+        len(letters_only) < 3
+        or cleaned_query.startswith((",", ")", ".", "-", "_"))
+        or cleaned_query.endswith(")")
+        or bool(re.match(r"^\d+$", letters_only))  # pure digits without a name
+    )
+
+    if is_invalid_name:
+        # Fallback to main / payroll account instead of auto-creating a junk account
+        for a in candidate_accounts:
+            if any(k in normalize_text(a.get("name")) for k in ["nomina", "principal", "ahorros", "debito"]):
+                logger.warning(f"[Webhook] Invalid account query '{account_query}' -> falling back to main account '{a.get('name')}'")
+                return a
+        if candidate_accounts:
+            return candidate_accounts[0]
+
+    # 7. Auto-create legitimate new account under this entity
     is_digital_wallet = any(w in normalize_text(entity.get("name", "")) for w in ["nequi", "daviplata"])
     account_cat = "digital_wallet" if is_digital_wallet else ("payroll" if is_main_account else "high_yield")
     acc_type = "wallet" if is_digital_wallet else ("savings" if is_main_account else "pocket")
@@ -579,9 +599,12 @@ def get_mobile_pockets(
         else:
             default_main_label = f"Cuenta {ent_clean_name} (Principal)"
 
+        def _fmt_money_cop(v: float) -> str:
+            return f"${int(v):_}".replace("_", ".")
+
         # 1. Main / Salary account first
         if principal_acc:
-            pockets_list.append(f"⭐ {principal_acc['name']} (${principal_acc.get('balance', 0):,.0f})")
+            pockets_list.append(f"⭐ {principal_acc['name']} ({_fmt_money_cop(principal_acc.get('balance', 0))})")
             clean_names.append(principal_acc["name"])
         else:
             pockets_list.append(f"⭐ {default_main_label} ($0)")
@@ -603,7 +626,7 @@ def get_mobile_pockets(
                     tot_lim = float(c.get("totalLimit", 0))
                     used_lim = float(c.get("usedLimit", 0))
                     avail_lim = max(0.0, tot_lim - used_lim)
-                    pockets_list.append(f"💳 {c['name']} (Cupo libre: ${avail_lim:,.0f})")
+                    pockets_list.append(f"💳 {c['name']} (Cupo libre: {_fmt_money_cop(avail_lim)})")
                     clean_names.append(c["name"])
         except Exception as err:
             logger.warning(f"[Webhook] Error adding credit cards to pockets: {err}")
@@ -613,7 +636,7 @@ def get_mobile_pockets(
             if principal_acc and a.get("id") == principal_acc.get("id"):
                 continue
             bal = a.get("balance", 0.0)
-            pockets_list.append(f"📦 {a['name']} (${bal:,.0f})")
+            pockets_list.append(f"📦 {a['name']} ({_fmt_money_cop(bal)})")
             clean_names.append(a["name"])
 
         # 4. Cancel / Ignore option
@@ -630,9 +653,14 @@ def get_mobile_pockets(
             "pockets": pockets_list,
             "pocket_names": clean_names,
             "pockets_csv": ",".join(clean_names),
+            "pockets_pipe": "|".join(clean_names),
+            "pockets_labels_pipe": "|".join(pockets_list),
         }
 
     # All banks / Google Wallet fallback
+    def _fmt_money_cop_all(v: float) -> str:
+        return f"${int(v):_}".replace("_", ".")
+
     all_pockets = []
     all_names = []
 
@@ -643,7 +671,7 @@ def get_mobile_pockets(
             tot_lim = float(c.get("totalLimit", 0))
             used_lim = float(c.get("usedLimit", 0))
             avail_lim = max(0.0, tot_lim - used_lim)
-            all_pockets.append(f"💳 {c['name']} (Cupo libre: ${avail_lim:,.0f})")
+            all_pockets.append(f"💳 {c['name']} (Cupo libre: {_fmt_money_cop_all(avail_lim)})")
             all_names.append(c["name"])
     except Exception as err:
         logger.warning(f"[Webhook] Error adding credit cards to all_pockets: {err}")
@@ -653,7 +681,7 @@ def get_mobile_pockets(
         ent_accs = [a for a in accounts if a.get("entityId") == ent.get("id")]
         for a in ent_accs:
             bal = a.get("balance", 0.0)
-            all_pockets.append(f"{short_bank}: {a['name']} (${bal:,.0f})")
+            all_pockets.append(f"{short_bank}: {a['name']} ({_fmt_money_cop_all(bal)})")
             all_names.append(f"{short_bank} - {a['name']}")
 
     all_pockets.append("❌ Ignorar / Cancelar")
@@ -669,6 +697,8 @@ def get_mobile_pockets(
         "pockets": all_pockets,
         "pocket_names": all_names,
         "pockets_csv": ",".join(all_names),
+        "pockets_pipe": "|".join(all_names),
+        "pockets_labels_pipe": "|".join(all_pockets),
     }
 
 
