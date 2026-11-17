@@ -444,24 +444,151 @@ export default function App() {
     const filterRatio = defaultActiveInvested > 0 ? activeInvested / defaultActiveInvested : 1;
     const isAllSelected = !selectedTickers || activeList.length === sanitizedHoldings.length;
 
-    let scaledNav = isAllSelected
-      ? [...datePoints]
-      : datePoints.map((pt) => ({
+    let scaledNav = [...datePoints];
+    let scaledSP500 = [...(baseNavData.sp500 || [])];
+    let scaledNasdaq = [...(baseNavData.nasdaq || [])];
+
+    if (!isAllSelected && datePoints.length > 0 && activeList.length > 0) {
+      const preparedHoldings = activeList.map((h) => {
+        const tsSeries = baseNavData.ticker_series?.[h.ticker];
+        const rawHist =
+          Array.isArray(tsSeries) && tsSeries.length > 0
+            ? tsSeries
+            : Array.isArray(h.history)
+              ? h.history
+              : [];
+        const entryDateStr = String(h.entry_date || "").slice(0, 10);
+        let baseFactor = 1.0;
+        if (!tsSeries && rawHist.length > 0 && entryDateStr) {
+          const entryPt = rawHist.find((p) => String(p.date || "").slice(0, 10) >= entryDateStr);
+          if (entryPt && Number(entryPt.factor) > 0) {
+            baseFactor = Number(entryPt.factor);
+          }
+        }
+        const factorMap = new Map();
+        rawHist.forEach((p) => {
+          const f = Number(p.factor) / baseFactor;
+          if (!isNaN(f) && f > 0) {
+            const rawD = String(p.date || "");
+            factorMap.set(rawD, f);
+            if (rawD.includes("-")) {
+              factorMap.set(rawD.slice(0, 10), f);
+            }
+          }
+        });
+        return {
+          ...h,
+          entryDateStr,
+          factorMap,
+          hasSeries: factorMap.size > 0,
+          lastFactor: 1.0,
+        };
+      });
+
+      const hasAnySeries = preparedHoldings.some((h) => h.hasSeries);
+      if (hasAnySeries) {
+        const reconstructed = [];
+        for (const pt of datePoints) {
+          const ptDateStr = String(pt.date || "");
+          const isIntradayPt =
+            typeof pt.date === "number" || (!ptDateStr.includes("-") && !isNaN(Number(ptDateStr)));
+          const dKey = isIntradayPt ? ptDateStr : ptDateStr.slice(0, 10);
+
+          const activeOnDate = preparedHoldings.filter((h) =>
+            isIntradayPt ? true : !h.entryDateStr || dKey >= h.entryDateStr,
+          );
+          if (activeOnDate.length === 0) {
+            continue;
+          }
+
+          const dayInvested = Number((activeOnDate.length * slotValue).toFixed(4));
+          let dayStockVal = 0;
+          for (const h of activeOnDate) {
+            const f = h.factorMap.get(ptDateStr) ?? h.factorMap.get(dKey) ?? h.lastFactor ?? 1.0;
+            h.lastFactor = f;
+            dayStockVal += slotValue * f;
+          }
+          const roundedVal = Number(dayStockVal.toFixed(4));
+          reconstructed.push({
+            ...pt,
+            value: roundedVal,
+            stock_value: roundedVal,
+            active_invested: dayInvested,
+          });
+        }
+
+        if (reconstructed.length > 0) {
+          scaledNav = reconstructed;
+          const origCapMap = new Map();
+          datePoints.forEach((p) => {
+            const rawD = String(p.date || "");
+            const cap =
+              typeof p.active_invested === "number" && p.active_invested > 0
+                ? p.active_invested
+                : defaultActiveInvested;
+            origCapMap.set(rawD, cap);
+            if (rawD.includes("-")) origCapMap.set(rawD.slice(0, 10), cap);
+          });
+          const filteredCapMap = new Map();
+          scaledNav.forEach((p) => {
+            const rawD = String(p.date || "");
+            filteredCapMap.set(rawD, p.active_invested);
+            if (rawD.includes("-")) filteredCapMap.set(rawD.slice(0, 10), p.active_invested);
+          });
+          const firstKey = String(scaledNav[0].date || "").includes("-")
+            ? String(scaledNav[0].date).slice(0, 10)
+            : String(scaledNav[0].date);
+
+          const rescaleBenchmark = (benchArr) => {
+            const validPts = (benchArr || []).filter((bPt) => {
+              const rawD = String(bPt.date || "");
+              const dKey = rawD.includes("-") ? rawD.slice(0, 10) : rawD;
+              return filteredCapMap.has(rawD) || filteredCapMap.has(dKey) || dKey >= firstKey;
+            });
+            if (validPts.length === 0) return [];
+            const getPureRatio = (bPt) => {
+              const rawD = String(bPt.date || "");
+              const dKey = rawD.includes("-") ? rawD.slice(0, 10) : rawD;
+              const origCap =
+                origCapMap.get(rawD) ?? origCapMap.get(dKey) ?? defaultActiveInvested ?? 1;
+              return origCap > 0 ? bPt.value / origCap : 1;
+            };
+            const firstRatio = getPureRatio(validPts[0]) || 1;
+            return validPts.map((bPt) => {
+              const rawD = String(bPt.date || "");
+              const dKey = rawD.includes("-") ? rawD.slice(0, 10) : rawD;
+              const targetCap =
+                filteredCapMap.get(rawD) ?? filteredCapMap.get(dKey) ?? activeInvested;
+              const ratio = getPureRatio(bPt) / firstRatio;
+              return {
+                ...bPt,
+                value: Number((ratio * targetCap).toFixed(4)),
+              };
+            });
+          };
+
+          scaledSP500 = rescaleBenchmark(baseNavData.sp500);
+          scaledNasdaq = rescaleBenchmark(baseNavData.nasdaq);
+        }
+      } else {
+        scaledNav = datePoints.map((pt) => ({
           ...pt,
           value: Number((pt.value * filterRatio).toFixed(4)),
-          active_invested: typeof pt.active_invested === "number" ? Number((pt.active_invested * filterRatio).toFixed(4)) : undefined,
+          active_invested:
+            typeof pt.active_invested === "number"
+              ? Number((pt.active_invested * filterRatio).toFixed(4))
+              : activeInvested,
         }));
-
-    // Rescaled S&P 500 and NASDAQ:
-    let scaledSP500 = [...(baseNavData.sp500 || [])].map((pt) => ({
-      ...pt,
-      value: Number((pt.value * filterRatio).toFixed(4)),
-    }));
-
-    let scaledNasdaq = [...(baseNavData.nasdaq || [])].map((pt) => ({
-      ...pt,
-      value: Number((pt.value * filterRatio).toFixed(4)),
-    }));
+        scaledSP500 = (baseNavData.sp500 || []).map((pt) => ({
+          ...pt,
+          value: Number((pt.value * filterRatio).toFixed(4)),
+        }));
+        scaledNasdaq = (baseNavData.nasdaq || []).map((pt) => ({
+          ...pt,
+          value: Number((pt.value * filterRatio).toFixed(4)),
+        }));
+      }
+    }
 
     // Intraday / Real-Time Market Injection:
     // When market opens today, ensure the current day's price action is dynamically plotted on the chart
@@ -472,10 +599,20 @@ export default function App() {
 
       if (lastNavPt && String(lastNavPt.date).slice(0, 10) === todayStr) {
         // Update today's existing point with latest live value
-        scaledNav[scaledNav.length - 1] = { ...lastNavPt, value: liveNavValue };
+        scaledNav[scaledNav.length - 1] = {
+          ...lastNavPt,
+          value: liveNavValue,
+          stock_value: liveNavValue,
+          active_invested: activeInvested,
+        };
       } else if (lastNavPt && String(lastNavPt.date).slice(0, 10) < todayStr) {
         // Append today's point dynamically as soon as the market opens
-        scaledNav.push({ date: todayStr, value: liveNavValue });
+        scaledNav.push({
+          date: todayStr,
+          value: liveNavValue,
+          stock_value: liveNavValue,
+          active_invested: activeInvested,
+        });
 
         if (scaledSP500.length > 0) {
           const lastSP = scaledSP500[scaledSP500.length - 1];
@@ -496,8 +633,18 @@ export default function App() {
       }
     }
 
-    const sp500Pct = baseNavData.summary?.sp500_return_pct || 0;
-    const nasdaqPct = baseNavData.summary?.nasdaq_return_pct || 0;
+    const lastSPVal = scaledSP500.length > 0 ? scaledSP500[scaledSP500.length - 1].value : activeInvested;
+    const lastNDVal = scaledNasdaq.length > 0 ? scaledNasdaq[scaledNasdaq.length - 1].value : activeInvested;
+    const sp500Pct = isAllSelected
+      ? (baseNavData.summary?.sp500_return_pct || 0)
+      : activeInvested > 0
+        ? Number((((lastSPVal - activeInvested) / activeInvested) * 100).toFixed(2))
+        : 0;
+    const nasdaqPct = isAllSelected
+      ? (baseNavData.summary?.nasdaq_return_pct || 0)
+      : activeInvested > 0
+        ? Number((((lastNDVal - activeInvested) / activeInvested) * 100).toFixed(2))
+        : 0;
     const sp500ReturnUsd = (sp500Pct / 100) * activeInvested;
     const nasdaqReturnUsd = (nasdaqPct / 100) * activeInvested;
 
@@ -525,7 +672,7 @@ export default function App() {
         cash_reserved: investment - activeInvested,
       },
     };
-  }, [baseNavData, selectedTickers, investment, numSlots]);
+  }, [baseNavData, liveQuotesMap, selectedTickers, investment, numSlots]);
 
   const summary = navData?.summary;
   const holdings = navData?.holdings || [];

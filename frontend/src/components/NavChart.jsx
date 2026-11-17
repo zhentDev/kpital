@@ -539,6 +539,10 @@ export default function NavChart({
             value: navData[0].value,
           };
         }
+        // Priorizar siempre pt.active_invested calculado por tramo exacto para que Base, Portafolio y Benchmarks coincidan 100%
+        if (typeof pt.active_invested === "number" && pt.active_invested > 0) {
+          return { date: ptDate, value: pt.active_invested };
+        }
         if (sortedRebs.length > 0 && slotVal > 0) {
           const ptStr = String(ptDate).slice(0, 10);
           const validRebs = sortedRebs.filter((r) => (r.date || "") <= ptStr);
@@ -550,9 +554,6 @@ export default function NavChart({
               : rawTickers.length;
             return { date: ptDate, value: count * slotVal };
           }
-        }
-        if (typeof pt.active_invested === "number" && pt.active_invested > 0) {
-          return { date: ptDate, value: pt.active_invested };
         }
         let activeCount = 0;
         for (const h of holdings) {

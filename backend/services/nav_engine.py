@@ -392,7 +392,9 @@ def calculate_nav(
                     .drop_nulls()
                 )
             if not s_t.is_empty():
-                p0 = float(s_t[t][0])
+                p0 = float(rebalance_prices.get(t, 0.0))
+                if p0 <= 0:
+                    p0 = float(s_t[t][0])
                 if p0 > 0:
                     t_history = [
                         {"date": str(r["date"]), "factor": round(float(r[t]) / p0, 6)}
@@ -681,11 +683,14 @@ def calculate_nav(
     ticker_series = {}
     for t in active_tickers:
         if t in prices_df.columns:
-            s_t = (
-                prices_df.filter(pl.col("date").cast(pl.String) >= series_start)
-                .select(["date", t])
-                .drop_nulls()
-            )
+            if is_intraday:
+                s_t = prices_df.select(["date", t]).drop_nulls()
+            else:
+                s_t = (
+                    prices_df.filter(pl.col("date").cast(pl.String) >= series_start)
+                    .select(["date", t])
+                    .drop_nulls()
+                )
             if not s_t.is_empty():
                 entry_d = ticker_entry_dates.get(t, series_start)
                 # Entry price base: use start_price recorded at entry date, fallback to first price
