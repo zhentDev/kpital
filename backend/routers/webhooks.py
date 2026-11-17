@@ -194,6 +194,7 @@ class MobileTransactionPayload(BaseModel):
     date: str | None = Field(None, description="Date in YYYY-MM-DD or ISO format. Defaults to current date in Colombia")
     category: str | None = Field(None, description="Optional category (e.g. 'Alimentación', 'Transporte')")
     time: str | None = Field(None, description="Transaction time in HH:MM or HH:MM:SS format")
+    timestamp_ms: int | float | None = Field(None, description="Original notification capture timestamp in epoch milliseconds from Kpital Mobile")
     raw_text: str | None = Field(None, description="Raw notification body from Android for logging/audit")
     user_id: str | None = Field(None, description="Target user ID (defaults to OWNER_ID)")
     budget_item_id: str | None = Field(None, description="Budget Item / Rubro ID (e.g. 'need_groceries', 'wealth_emergency')")
@@ -735,12 +736,16 @@ def register_mobile_transaction(
 
     # 1. Parse amount
     amount_val = parse_cop_amount(payload.amount)
-    # Check if raw_text has a significantly higher amount (e.g. truncated "COP24,845.00" -> 24.84)
-    if payload.raw_text and 0 < amount_val < 100:
-        m_raw_amt = re.search(r"(?:COP|\$|por\s+)\s*([\d\.,]+)", payload.raw_text, re.IGNORECASE)
+    # Check if raw_text has a significantly higher amount (e.g. truncated "COP24,845.00" -> 24.84 or "te envió 8000" -> 800)
+    if payload.raw_text and 0 < amount_val < 1000:
+        m_raw_amt = re.search(
+            r"(?:COP|\$|por\s+|te\s+envi[oó]\s+|te\s+enviaron\s+|recibiste\s+|sacaste\s+)\s*\$?\s*([\d\.,]+)",
+            payload.raw_text,
+            re.IGNORECASE,
+        )
         if m_raw_amt:
             candidate_amt = parse_cop_amount(m_raw_amt.group(1))
-            if candidate_amt >= 1000:
+            if candidate_amt >= 1000 and candidate_amt > amount_val:
                 logger.info(f"[Webhook] Rescuing truncated amount {amount_val} -> {candidate_amt} from raw_text '{payload.raw_text}'")
                 amount_val = candidate_amt
 
@@ -834,15 +839,27 @@ def register_mobile_transaction(
     entity = resolve_entity(db, payload.entity)
     account = resolve_account(db, entity, payload.account)
 
-    # 4. Resolve date and time (America/Bogota timezone)
+    # 4. Resolve date and time (America/Bogota timezone, prioritizing Kpital Mobile capture timestamp)
     now_colombia = get_current_colombia_time()
-    if payload.date:
-        # Extract YYYY-MM-DD
-        tx_date = payload.date.split("T")[0]
-    else:
-        tx_date = now_colombia.strftime("%Y-%m-%d")
+    tx_dt_colombia = now_colombia
+    if payload.timestamp_ms and float(payload.timestamp_ms) > 0:
+        try:
+            ts_val = float(payload.timestamp_ms)
+            ts_sec = ts_val / 1000.0 if ts_val > 1e11 else ts_val
+            tx_dt_colombia = datetime.fromtimestamp(ts_sec, tz=COLOMBIA_TZ)
+        except Exception as e:
+            logger.warning(f"[Webhook] Could not parse timestamp_ms={payload.timestamp_ms}: {e}")
 
-    tx_time = payload.time.strip() if payload.time else now_colombia.strftime("%H:%M:%S")
+    if payload.date and payload.date.strip():
+        tx_date = payload.date.strip().split("T")[0]
+    else:
+        tx_date = tx_dt_colombia.strftime("%Y-%m-%d")
+
+    if payload.time and payload.time.strip():
+        raw_t = payload.time.strip()
+        tx_time = f"{raw_t}:00" if len(raw_t) == 5 else raw_t
+    else:
+        tx_time = tx_dt_colombia.strftime("%H:%M:%S")
 
     # 4b. Check if this transaction is a Credit Card Purchase (e.g. Nu 3887, RappiCard)
     cf_temp = load_cash_flow_db(effective_uid)
@@ -995,10 +1012,13 @@ def register_mobile_transaction(
             clean_desc = f"Compra en {m_nu_compra.group(1).strip()}"
         else:
             pass
-        m_en = re.search(r"\ben\s+([A-Za-z0-9\s\.\-_]+?)(?:\s+por|\.|\.\.\.|\,|$)", payload.raw_text or "", re.IGNORECASE)
+        m_sent_to = re.search(r"le enviaste a\s+([^.]+?)(?:\s+en su cuenta|\s+con tu|\.|\$|\.\.\.|$)", payload.raw_text or "", re.IGNORECASE)
+        m_en = re.search(r"\ben\s+(?!su cuenta|tu cuenta)([A-Za-z0-9\s\.\-_]+?)(?:\s+por|\.|\.\.\.|\,|$)", payload.raw_text or "", re.IGNORECASE)
         m_via = re.search(r"a través de\s+([A-Za-z0-9\-\s]+?)(?:fue exitoso|\.|\.\.\.|$)", payload.raw_text or "", re.IGNORECASE)
-        m_sender = re.search(r'(?:Nu\s*-\s*)?(?:Banco\s+)?([A-Za-z0-9\s]+?)\s+te\s+envi[oó]', payload.raw_text or "", re.IGNORECASE)
-        if m_en and len(m_en.group(1).strip()) > 1:
+        m_sender = re.search(r'(?:Nu\s*-\s*|Env[ií]o\s*-\s*)?(?:Banco\s+)?([A-Za-zÁÉÍÓÚÑáéíóúñ0-9\s]+?)\s+te\s+envi[oó]', payload.raw_text or "", re.IGNORECASE)
+        if m_sent_to and len(m_sent_to.group(1).strip()) > 1:
+            clean_desc = m_sent_to.group(1).strip()
+        elif m_en and len(m_en.group(1).strip()) > 1:
             clean_desc = f"Compra en {m_en.group(1).strip()}"
         elif m_via:
             clean_desc = f"Envío {m_via.group(1).strip()}"

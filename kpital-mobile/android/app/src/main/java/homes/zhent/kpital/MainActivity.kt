@@ -1423,6 +1423,7 @@ class MainActivity : Activity() {
             putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, movement.txType)
             putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, movement.rawText)
             putExtra(PocketSelectorActivity.EXTRA_MOVEMENT_ID, movement.id)
+            putExtra(PocketSelectorActivity.EXTRA_TIMESTAMP, movement.timestamp)
         }
         startActivity(targetIntent)
     }

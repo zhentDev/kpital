@@ -189,16 +189,17 @@ export default function CashFlowHub() {
         });
       }
 
-      // Si al asignar el movimiento se cambió la cuenta origen hacia/desde un bolsillo Renta Fija (Rappi / Finandina), sincronizar el retiro
+      // Si al asignar el movimiento se cambió la cuenta origen hacia/desde un bolsillo Renta Fija (Rappi / Finandina / Nequi), sincronizar
+      const isExpenseReclassification = payload.destinationType === "budget_envelope";
       const psChanged =
         payload.paymentSource &&
         (payload.paymentSource.targetId !== mv.paymentSource?.targetId ||
           payload.paymentSource.type !== mv.paymentSource?.type ||
-          mv.type === "credit");
+          (isExpenseReclassification && mv.type === "credit"));
       if (psChanged && typeof syncCashFlowMovementToFixedIncome === "function") {
         syncCashFlowMovementToFixedIncome(mv, {
           ...mv,
-          type: "debit",
+          type: isExpenseReclassification ? "debit" : (mv.type || "debit"),
           paymentSource: payload.paymentSource,
           description: payload.targetItem?.name ? `${mv.description || payload.targetItem.name}` : mv.description,
         });

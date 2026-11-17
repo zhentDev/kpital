@@ -87,7 +87,10 @@ export const useFixedIncomeStore = create((set, get) => ({
           t.id === "tx_deuda_mike_20261024_01" ||
           t.id === "tx_int_finandina_in_350k" ||
           t.id === "tx_int_finandina_out_350k" ||
-          t.id === "tx_cf_tx_sub_1792795620492_e98s"
+          t.id === "tx_cf_tx_sub_1792795620492_e98s" ||
+          t.id === "tx_cf_cf_tx_in_1794686489118" ||
+          t.id === "tx_cf_1794686235085" ||
+          t.id === "tx_cf_1794686257611"
         );
       };
       const deletedTxSet = new Set([
@@ -97,6 +100,9 @@ export const useFixedIncomeStore = create((set, get) => ({
         "tx_int_finandina_in_350k",
         "tx_int_finandina_out_350k",
         "tx_cf_tx_sub_1792795620492_e98s",
+        "tx_cf_cf_tx_in_1794686489118",
+        "tx_cf_1794686235085",
+        "tx_cf_1794686257611",
       ]);
 
       const rawTransactions = Array.isArray(res?.transactions) ? res.transactions : [];
@@ -695,19 +701,34 @@ export const useFixedIncomeStore = create((set, get) => ({
 
   revertCashFlowMovement: async ({ movementId }) => {
     if (!movementId) return false;
+    if (!get().isInitialized) {
+      await get().initFetchFixedIncome();
+    }
     const state = get();
-    const cleanMovId = String(movementId).replace(/^cf_/, "");
+    const cleanMovId = String(movementId).replace(/^cf_/, "").replace(/^stl_/, "");
     const txId = `tx_cf_${movementId}`;
+    const numSuffix = /^\d+$/.test(cleanMovId) ? Number(cleanMovId) : null;
 
-    const matchedTxs = (state.transactions || []).filter(
-      (t) =>
+    const matchedTxs = (state.transactions || []).filter((t) => {
+      if (
         t.id === txId ||
         t.id === `${txId}_fb` ||
         t.id === movementId ||
         t.id === cleanMovId ||
         t.id === `tx_cf_${cleanMovId}` ||
-        t.id === `tx_cf_${cleanMovId}_fb`
-    );
+        t.id === `tx_cf_${cleanMovId}_fb` ||
+        t.id === `tx_cf_stl_${cleanMovId}`
+      ) {
+        return true;
+      }
+      if (numSuffix && String(t.id).startsWith("tx_cf_")) {
+        const tNum = Number(String(t.id).replace(/^tx_cf_(?:stl_)?/, ""));
+        if (!Number.isNaN(tNum) && Math.abs(tNum - numSuffix) <= 3) {
+          return true;
+        }
+      }
+      return false;
+    });
 
     if (matchedTxs.length === 0) {
       return false;
@@ -753,6 +774,9 @@ export const useFixedIncomeStore = create((set, get) => ({
   },
 
   syncCashFlowMovementToFixedIncome: async (oldTx, newTx) => {
+    if (!get().isInitialized) {
+      await get().initFetchFixedIncome();
+    }
     const state = get();
     const resolveTargetAccount = (tx) => {
       if (!tx || !tx.paymentSource) return null;
@@ -773,8 +797,21 @@ export const useFixedIncomeStore = create((set, get) => ({
         });
       }
       if (!acc || acc.id === "acc_nu_debito") return null;
-      // Solo aplicar a cuentas de Renta Fija / Bolsillos / Principal de Rappi, Finandina, Plenti, Nu Cajitas
-      if (ps.type === "fixed_pocket" || ps.type === "savings" || acc.accountCategory === "high_yield" || acc.type === "pocket" || acc.entityId === "ent_1789616750396" || acc.entityId === "ent_1786771791285") {
+      // Aplicar a cuentas de Renta Fija / Bolsillos / Billeteras Digitales (Nequi, Daviplata, Rappi, Finandina, Plenti, Nu Cajitas)
+      if (
+        ps.type === "fixed_pocket" ||
+        ps.type === "savings" ||
+        ps.type === "nequi" ||
+        ps.type === "digital_wallet" ||
+        acc.accountCategory === "high_yield" ||
+        acc.accountCategory === "digital_wallet" ||
+        acc.type === "pocket" ||
+        acc.type === "wallet" ||
+        acc.entityId === "ent_1789616750396" ||
+        acc.entityId === "ent_1786771791285" ||
+        acc.entityId === "ent_nequi" ||
+        acc.entityId === "ent_daviplata"
+      ) {
         return acc;
       }
       return null;
@@ -787,6 +824,32 @@ export const useFixedIncomeStore = create((set, get) => ({
     const targetAcc = resolveTargetAccount(newTx);
     if (newTx && targetAcc && Number(newTx.amount) > 0) {
       const txType = newTx.type === "credit" ? "credit" : "debit";
+
+      // Evitar doble conteo: Si se está registrando un ingreso (ej. 'Pago Walter' por $21.000 en Nequi)
+      // y ya existían abonos 'Cobro Préstamo: <Persona>' creados desde Gestión de Cobros en la misma cuenta y fecha,
+      // revertir esos 'Cobro Préstamo:' redundantes para que el saldo de la cuenta solo sume el ingreso real una vez.
+      if (txType === "credit") {
+        const newDescLower = (newTx.description || "").toLowerCase();
+        const currentTxs = get().transactions || [];
+        const duplicateLoanCredits = currentTxs.filter((t) => {
+          if (t.accountId !== targetAcc.id || t.type !== "credit") return false;
+          if (t.date && newTx.date && t.date !== newTx.date) return false;
+          const tDesc = (t.description || "").toLowerCase();
+          if (!tDesc.startsWith("cobro préstamo:") && !tDesc.startsWith("cobro prestamo:")) return false;
+          const personName = tDesc.replace(/^cobro pr[eé]stamo:\s*/i, "").trim();
+          if (!personName || personName.length < 3) return false;
+          const firstToken = personName.split(/\s+/)[0];
+          return (
+            newDescLower.includes(personName) ||
+            (firstToken.length >= 3 && (newDescLower.includes(firstToken) || firstToken.startsWith(newDescLower)))
+          );
+        });
+
+        for (const dupTx of duplicateLoanCredits) {
+          await get().revertCashFlowMovement({ movementId: dupTx.id });
+        }
+      }
+
       const desc = txType === "credit"
         ? (newTx.description || "Depósito")
         : `Retiro: ${newTx.description || newTx.budgetItemName || "Movimiento"}`;

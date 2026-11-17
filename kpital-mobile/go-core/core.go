@@ -338,6 +338,10 @@ func bankCanonicalKey(raw string) string {
 		return "nu"
 	case strings.Contains(s, "plenti"):
 		return "plenti"
+	case strings.Contains(s, "nequi"):
+		return "nequi"
+	case strings.Contains(s, "daviplata"), strings.Contains(s, "davivienda"):
+		return "daviplata"
 	default:
 		return s
 	}
@@ -349,7 +353,8 @@ func isPrimaryFiAccount(acc fiAccount) bool {
 			return true
 		}
 	}
-	return strings.Contains(strings.ToLower(acc.Name), "principal")
+	lower := strings.ToLower(acc.Name)
+	return strings.Contains(lower, "principal") || strings.Contains(lower, "disponible")
 }
 
 func matchFixedIncomeAccount(bank, account string, entities []fiEntity, accounts []fiAccount) *fiAccount {
@@ -357,7 +362,7 @@ func matchFixedIncomeAccount(bank, account string, entities []fiEntity, accounts
 		return nil
 	}
 	bankKey := bankCanonicalKey(bank)
-	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" {
+	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" && bankKey != "nequi" && bankKey != "daviplata" {
 		return nil
 	}
 
@@ -395,6 +400,7 @@ func matchFixedIncomeAccount(bank, account string, entities []fiEntity, accounts
 
 	isGeneric := lowerQuery == "" ||
 		strings.Contains(lowerQuery, "principal") ||
+		strings.Contains(lowerQuery, "disponible") ||
 		strings.Contains(lowerQuery, "general") ||
 		strings.Contains(lowerQuery, "ahorros") ||
 		strings.Contains(lowerQuery, "flexidigital") ||
@@ -455,7 +461,7 @@ func resolveFixedIncomeAccount(bank, account string) (*fiAccount, error) {
 		return nil, nil
 	}
 	bankKey := bankCanonicalKey(bank)
-	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" {
+	if bankKey != "rappipay" && bankKey != "finandina" && bankKey != "nu" && bankKey != "plenti" && bankKey != "nequi" && bankKey != "daviplata" {
 		return nil, nil
 	}
 
@@ -556,13 +562,21 @@ func syncFixedIncomeDirect(matchedAcc *fiAccount, cfTxId, bank, description, txT
 	return err
 }
 
+func resolveColombiaTimeFromMs(timestampMs int64) time.Time {
+	if timestampMs > 0 {
+		return time.UnixMilli(timestampMs).UTC().Add(-5 * time.Hour)
+	}
+	return time.Now().UTC().Add(-5 * time.Hour)
+}
+
 // syncToSupabaseDirect inserts the transaction directly into Supabase PostgreSQL (cf_movements + fi_transactions/fi_accounts)
 // as a resilient fallback when the backend webhook is unavailable or times out.
-func syncToSupabaseDirect(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string) error {
-	now := time.Now().UTC().Add(-5 * time.Hour) // America/Bogota (UTC-5)
-	period := now.Format("2006-01")
-	dateStr := now.Format("2006-01-02")
-	timeStr := now.Format("15:04:05")
+func syncToSupabaseDirect(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string, timestampMs int64) error {
+	txTime := resolveColombiaTimeFromMs(timestampMs) // America/Bogota (UTC-5)
+	now := time.Now().UTC().Add(-5 * time.Hour)
+	period := txTime.Format("2006-01")
+	dateStr := txTime.Format("2006-01-02")
+	timeStr := txTime.Format("15:04:05")
 
 	txId := fmt.Sprintf("cf_tx_mb_%d_%x", now.UnixNano()/int64(time.Millisecond), now.UnixNano()%0xFFFF)
 
@@ -610,10 +624,11 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		"budget_item_type":    budgetItemType,
 		"payment_source_json": paymentSource,
 		"extra_json": map[string]interface{}{
-			"source":  "kpital_mobile_direct",
-			"rawText": rawText,
-			"bank":    bank,
-			"account": account,
+			"source":      "kpital_mobile_direct",
+			"rawText":     rawText,
+			"bank":        bank,
+			"account":     account,
+			"timestampMs": timestampMs,
 		},
 	}
 
@@ -628,11 +643,20 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 }
 
 // SendTransactionWithRubroToBackend dispatches the user-confirmed transaction with both pocket and budget item (rubro).
-// Calls the backend webhook first (which updates both Renta Fija and Flujo) and falls back to direct Supabase sync if offline.
 func SendTransactionWithRubroToBackend(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string) string {
+	return SendTransactionWithTimestampToBackend(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, 0)
+}
+
+// SendTransactionWithTimestampToBackend dispatches the user-confirmed transaction preserving the exact original capture timestamp from Kpital Mobile.
+// Calls the backend webhook first (which updates both Renta Fija and Flujo) and falls back to direct Supabase sync if offline.
+func SendTransactionWithTimestampToBackend(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string, timestampMs int64) string {
 	cfgLock.RLock()
 	currentCfg := appConfig
 	cfgLock.RUnlock()
+
+	txTime := resolveColombiaTimeFromMs(timestampMs)
+	dateStr := txTime.Format("2006-01-02")
+	timeStr := txTime.Format("15:04:05")
 
 	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-transaction", currentCfg.ApiUrl)
 
@@ -642,6 +666,9 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 		"amount":           amount,
 		"description":      description,
 		"type":             txType,
+		"date":             dateStr,
+		"time":             timeStr,
+		"timestamp_ms":     timestampMs,
 		"raw_text":         rawText,
 		"budget_item_id":   budgetItemId,
 		"budget_item_name": budgetItemName,
@@ -651,13 +678,13 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		// If JSON marshal fails, fall back to direct Supabase sync
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
+		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
 		return `{"success":true,"message":"Movimiento registrado en Kpital"}`
 	}
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
 	if err != nil {
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
+		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
 		return `{"success":true,"message":"Movimiento registrado en Kpital"}`
 	}
 
@@ -674,7 +701,7 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		// Render failed or offline -> ensure Supabase direct sync succeeds synchronously
-		errDirect := syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
+		errDirect := syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
 		if errDirect == nil {
 			return `{"success":true,"message":"Movimiento registrado directamente en Kpital Supabase"}`
 		}
@@ -683,7 +710,7 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType)
+		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
 		return `{"success":true,"message":"Movimiento registrado con éxito"}`
 	}
 
@@ -786,7 +813,30 @@ func FetchMobileBudgetItems() string {
 	return string(bytesOut)
 }
 
+func formatCopDots(val float64) string {
+	n := int64(math.Round(val))
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
+	}
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return "$" + sign + s
+	}
+	var parts []string
+	for len(s) > 3 {
+		parts = append([]string{s[len(s)-3:]}, parts...)
+		s = s[:len(s)-3]
+	}
+	if s != "" {
+		parts = append([]string{s}, parts...)
+	}
+	return "$" + sign + strings.Join(parts, ".")
+}
+
 // FetchMobilePockets calls /api/webhooks/mobile-pockets to retrieve available pockets for a bank.
+// Includes a direct Supabase fallback if Render is sleeping or unreachable.
 func FetchMobilePockets(bank, txType string) string {
 	cfgLock.RLock()
 	currentCfg := appConfig
@@ -798,27 +848,67 @@ func FetchMobilePockets(bank, txType string) string {
 
 	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-pockets?%s", currentCfg.ApiUrl, params.Encode())
 	req, err := http.NewRequest("GET", endpoint, nil)
-	if err != nil {
-		return `{"success":false,"pockets":[]}`
+	if err == nil {
+		if currentCfg.WebhookSecret != "" {
+			req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
+		} else {
+			req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
+		}
+		if currentCfg.UserToken != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
+		}
+
+		resp, err := httpClient.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return string(bodyBytes)
+		}
 	}
 
-	if currentCfg.WebhookSecret != "" {
-		req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
-	} else {
-		req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
-	}
-	if currentCfg.UserToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
+	// Direct Supabase Fallback for pockets
+	entBytes, errEnt := supabaseDo("GET", fmt.Sprintf("/fi_entities?user_id=eq.%s&select=id,name", DefaultOwnerId), nil, "")
+	accBytes, errAcc := supabaseDo("GET", fmt.Sprintf("/fi_accounts?user_id=eq.%s&select=id,entity_id,name,balance,currency,extra_json", DefaultOwnerId), nil, "")
+	if errEnt == nil && errAcc == nil {
+		var entities []fiEntity
+		var accounts []fiAccount
+		_ = json.Unmarshal(entBytes, &entities)
+		_ = json.Unmarshal(accBytes, &accounts)
+
+		bankKey := bankCanonicalKey(bank)
+		targetEntIDs := make(map[string]bool)
+		for _, e := range entities {
+			if bankCanonicalKey(e.Name) == bankKey || bankCanonicalKey(e.ID) == bankKey {
+				targetEntIDs[e.ID] = true
+			}
+		}
+
+		pockets := []string{}
+		pocketNames := []string{}
+		for _, a := range accounts {
+			if targetEntIDs[a.EntityID] || bankCanonicalKey(a.EntityID) == bankKey {
+				prefix := "📦"
+				if isPrimaryFiAccount(a) {
+					prefix = "⭐"
+				}
+				pockets = append(pockets, fmt.Sprintf("%s %s (%s)", prefix, a.Name, formatCopDots(a.Balance)))
+				pocketNames = append(pocketNames, a.Name)
+			}
+		}
+		if len(pockets) > 0 {
+			pockets = append(pockets, "❌ Ignorar / Cancelar")
+			pocketNames = append(pocketNames, "Ignorar / Cancelar")
+			out := map[string]interface{}{
+				"success":      true,
+				"pockets":      pockets,
+				"pocket_names": pocketNames,
+			}
+			b, _ := json.Marshal(out)
+			return string(b)
+		}
 	}
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return `{"success":false,"pockets":[]}`
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	return string(bodyBytes)
+	return `{"success":false,"pockets":[]}`
 }
 
 // LoginToKpital authenticates the user directly against the Kpital API and returns token & profile.
@@ -854,13 +944,19 @@ func LoginToKpital(email, password string) string {
 func syncTransactionToBackend(cfg Config, raw models.RawNotification, parsed *models.ParsedTransaction) error {
 	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-transaction", cfg.ApiUrl)
 
+	tsMs := raw.Timestamp.UnixMilli()
+	txTime := resolveColombiaTimeFromMs(tsMs)
+
 	payload := map[string]interface{}{
-		"entity":      parsed.Bank,
-		"account":     parsed.Account,
-		"amount":      parsed.Amount,
-		"description": parsed.Description,
-		"type":        string(parsed.Type),
-		"raw_text":    raw.Text,
+		"entity":       parsed.Bank,
+		"account":      parsed.Account,
+		"amount":       parsed.Amount,
+		"description":  parsed.Description,
+		"type":         string(parsed.Type),
+		"date":         txTime.Format("2006-01-02"),
+		"time":         txTime.Format("15:04:05"),
+		"timestamp_ms": tsMs,
+		"raw_text":     raw.Text,
 	}
 
 	jsonBytes, err := json.Marshal(payload)

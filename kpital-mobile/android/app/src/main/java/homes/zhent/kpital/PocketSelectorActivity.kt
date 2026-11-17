@@ -32,10 +32,12 @@ class PocketSelectorActivity : Activity() {
         const val EXTRA_TX_TYPE = "extra_tx_type"
         const val EXTRA_RAW_TEXT = "extra_raw_text"
         const val EXTRA_MOVEMENT_ID = "extra_movement_id"
+        const val EXTRA_TIMESTAMP = "extra_timestamp"
     }
 
     private var currentAmount: Double = 0.0
     private var movementId: String? = null
+    private var captureTimestamp: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +63,12 @@ class PocketSelectorActivity : Activity() {
         val txType = intent.getStringExtra(EXTRA_TX_TYPE) ?: "debit"
         val rawText = intent.getStringExtra(EXTRA_RAW_TEXT) ?: ""
         movementId = intent.getStringExtra(EXTRA_MOVEMENT_ID)
+        val rawTs = intent.getLongExtra(EXTRA_TIMESTAMP, 0L)
+        captureTimestamp = when {
+            rawTs > 0L -> rawTs
+            movementId != null -> MovementHistoryManager.getMovementById(this, movementId!!)?.timestamp ?: System.currentTimeMillis()
+            else -> System.currentTimeMillis()
+        }
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#090d16"))
@@ -686,7 +694,12 @@ class PocketSelectorActivity : Activity() {
 
         thread {
             try {
-                val respStr = Core.sendTransactionWithRubroToBackend(
+                val effectiveTs = if (captureTimestamp > 0L) {
+                    captureTimestamp
+                } else {
+                    movementId?.let { MovementHistoryManager.getMovementById(this@PocketSelectorActivity, it)?.timestamp } ?: System.currentTimeMillis()
+                }
+                val respStr = Core.sendTransactionWithTimestampToBackend(
                     bank,
                     account,
                     desc,
@@ -695,7 +708,8 @@ class PocketSelectorActivity : Activity() {
                     rawText,
                     budgetItemId,
                     budgetItemName,
-                    budgetItemType
+                    budgetItemType,
+                    effectiveTs
                 )
                 val result = JSONObject(respStr)
                 val success = result.optBoolean("success", false)

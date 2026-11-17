@@ -68,7 +68,9 @@ class KpitalNotificationListener : NotificationListenerService() {
             "co.nu.production",
             "com.nu.app",
             "com.nequi.MobileApp",
+            "com.nequi.nequi",
             "co.nequi",
+            "co.com.nequi",
             "com.bancofalabella.bancofalabella",
             "cl.falabella.banco",
             "com.lulobank",
@@ -98,10 +100,10 @@ class KpitalNotificationListener : NotificationListenerService() {
 
         // Entidades financieras reconocidas en SMS bancarios
         private val KNOWN_BANK_NAMES = listOf(
-            "caja social", "bcs", "87227", "bancolombia", "davivienda", "daviplata",
+            "caja social", "bcs", "87227", "85954", "890809", "bancolombia", "davivienda", "daviplata",
             "banco de bogota", "banco de bogotá", "banco de occidente",
             "falabella", "scotiabank", "colpatria", "bbva", "nequi", "nu colombia", "nubank",
-            "rappi", "rappipay", "rappicuenta", "rappicard", "lulo", "lulobank", "mercado pago"
+            "rappi", "rappipay", "rappicuenta", "rappicard", "lulo", "lulobank", "mercado pago", "finandina"
         )
 
         /**
@@ -124,10 +126,9 @@ class KpitalNotificationListener : NotificationListenerService() {
                 "2x1", "3x2", "consiente al", "consiente a", "válido también en", "valido tambien en",
                 "solo por hoy", "imperdible", "no te pierdas", "aprovecha", "te regalamos",
                 "hasta 40%", "hasta 50%", "hasta 30%", "hasta 20%", "hasta 70%",
-                // Entretenimiento, boletería, conciertos y preventas comerciales (Nequi Visa, etc.)
+                // Entretenimiento, boletería, conciertos y preventas comerciales
                 "preventa", "preventa exclusiva", "boleta", "boletas", "bolestas", "boletería", "boleteria",
-                "entrada", "entradas", "concierto", "hazlo aquí", "hazlo aqui", "compra tus boletas",
-                "compra tus bolestas", "compra tus entradas", "tarjeta nequi visa"
+                "concierto", "compra tus boletas", "compra tus bolestas", "compra tus entradas"
             ).any { lower.contains(it) }
             if (isMarketing) return true
 
@@ -147,10 +148,11 @@ class KpitalNotificationListener : NotificationListenerService() {
 
             // D. Saldo diario puramente informativo (Caja Social, Bancolombia, Davivienda, etc.)
             val hasTxVerb = listOf(
-                "compra", "compraste", "pagaste", "pago de", "pago por", "pago para", "debito por",
-                "débito por", "transferiste", "enviaste", "envío", "envio", "retiro", "retiraste",
-                "sacaste", "recibiste", "te transfirieron", "te pasaron", "te enviaron", "te llego plata",
-                "te llegó plata", "consignacion", "consignación", "nomina", "nómina", "devolucion",
+                "compra", "compraste", "pagaste", "pago de", "pago por", "pago para", "pago exitoso", "debito por",
+                "débito por", "transferiste", "enviaste", "envío", "envio", "te envió", "te envio", "retiro", "retiraste",
+                "sacaste", "recargaste", "recarga", "recibiste", "te transfirieron", "te transfirió", "te transfirio",
+                "te pasaron", "te pasó", "te paso", "te enviaron", "te llego plata", "te llegó plata",
+                "tu plata llegó", "tu plata llego", "consignacion", "consignación", "nomina", "nómina", "devolucion",
                 "devolución", "pago recibido", "cashback", "reembolso", "rendimiento", "rendimientos"
             ).any { lower.contains(it) }
 
@@ -330,15 +332,20 @@ class KpitalNotificationListener : NotificationListenerService() {
             // D. Debe tener palabras clave financieras
             val hasFinancialKeywords = lower.contains("$") || lower.contains("pago") ||
                     lower.contains("compra") || lower.contains("transfer") || lower.contains("aprobado") ||
-                    lower.contains("debito") || lower.contains("credito") || lower.contains("abono")
+                    lower.contains("debito") || lower.contains("credito") || lower.contains("abono") ||
+                    lower.contains("envió") || lower.contains("envio") || lower.contains("envío") ||
+                    lower.contains("recibiste") || lower.contains("sacaste") || lower.contains("retiro")
             if (!hasFinancialKeywords) return
         } else {
             // Para apps bancarias oficiales:
             val hasFinancialKeywords = lower.contains("$") || lower.contains("cop") ||
                     lower.contains("compra") || lower.contains("compraste") ||
-                    lower.contains("envia") || lower.contains("envío") || lower.contains("transfer") ||
+                    lower.contains("envia") || lower.contains("envío") || lower.contains("envio") ||
+                    lower.contains("envió") || lower.contains("transfer") ||
                     lower.contains("pagaste") || lower.contains("pago") || lower.contains("recibiste") ||
-                    lower.contains("te transfirieron") || lower.contains("plata") ||
+                    lower.contains("te transfirieron") || lower.contains("te pasaron") || lower.contains("pasó") ||
+                    lower.contains("plata") || lower.contains("sacaste") || lower.contains("retiraste") ||
+                    lower.contains("recarg") || lower.contains("bre-b") ||
                     lower.contains("aprob") || lower.contains("abono") || lower.contains("retiro") ||
                     lower.contains("transacc") || lower.contains("exitos") || lower.contains("gasto")
             if (!hasFinancialKeywords) return
@@ -361,14 +368,17 @@ class KpitalNotificationListener : NotificationListenerService() {
                 return
             }
 
-            // CRÍTICO: Una notificación solo se considera transacción si Go Core la parseó exitosamente Y tiene monto > 0
-            if (!obj.optBoolean("parsed", false) || obj.optDouble("amount", 0.0) <= 0.0) {
-                Log.i(TAG, "Notificación descartada: No contiene una transacción financiera válida con monto mayor a 0 (parsed=${obj.optBoolean("parsed", false)}, amount=${obj.optDouble("amount", 0.0)}) en '$title - $textToProcess'.")
+            bank = obj.optString("bank", "Banco")
+            amount = obj.optDouble("amount", 0.0)
+            val isNequiZeroAmtTx = bank.contains("Nequi", ignoreCase = true) && obj.optBoolean("parsed", false)
+
+            // Una notificación se considera transacción si Go Core la parseó exitosamente con monto > 0
+            // (o si es un envío confirmado de Nequi donde el push no incluye el monto numérico para que el usuario lo digite)
+            if (!obj.optBoolean("parsed", false) || (amount <= 0.0 && !isNequiZeroAmtTx)) {
+                Log.i(TAG, "Notificación descartada: No contiene una transacción financiera válida (parsed=${obj.optBoolean("parsed", false)}, amount=$amount) en '$title - $textToProcess'.")
                 return
             }
 
-            bank = obj.optString("bank", "Banco")
-            amount = obj.optDouble("amount", 0.0)
             description = obj.optString("description", description)
             txType = obj.optString("txType", "debit")
         } catch (e: Throwable) {
@@ -384,18 +394,19 @@ class KpitalNotificationListener : NotificationListenerService() {
             return
         }
 
-        // 3.5. Registrar y persistir de inmediato en el historial de la app Kpital
+        // 3.5. Registrar y persistir de inmediato en el historial de la app Kpital con su hora exacta de llegada
+        val captureTimeMs = if (postTime > 0) postTime else System.currentTimeMillis()
         val movement = CapturedMovement(
             bank = bank,
             amount = amount,
             description = description,
             txType = txType,
             rawText = fullCombinedText,
-            timestamp = if (postTime > 0) postTime else System.currentTimeMillis(),
+            timestamp = captureTimeMs,
             status = MovementHistoryManager.STATUS_PENDING
         )
         val movementId = MovementHistoryManager.addMovement(applicationContext, movement)
-        Log.d(TAG, "Movimiento guardado en historial local: id=$movementId, $bank, $amount COP, status=${movement.status}")
+        Log.d(TAG, "Movimiento guardado en historial local: id=$movementId, $bank, $amount COP, timestamp=$captureTimeMs, status=${movement.status}")
 
         // Si fue clasificado automáticamente como duplicado/descartado, no interrumpir con overlay
         if (movement.status == MovementHistoryManager.STATUS_DISCARDED) {
@@ -419,7 +430,8 @@ class KpitalNotificationListener : NotificationListenerService() {
                 desc = description,
                 txType = txType,
                 rawText = "$title - $textToProcess",
-                movementId = movementId
+                movementId = movementId,
+                timestampMs = captureTimeMs
             )
         } else {
             Log.w(TAG, "No tiene permiso canDrawOverlays para mostrar la burbuja flotante")
@@ -436,6 +448,7 @@ class KpitalNotificationListener : NotificationListenerService() {
             putExtra(PocketSelectorActivity.EXTRA_TX_TYPE, txType)
             putExtra(PocketSelectorActivity.EXTRA_RAW_TEXT, "$title - $textToProcess")
             putExtra(PocketSelectorActivity.EXTRA_MOVEMENT_ID, movementId)
+            putExtra(PocketSelectorActivity.EXTRA_TIMESTAMP, captureTimeMs)
         }
 
         val requestCode = System.currentTimeMillis().toInt()

@@ -227,6 +227,62 @@ func TestParserEngineRealWorldCases(t *testing.T) {
 			expectedAmount:  3662854.0,
 			expectedAccount: "Cuenta Nu Débito (Nómina)",
 		},
+		{
+			name: "Nequi Colombia - Incoming transfer without dollar sign (te envió 21000)",
+			notification: models.RawNotification{
+				AppName:     "Nequi",
+				PackageName: "com.nequi.MobileApp",
+				Title:       "Envío",
+				Text:        "WALTER CAMPO te envió 21000, ¡lo mejor!",
+			},
+			expectedBank:    "Nequi Colombia",
+			expectedType:    models.TypeCredit,
+			expectedAmount:  21000.0,
+			expectedAccount: "Disponible Nequi",
+			expectedDesc:    "Transferencia de WALTER CAMPO",
+		},
+		{
+			name: "Nequi Colombia - Incoming Bre-B transfer",
+			notification: models.RawNotification{
+				AppName:     "Nequi",
+				PackageName: "com.nequi.MobileApp",
+				Title:       "Te enviaron plata por Bre-B",
+				Text:        "Te enviaron $30.000. Entra a tu app y revisa tu saldo.",
+			},
+			expectedBank:    "Nequi Colombia",
+			expectedType:    models.TypeCredit,
+			expectedAmount:  30000.0,
+			expectedAccount: "Disponible Nequi",
+			expectedDesc:    "Transferencia Bre-B recibida en Nequi",
+		},
+		{
+			name: "Nequi Colombia - ATM/Corresponsal Bancolombia withdrawal",
+			notification: models.RawNotification{
+				AppName:     "Nequi",
+				PackageName: "com.nequi.MobileApp",
+				Title:       "Retiro Exitoso",
+				Text:        "Sacaste $30.000 en corresponsal Bancolombia.",
+			},
+			expectedBank:    "Nequi Colombia",
+			expectedType:    models.TypeDebit,
+			expectedAmount:  30000.0,
+			expectedAccount: "Disponible Nequi",
+			expectedDesc:    "Retiro en corresponsal Bancolombia",
+		},
+		{
+			name: "Nequi Colombia - Outgoing transfer push without amount",
+			notification: models.RawNotification{
+				AppName:     "Nequi",
+				PackageName: "com.nequi.MobileApp",
+				Title:       "Tu plata llegó con éxito 💜",
+				Text:        "Envío exitoso, la plata ya está en el Nequi destino.✈ Recuerda que no se puede cancelar. Avísale a tu amigo que ya le llegó. ✨",
+			},
+			expectedBank:    "Nequi Colombia",
+			expectedType:    models.TypeDebit,
+			expectedAmount:  0.0,
+			expectedAccount: "Disponible Nequi",
+			expectedDesc:    "Envío Nequi",
+		},
 	}
 
 	for _, tc := range testCases {

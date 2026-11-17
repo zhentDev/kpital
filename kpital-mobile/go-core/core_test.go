@@ -82,6 +82,7 @@ func TestMatchFixedIncomeAccountFallback(t *testing.T) {
 		{ID: "ent_rappipay", Name: "RappiPay"},
 		{ID: "ent_finandina", Name: "Banco Finandina"},
 		{ID: "ent_nu", Name: "Nu Colombia"},
+		{ID: "ent_nequi", Name: "Nequi"},
 	}
 	accounts := []fiAccount{
 		{ID: "acc_1789616855068", EntityID: "ent_rappipay", Name: "Impresora", Balance: 296483.88, Currency: "COP"},
@@ -90,6 +91,14 @@ func TestMatchFixedIncomeAccountFallback(t *testing.T) {
 		{ID: "acc_1786771927434", EntityID: "ent_finandina", Name: "Bolsillo de Ahorro — Fondo de Emergencia (FlexiDigital +)", Balance: 485945.92, Currency: "COP"},
 		{ID: "acc_nu_debito", EntityID: "ent_nu", Name: "Cuenta Nu Débito", Balance: 100000, Currency: "COP"},
 		{ID: "acc_nu_cajita", EntityID: "ent_nu", Name: "Cajita Nu", Balance: 50000, Currency: "COP"},
+		{ID: "acc_nequi_disp", EntityID: "ent_nequi", Name: "Disponible Nequi", Balance: 29047.4, Currency: "COP"},
+	}
+
+	if got := matchFixedIncomeAccount("Nequi Colombia", "Disponible Nequi", entities, accounts); got == nil || got.ID != "acc_nequi_disp" {
+		t.Fatalf("Expected Disponible Nequi account, got %+v", got)
+	}
+	if got := matchFixedIncomeAccount("Nequi", "Principal", entities, accounts); got == nil || got.ID != "acc_nequi_disp" {
+		t.Fatalf("Expected Disponible Nequi fallback for Principal, got %+v", got)
 	}
 
 	if got := matchFixedIncomeAccount("RappiPay", "Impresora", entities, accounts); got == nil || got.ID != "acc_1789616855068" {

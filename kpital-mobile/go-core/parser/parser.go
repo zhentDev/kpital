@@ -23,13 +23,13 @@ var (
 	balanceReg  = regexp.MustCompile(`(?i)(?:saldo|disponible|saldo nuevo|nuevo saldo|fue de)(?:.*?es|.*?:|.*?fue de|.*?de)?\s*[\$%]?\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{3,}(?:[.,][0-9]{2})?)`)
 
 	// Contextual transaction verbs regex to avoid picking up the resulting balance as the transaction amount
-	txAmountRegex = regexp.MustCompile(`(?i)(?:por\s*\$?\s*|pagaste\s*\$?\s*|pago\s*(?:por|de|para)\s*\$?\s*|enviaste\s*\$?\s*|env[ií]o\s*(?:por)?\s*\$?\s*|transferiste\s*\$?\s*|recibiste\s*(?:por)?\s*\$?\s*|retiro\s*(?:por)?\s*\$?\s*|abono\s*(?:de|por)?\s*\$?\s*)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]{3,}(?:,[0-9]{2})?)`)
+	txAmountRegex = regexp.MustCompile(`(?i)(?:por\s*\$?\s*|pagaste\s*\$?\s*|pago\s*(?:por|de|para)\s*\$?\s*|compraste\s*(?:por)?\s*\$?\s*|enviaste\s*\$?\s*|te\s+envi[oó]\s*\$?\s*|te\s+enviaron\s*\$?\s*|te\s+pas[oó]\s*\$?\s*|te\s+pasaron\s*\$?\s*|te\s+transfiri[oó]\s*\$?\s*|te\s+transfirieron\s*\$?\s*|env[ií]o\s*(?:por|de)?\s*\$?\s*|transferiste\s*\$?\s*|recibiste\s*(?:por|de)?\s*\$?\s*|retiraste\s*\$?\s*|sacaste\s*\$?\s*|retiro\s*(?:por|de)?\s*\$?\s*|recargaste\s*\$?\s*|recarga\s*(?:por|de)?\s*\$?\s*|abono\s*(?:de|por)?\s*\$?\s*)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?|[0-9]{3,}(?:,[0-9]{2})?)`)
 
 	// Security, OTP, and Dynamic Keys
 	securityOtpRegex = regexp.MustCompile(`(?i)(?:clave\s+din[aá]mica|c[oó]digo\s+de\s+(?:seguridad|verificaci[oó]n|confirmaci[oó]n)|token|tu\s+c[oó]digo|no\s+compartas|inicio\s+de\s+sesi[oó]n|acceso\s+exitoso|bienvenido\s+a\s+su\s+portal|cambio\s+de\s+clave|c[oó]digo\s+para\s+(?:entrar|ingresar)|se\s+ha\s+generado\s+tu\s+c[oó]digo)`)
 
 	// Marketing, pre-approved loans, credit card limit offers, delivery promo/coupon ads, entertainment/presale ads
-	marketingRegex = regexp.MustCompile(`(?i)(?:preaprobado|cupo\s+preaprobado|cr[eé]dito\s+preaprobado|pide\s+tu\s+pr[eé]stamo|solicita\s+tu\s+(?:tarjeta|cr[eé]dito)|avance\s+disponible|te\s+prestamos|abre\s+tu\s+cdt|disfruta\s+de\s+beneficios|conoce\s+nuestros\s+productos|salvavidas|propulsor|tienes\s+un\s+(?:cr[eé]dito|cupo)\s+(?:preaprobado|disponible\s+para\s+ti)|cupo\s+disponible\s+de\s+\$|tu\s+cupo\s+disponible\s+es|\$\s*[0-9]+(?:\.[0-9]{3})*\s*off\b|[0-9]+%\s*off\b|hasta\s+[0-9]+%|\b(?:off|descuento|descuentos|cup[oó]n|cupones|promo|promos|promoci[oó]n|promociones)\b|\b(?:aplica|aplican)\s+t&c\b|\bpide\s+en\s+rappi\b|\bte\s+llega\s+de\s+una\b|\benv[ií]o\s+gratis\b|\b(?:2x1|3x2)\b|\bconsiente\s+al?\b|\bv[aá]lido\s+tambi[eé]n\s+en\b|\bimperdible\b|\bsolo\s+por\s+hoy\b|\bpreventa(?:\s+exclusiva)?\b|\b(?:boleta|boletas|bolestas|boleter[ií]a|entrada|entradas)\b|\bconcierto\b|\bhazlo\s+aqu[ií]\b|\bcompra\s+tus\s+(?:boletas|bolestas|entradas)\b|\btarjeta\s+nequi\s+visa\b)`)
+	marketingRegex = regexp.MustCompile(`(?i)(?:preaprobado|cupo\s+preaprobado|cr[eé]dito\s+preaprobado|pide\s+tu\s+pr[eé]stamo|solicita\s+tu\s+(?:tarjeta|cr[eé]dito)|avance\s+disponible|te\s+prestamos|abre\s+tu\s+cdt|disfruta\s+de\s+beneficios|conoce\s+nuestros\s+productos|salvavidas|propulsor|tienes\s+un\s+(?:cr[eé]dito|cupo)\s+(?:preaprobado|disponible\s+para\s+ti)|cupo\s+disponible\s+de\s+\$|tu\s+cupo\s+disponible\s+es|\$\s*[0-9]+(?:\.[0-9]{3})*\s*off\b|[0-9]+%\s*off\b|hasta\s+[0-9]+%|\b(?:off|descuento|descuentos|cup[oó]n|cupones|promo|promos|promoci[oó]n|promociones)\b|\b(?:aplica|aplican)\s+t&c\b|\bpide\s+en\s+rappi\b|\bte\s+llega\s+de\s+una\b|\benv[ií]o\s+gratis\b|\b(?:2x1|3x2)\b|\bconsiente\s+al?\b|\bv[aá]lido\s+tambi[eé]n\s+en\b|\bimperdible\b|\bsolo\s+por\s+hoy\b|\bpreventa(?:\s+exclusiva)?\b|\b(?:boleta|boletas|bolestas|boleter[ií]a)\b|\bconcierto\b|\bcompra\s+tus\s+(?:boletas|bolestas|entradas)\b)`)
 
 	// Declined or rejected transactions
 	declinedRegex = regexp.MustCompile(`(?i)(?:rechazad[oa]|declinad[oa]|fallid[oa]|no\s+exitos[oa]|fondos\s+insuficientes|saldo\s+insuficiente|transacci[oó]n\s+cancelada|no\s+pudimos\s+procesar)`)
@@ -38,7 +38,12 @@ var (
 	balanceIndicatorRegex = regexp.MustCompile(`(?i)(?:tu\s+saldo(?:\s+en\s+cuenta(?:\s+de\s+ahorros)?)?|saldo\s+disponible|saldo\s+en\s+cuenta|su\s+saldo(?:\s+disponible)?|saldo\s+actual|saldo\s+nuevo|nuevo\s+saldo|saldo\s+al|saldo\s+a\s+la\s+fecha|consulta\s+de\s+saldo|tienes\s+un\s+saldo|saldo\s+total|tu\s+dinero\s+creci[oó]|disponible\s+en\s+(?:tu|su|la)\s+cuenta|tu\s+saldo\s+es|saldo\s+al\s+[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}|al\s+final\s+de(?:l)?\s+[0-9]+|al\s+final\s+de(?:l)?|el\s+saldo\s+de\s+(?:su|tu|la)\s+cuenta|saldo\s+de\s+(?:su|tu|la)\s+cuenta|saldo\s+de\s+(?:su|tu)|saldo\s+al\s+cierre|saldo\s+al\s+corte|saldo\s+al\s+final|fue\s+de\s*[%$])`)
 
 	// Transactional action verbs that prove money actually moved
-	transactionActionRegex = regexp.MustCompile(`(?i)\b(?:compra|compras|compraste|pagaste|pago\s+(?:de|por|para|a)|debito\s+(?:por|de)|d[eé]bito\s+(?:por|de)|transferiste|enviaste|env[ií]o\s+(?:por|a|de)|retiro\s+(?:por|en|de)|retiraste|sacaste|cargo\s+a|descuento\s+de|recibiste|te\s+transfirieron|te\s+pasaron|te\s+enviaron|te\s+lleg[oó]\s+plata|consignaci[oó]n|n[oó]mina|devoluci[oó]n|pago\s+recibido|cashback|reembolso|rendimiento|rendimientos|intereses\s+generados)\b`)
+	transactionActionRegex = regexp.MustCompile(`(?i)\b(?:compra|compras|compraste|pagaste|pago\s+(?:de|por|para|a|exitoso)|debito\s+(?:por|de)|d[eé]bito\s+(?:por|de)|transferiste|enviaste|env[ií]o\s+(?:por|a|de|exitoso)|retiro\s+(?:por|en|de|exitoso)|retiraste|sacaste|recargaste|recarga\s+(?:por|de|exitosa)|cargo\s+a|descuento\s+de|recibiste|te\s+transfirieron|te\s+transfiri[oó]|te\s+pasaron|te\s+pas[oó]|te\s+enviaron|te\s+envi[oó]|te\s+lleg[oó]\s+plata|tu\s+plata\s+lleg[oó]|consignaci[oó]n|n[oó]mina|devoluci[oó]n|pago\s+recibido|cashback|reembolso|rendimiento|rendimientos|intereses\s+generados)\b`)
+
+	// Nequi push notifications that confirm a real movement without embedding the amount in the push text
+	nequiNoAmountTxRegex = regexp.MustCompile(`(?i)(?:tu\s+plata\s+lleg[oó]\s+con\s+[eé]xito|env[ií]o\s+exitoso.*nequi\s+destino|la\s+plata\s+ya\s+est[aá]\s+en\s+el\s+nequi\s+destino)`)
+	nequiSenderRegex     = regexp.MustCompile(`(?i)(?:^|env[ií]o\s*[-:]\s*)([A-Za-zÁÉÍÓÚÑáéíóúñ\s]{2,50}?)\s+te\s+(?:envi[oó]|pas[oó]|transfiri[oó])`)
+	nequiWithdrawRegex   = regexp.MustCompile(`(?i)(?:sacaste|retiraste)\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\.|$)`)
 
 	// Nu Colombia
 	nuSentRecipientRegex = regexp.MustCompile(`(?i)Le enviaste a\s+([^.]+?)(?:\s+en su cuenta|\s+con tu|\.|\$|\.\.\.)`)
@@ -131,7 +136,11 @@ func (e *Engine) Parse(n models.RawNotification) (*models.ParsedTransaction, err
 	txType := e.DetectType(n)
 	amount, err := e.ExtractAmount(n)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, ErrNoAmountFound) && bank == "Nequi Colombia" && nequiNoAmountTxRegex.MatchString(combined) {
+			amount = 0.0
+		} else {
+			return nil, err
+		}
 	}
 
 	description := e.ExtractDescription(n, bank, txType)
@@ -203,6 +212,9 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 		if strings.Contains(combined, "rappi") {
 			return "RappiPay"
 		}
+		if strings.Contains(combined, "nequi") {
+			return "Nequi Colombia"
+		}
 		return "Google Wallet"
 	}
 
@@ -211,10 +223,10 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 		return "Nu Colombia"
 	case strings.Contains(app, "rappi"):
 		return "RappiPay"
-	case strings.Contains(app, "bancolombia"):
-		return "Bancolombia"
 	case strings.Contains(app, "nequi"):
 		return "Nequi Colombia"
+	case strings.Contains(app, "bancolombia"):
+		return "Bancolombia"
 	case strings.Contains(app, "caja social") || strings.Contains(app, "bcs"):
 		return "Banco Caja Social"
 	case strings.Contains(app, "davivienda") || strings.Contains(app, "daviplata"):
@@ -233,6 +245,9 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 	case strings.Contains(combinedLower, "nubank") || strings.Contains(combinedLower, "nu colombia") || strings.Contains(combinedLower, "tarjeta nu") || strings.Contains(combinedLower, "cuenta nu") || strings.Contains(combinedLower, "desde cuenta nu"):
 		return "Nu Colombia"
 
+	case strings.Contains(combinedLower, "nequi") || strings.Contains(combinedLower, "85954"):
+		return "Nequi Colombia"
+
 	case strings.Contains(combinedLower, "bancolombia"):
 		return "Bancolombia"
 
@@ -247,9 +262,6 @@ func (e *Engine) DetectBank(n models.RawNotification) string {
 
 	case strings.Contains(combinedLower, "daviplata") || strings.Contains(combinedLower, "davivienda"):
 		return "Davivienda / Daviplata"
-
-	case strings.Contains(combinedLower, "nequi"):
-		return "Nequi Colombia"
 
 	case strings.Contains(combinedLower, "falabella"):
 		return "Banco Falabella"
@@ -276,10 +288,12 @@ func (e *Engine) DetectType(n models.RawNotification) models.TransactionType {
 
 	// Credit / Inflow keywords
 	creditWords := []string{
-		"recibiste", "te transfirieron", "te pasaron", "te enviaron", "te llego plata",
+		"recibiste", "te transfirieron", "te transfirió", "te transfirio",
+		"te pasaron", "te pasó", "te paso", "te enviaron", "te envió", "te envio",
+		"te mandaron", "te mandó", "te mando", "te llego plata",
 		"te llegó plata", "abono", "consignacion", "consignación", "nomina", "nómina",
 		"devolucion", "devolución", "pago recibido", "aporte exitoso", "pasaplata recibido",
-		"cashback", "reembolso",
+		"cashback", "reembolso", "recarga exitosa", "recargaste",
 	}
 	for _, word := range creditWords {
 		if strings.Contains(combinedLower, word) {
@@ -380,14 +394,31 @@ func (e *Engine) ExtractDescription(n models.RawNotification, bank string, txTyp
 		return "Movimiento Plenti"
 
 	case "Nequi Colombia":
-		if strings.Contains(strings.ToLower(text), "pagaste") {
-			re := regexp.MustCompile(`(?i)pagaste\s+\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|\$)`)
+		combined := strings.TrimSpace(title + " - " + text)
+		lowerText := strings.ToLower(combined)
+		if m := nequiSenderRegex.FindStringSubmatch(combined); len(m) > 1 {
+			sender := strings.TrimSpace(m[1])
+			if sender != "" && !strings.EqualFold(sender, "envío") && !strings.EqualFold(sender, "envio") && !strings.EqualFold(sender, "nequi") {
+				return "Transferencia de " + sender
+			}
+		}
+		if m := nequiWithdrawRegex.FindStringSubmatch(text); len(m) > 1 {
+			return "Retiro en " + strings.TrimSpace(m[1])
+		}
+		if strings.Contains(lowerText, "pagaste") || strings.Contains(lowerText, "compraste") {
+			re := regexp.MustCompile(`(?i)(?:pagaste|compraste)\s+(?:por\s+)?\$?[\d\.,]+\s+en\s+([^.]+?)(?:\s+con|\.|\$)`)
 			if m := re.FindStringSubmatch(text); len(m) > 1 {
 				return "Compra " + strings.TrimSpace(m[1])
 			}
 		}
-		if strings.Contains(strings.ToLower(text), "transfirieron") || strings.Contains(strings.ToLower(text), "recibiste") || strings.Contains(strings.ToLower(text), "llegó plata") || strings.Contains(strings.ToLower(text), "llego plata") {
+		if strings.Contains(lowerText, "bre-b") && txType == models.TypeCredit {
+			return "Transferencia Bre-B recibida en Nequi"
+		}
+		if txType == models.TypeCredit || strings.Contains(lowerText, "transfirieron") || strings.Contains(lowerText, "recibiste") || strings.Contains(lowerText, "llegó plata") || strings.Contains(lowerText, "llego plata") || strings.Contains(lowerText, "te enviaron") || strings.Contains(lowerText, "te envió") || strings.Contains(lowerText, "te envio") {
 			return "Transferencia recibida Nequi"
+		}
+		if nequiNoAmountTxRegex.MatchString(combined) {
+			return "Envío Nequi"
 		}
 		return "Movimiento Nequi"
 

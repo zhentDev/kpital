@@ -35,6 +35,7 @@ func ParseCOPAmount(raw string) (float64, error) {
 	s = strings.ReplaceAll(s, "cop", "")
 	s = strings.TrimSpace(s)
 	s = cleanCharRegex.ReplaceAllString(s, "")
+	s = strings.Trim(s, ".,")
 
 	if s == "" {
 		return 0, ErrEmptyAmount

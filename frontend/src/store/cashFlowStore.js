@@ -385,6 +385,7 @@ export const useCashFlowStore = create(
           "pay_conv_1792863163027_gx31h_split_1_1792875528218",
           "pay_conv_1792863163027_gx31h_split_2_1792875528218",
           "pay_conv_1792863163027_gx31h_split_3_1792875528218",
+          "cf_tx_in_1794686489118",
         ];
         const combinedDeletedIds = [
           ...new Set([
@@ -1366,6 +1367,11 @@ export const useCashFlowStore = create(
             creditPurchases: updatedPurchases,
           };
         });
+        try {
+          useFixedIncomeStore.getState().revertCashFlowMovement({ movementId: id });
+        } catch (e) {
+          console.warn("Could not revert fixed income movement for deleted expense:", e);
+        }
         get().syncStateWithBackend();
         deleteExpenseApi(id).catch(() => {});
         toast.success("Movimiento eliminado", { icon: "🗑️" });
@@ -1721,10 +1727,14 @@ export const useCashFlowStore = create(
                   if (Array.isArray(exp.participants) && (item.participantId || pName)) {
                     updatedParts = exp.participants.map((p) => {
                       if (p.id === item.participantId || (pName && p.name?.toLowerCase() === pName.toLowerCase())) {
+                        const targetShare = Number(p.customShare) || Number(p.share) || itemAmt;
+                        const nextPaidAmt = item.alreadyRegistered || p.paid
+                          ? Math.max(Number(p.paidAmount) || 0, itemAmt)
+                          : Math.min(targetShare, (Number(p.paidAmount) || 0) + itemAmt);
                         return {
                           ...p,
-                          paid: true,
-                          paidAmount: (Number(p.paidAmount) || 0) + itemAmt,
+                          paid: nextPaidAmt >= targetShare,
+                          paidAmount: nextPaidAmt,
                           paidAt: expense.date || new Date().toISOString(),
                         };
                       }
@@ -1733,6 +1743,14 @@ export const useCashFlowStore = create(
                   }
 
                   const curSettlements = Array.isArray(exp.settlements) ? exp.settlements : [];
+                  // Si ya existía un settlement previo del participante en la misma cuenta, revertir su abono duplicado en Renta Fija
+                  curSettlements.forEach((s) => {
+                    if (s.participantId === item.participantId || (pName && s.participantName?.toLowerCase() === pName.toLowerCase())) {
+                      try {
+                        useFixedIncomeStore.getState().revertCashFlowMovement({ movementId: s.id });
+                      } catch {}
+                    }
+                  });
                   const newSettlement = {
                     id: `stl_multi_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
                     amount: itemAmt,
@@ -1767,10 +1785,14 @@ export const useCashFlowStore = create(
                   ...d,
                   participants: d.participants.map((p) => {
                     if (p.id === item.participantId || (pName && p.name?.toLowerCase() === pName.toLowerCase())) {
+                      const targetShare = Number(p.customShare) || Number(p.share) || itemAmt;
+                      const nextPaidAmt = item.alreadyRegistered || p.paid
+                        ? Math.max(Number(p.paidAmount) || 0, itemAmt)
+                        : Math.min(targetShare, (Number(p.paidAmount) || 0) + itemAmt);
                       return {
                         ...p,
-                        paid: true,
-                        paidAmount: (Number(p.paidAmount) || 0) + itemAmt,
+                        paid: nextPaidAmt >= targetShare,
+                        paidAmount: nextPaidAmt,
                         paidAt: expense.date || new Date().toISOString(),
                       };
                     }
@@ -2468,6 +2490,12 @@ export const useCashFlowStore = create(
           };
         });
 
+        try {
+          useFixedIncomeStore.getState().revertCashFlowMovement({ movementId: paymentId });
+        } catch (e) {
+          console.warn("Could not revert fixed income movement for deleted debt payment:", e);
+        }
+
         get().syncStateWithBackend();
         toast.success(
           `Cobro/Abono de $${Math.round(deletedPaymentAmount).toLocaleString("es-CO")} eliminado correctamente. El saldo ha sido corregido ✅`,
@@ -2481,10 +2509,37 @@ export const useCashFlowStore = create(
 
       // ── Loan Settlement & Reimbursement (Full, Partial or Split Participant) ──────────────
       settleLoanTransaction: (txId, settlementData) => {
+        const settlementId = `stl_${Date.now()}`;
+        let alreadyInMovementsLog = false;
+
         set((state) => {
           let updatedCards = state.creditCards;
           let updatedPayments = state.creditCardPayments || [];
           let updatedInflows = state.inflows || [];
+
+          // Verificar si ya existe un movimiento de entrada (credit) en la misma cuenta y fecha para este deudor/participante,
+          // para evitar acreditar dos veces en Nequi/Cajitas cuando el usuario registró primero el movimiento en el historial.
+          const personRaw = (settlementData.participantName || settlementData.recipient || "").toLowerCase().trim();
+          const personFirstToken = personRaw.split(/\s+/)[0] || "";
+          if (
+            !settlementData.alreadyRegistered &&
+            settlementData.targetId &&
+            personFirstToken.length >= 3
+          ) {
+            const matchingCreditMov = (state.expensesLog || []).find((m) => {
+              if (m.type !== "credit") return false;
+              const movTargetId = m.paymentSource?.targetId || m.destinationAccountId;
+              if (movTargetId !== settlementData.targetId) return false;
+              if (m.date && settlementData.date && m.date !== settlementData.date) return false;
+              const descLower = (m.description || "").toLowerCase();
+              return descLower.includes(personRaw) || descLower.includes(personFirstToken);
+            });
+            if (matchingCreditMov) {
+              alreadyInMovementsLog = true;
+            }
+          }
+
+          const effectiveAlreadyRegistered = Boolean(settlementData.alreadyRegistered || alreadyInMovementsLog);
 
           // 1. Update the transaction in expensesLog with settlement history
           let updatedExpensesLog = (state.expensesLog || []).map((tx) => {
@@ -2497,10 +2552,10 @@ export const useCashFlowStore = create(
               const remaining = Math.max(0, baseLoanAmount - totalSettledSoFar);
 
               const newSettlementRecord = {
-                id: `stl_${Date.now()}`,
+                id: settlementId,
                 participantId: settlementData.participantId || null,
                 participantName: settlementData.participantName || null,
-                alreadyRegistered: Boolean(settlementData.alreadyRegistered),
+                alreadyRegistered: effectiveAlreadyRegistered,
                 amount: newSettledAmount,
                 date: settlementData.date,
                 targetType: settlementData.targetType,
@@ -2529,7 +2584,7 @@ export const useCashFlowStore = create(
                       paidAmount: totalPaid,
                       paidAt: settlementData.date || new Date().toISOString(),
                       targetName: settlementData.alreadyRegistered ? "Registrado previamente" : (settlementData.targetName || "Cuenta"),
-                      alreadyRegistered: Boolean(settlementData.alreadyRegistered),
+                      alreadyRegistered: effectiveAlreadyRegistered,
                     };
                   }
                   return p;
@@ -2555,7 +2610,7 @@ export const useCashFlowStore = create(
           });
 
           // 2. Route the returned money to target destination ONLY IF not already registered or split offset!
-          if (!settlementData.alreadyRegistered && settlementData.targetType !== "split_offset" && settlementData.targetType !== "already_registered") {
+          if (!effectiveAlreadyRegistered && settlementData.targetType !== "split_offset" && settlementData.targetType !== "already_registered") {
             if (settlementData.targetType === "credit_card" && settlementData.targetId) {
               // Apply payment to credit card -> reduces debt and frees credit limit
               updatedCards = state.creditCards.map((c) => {
@@ -2643,6 +2698,7 @@ export const useCashFlowStore = create(
 
         if (
           !settlementData.alreadyRegistered &&
+          !alreadyInMovementsLog &&
           (settlementData.targetType === "fixed_pocket" ||
            settlementData.targetType === "digital_wallet" ||
            settlementData.targetType === "nequi") &&
@@ -2653,6 +2709,7 @@ export const useCashFlowStore = create(
               accountId: settlementData.targetId,
               amount: Number(settlementData.amount),
               date: settlementData.date,
+              movementId: settlementId,
               description: `Cobro Préstamo: ${settlementData.recipient || "Tercero"}`,
             });
           } catch (e) {
@@ -2661,8 +2718,8 @@ export const useCashFlowStore = create(
         }
 
         get().syncStateWithBackend();
-        const msg = settlementData.alreadyRegistered
-          ? `¡Pago de ${settlementData.recipient || "participante"} liquidado! (Sin duplicar ingresos)`
+        const msg = settlementData.alreadyRegistered || alreadyInMovementsLog
+          ? `¡Pago de ${settlementData.recipient || "participante"} liquidado! (Conciliado sin duplicar en ${settlementData.targetName || "cuenta"})`
           : `¡Cobro registrado! $${Math.round(settlementData.amount).toLocaleString("es-CO")} retornados a ${settlementData.targetName}`;
         toast.success(msg, { icon: "🎉" });
       },
@@ -2688,6 +2745,7 @@ export const useCashFlowStore = create(
       },
 
       revertParticipantPayment: (txId, participantId) => {
+        const removedSettlementIds = [];
         set((state) => {
           const updatedExpensesLog = (state.expensesLog || []).map((tx) => {
             if (tx.id === txId && Array.isArray(tx.participants)) {
@@ -2700,6 +2758,13 @@ export const useCashFlowStore = create(
               const anyPaid = updatedParticipants.some((p) => !p.isUser && p.paid);
               const allExternalPaid = updatedParticipants.filter((p) => !p.isUser).every((p) => p.paid);
               const baseLoanAmount = Number(tx.loanAmount) > 0 ? Number(tx.loanAmount) : Number(tx.amount) || 0;
+              if (Array.isArray(tx.settlements)) {
+                tx.settlements.forEach((s) => {
+                  if (s.participantId === participantId && s.id) {
+                    removedSettlementIds.push(s.id);
+                  }
+                });
+              }
               const currentSettlements = Array.isArray(tx.settlements) ? tx.settlements.filter((s) => s.participantId !== participantId) : [];
               const prevSettledTotal = currentSettlements.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
               const remaining = Math.max(0, baseLoanAmount - prevSettledTotal);
@@ -2717,8 +2782,13 @@ export const useCashFlowStore = create(
           const updatedDebts = syncExpenseLoansToDebts(updatedExpensesLog, state.debts);
           return { expensesLog: updatedExpensesLog, debts: updatedDebts };
         });
+        removedSettlementIds.forEach((sId) => {
+          try {
+            useFixedIncomeStore.getState().revertCashFlowMovement({ movementId: sId });
+          } catch {}
+        });
         get().syncStateWithBackend();
-        toast("Pago de participante desmarcado", { icon: "↩️" });
+        toast("Pago de participante desmarcado y saldo ajustado", { icon: "↩️" });
       },
 
       toggleExpenseLoan: (txId, isLoan, loanRecipient, loanAmount) => {

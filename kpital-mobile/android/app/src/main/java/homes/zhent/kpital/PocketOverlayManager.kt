@@ -39,7 +39,8 @@ object PocketOverlayManager {
         desc: String,
         txType: String,
         rawText: String,
-        movementId: String? = null
+        movementId: String? = null,
+        timestampMs: Long = 0L
     ) {
         val appContext = context.applicationContext
         val mainHandler = Handler(Looper.getMainLooper())
@@ -368,6 +369,7 @@ object PocketOverlayManager {
                                         finalAmount = finalAmount,
                                         rawText = rawText,
                                         movementId = movementId,
+                                        timestampMs = timestampMs,
                                         onBackRequested = { showStep1() }
                                     )
                                 }
@@ -410,6 +412,7 @@ object PocketOverlayManager {
         finalAmount: Double,
         rawText: String,
         movementId: String?,
+        timestampMs: Long,
         onBackRequested: () -> Unit
     ) {
         val mainHandler = Handler(Looper.getMainLooper())
@@ -512,7 +515,8 @@ object PocketOverlayManager {
                             budgetItemId = rId,
                             budgetItemName = rName,
                             budgetItemType = rPillar,
-                            movementId = movementId
+                            movementId = movementId,
+                            timestampMs = timestampMs
                         )
                     }
                 )
@@ -817,14 +821,20 @@ object PocketOverlayManager {
         budgetItemId: String,
         budgetItemName: String,
         budgetItemType: String,
-        movementId: String?
+        movementId: String?,
+        timestampMs: Long = 0L
     ) {
         val mainHandler = Handler(Looper.getMainLooper())
         Toast.makeText(appContext, "Registrando...", Toast.LENGTH_SHORT).show()
 
         thread {
             try {
-                val respStr = Core.sendTransactionWithRubroToBackend(
+                val effectiveTimestamp = when {
+                    timestampMs > 0L -> timestampMs
+                    movementId != null -> MovementHistoryManager.getMovementById(appContext, movementId)?.timestamp ?: System.currentTimeMillis()
+                    else -> System.currentTimeMillis()
+                }
+                val respStr = Core.sendTransactionWithTimestampToBackend(
                     bank,
                     account,
                     desc,
@@ -833,7 +843,8 @@ object PocketOverlayManager {
                     rawText,
                     budgetItemId,
                     budgetItemName,
-                    budgetItemType
+                    budgetItemType,
+                    effectiveTimestamp
                 )
                 val result = JSONObject(respStr)
                 val success = result.optBoolean("success", false)
