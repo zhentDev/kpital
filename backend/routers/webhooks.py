@@ -375,20 +375,24 @@ def resolve_account(db: dict[str, Any], entity: dict[str, Any], account_query: s
         if a.get("id") == account_query or normalize_text(a.get("name")) == aq_norm:
             return a
 
-    # 6. Account not found -> Guard against invalid / fragmented / junk names (e.g. ",150)", "150", ")")
+    # 6. Account not found -> Guard against invalid / fragmented / junk names or Credit Card names
     letters_only = re.sub(r"[^A-Za-z0-9áéíóúÁÉÍÓÚñÑ]", "", cleaned_query)
+    is_credit_card_query = any(
+        k in aq_norm for k in ["tarjeta", "mastercard", "visa", "rappicard", "credito", "3887", "0681"]
+    )
     is_invalid_name = (
-        len(letters_only) < 3
+        is_credit_card_query
+        or len(letters_only) < 3
         or cleaned_query.startswith((",", ")", ".", "-", "_"))
         or cleaned_query.endswith(")")
         or bool(re.match(r"^\d+$", letters_only))  # pure digits without a name
     )
 
     if is_invalid_name:
-        # Fallback to main / payroll account instead of auto-creating a junk account
+        # Fallback to main / payroll account instead of auto-creating a junk or credit-card pocket in fi_accounts
         for a in candidate_accounts:
             if any(k in normalize_text(a.get("name")) for k in ["nomina", "principal", "ahorros", "debito"]):
-                logger.warning(f"[Webhook] Invalid account query '{account_query}' -> falling back to main account '{a.get('name')}'")
+                logger.warning(f"[Webhook] Non-savings/invalid account query '{account_query}' -> falling back to main account '{a.get('name')}'")
                 return a
         if candidate_accounts:
             return candidate_accounts[0]
@@ -906,7 +910,12 @@ def register_mobile_transaction(
         ]
         if any(p in search_context for p in cc_notification_patterns):
             is_cc_purchase = True
-            if "3887" in search_context or "nu" in search_context:
+            if "0681" in search_context or "rappi" in search_context or "tarjeta visa" in search_context:
+                matched_cc = next(
+                    (c for c in available_cards if "rappi" in normalize_text(c.get("name", ""))),
+                    None,
+                )
+            elif "3887" in search_context or "nu" in search_context:
                 matched_cc = next(
                     (
                         c
@@ -916,13 +925,38 @@ def register_mobile_transaction(
                     ),
                     None,
                 )
-            elif "rappi" in search_context or "0681" in search_context:
-                matched_cc = next(
-                    (c for c in available_cards if "rappi" in normalize_text(c.get("name", ""))),
-                    None,
-                )
             if not matched_cc and available_cards:
                 matched_cc = available_cards[0]
+
+    # Override matched_cc if raw notification explicitly identifies Visa 0681 (RappiCard) even if payload.account said Nu
+    if is_cc_purchase and ("0681" in search_context or "rappicard" in search_context or "tarjeta visa" in search_context):
+        rappi_cc = next((c for c in available_cards if "rappi" in normalize_text(c.get("name", ""))), None)
+        if rappi_cc:
+            matched_cc = rappi_cc
+
+    # Deduplicate double notifications (e.g. RappiPay + Google Wallet for the same credit card purchase on the same day & amount)
+    if is_cc_purchase and matched_cc:
+        target_cc_id = matched_cc.get("id")
+        existing_cc_same_day = [
+            e
+            for e in (cf_temp.get("expensesLog") or [])
+            if e.get("date") == tx_date
+            and abs(float(e.get("amount") or 0) - amount_val) < 1.0
+            and (e.get("paymentSource") or {}).get("type") == "credit_card"
+            and (e.get("paymentSource") or {}).get("targetId") == target_cc_id
+        ]
+        if existing_cc_same_day and ("•" in (payload.raw_text or "") or "0681" in search_context):
+            dup_cc = existing_cc_same_day[0]
+            logger.info(
+                f"[Webhook] Detected duplicate credit card notification on {target_cc_id} for ${amount_val} on {tx_date}; skipping duplicate charge."
+            )
+            return {
+                "success": True,
+                "message": "Compra con tarjeta ya registrada previamente (notificación duplicada Wallet/Banco)",
+                "tx_id": dup_cc.get("id"),
+                "deduplicated": True,
+                "timestamp": now_colombia.isoformat(),
+            }
 
     # 4c. Deduplicate if mobile app already pushed a direct fallback row during Render cold-start wake-up
     if payload.raw_text and payload.raw_text.strip():

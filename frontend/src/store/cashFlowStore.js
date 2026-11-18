@@ -355,6 +355,14 @@ export const useCashFlowStore = create(
           "tx_mb_1794924670336_286b66",
           "cp_cf_tx_mb_1794008266178_f481",
           "cp_tx_mb_1794008266178_f481",
+          "cp_tx_mb_1794782909026_ea02d2",
+          "tx_mb_1794782909026_ea02d2",
+          "cp_tx_mb_1794520459065_ddaaf3",
+          "tx_mb_1794520459065_ddaaf3",
+          "cp_tx_mb_1793918432534_5d29",
+          "tx_mb_1793918432534_5d29",
+          "cp_tx_mb_1793733682551_c4316b",
+          "tx_mb_1793733682551_c4316b",
         ];
         const combinedDeletedPurchaseIds = [
           ...new Set([
@@ -415,6 +423,10 @@ export const useCashFlowStore = create(
           "cf_tx_mb_1794102521887_0d2d2a",
           "cf_tx_mb_1794165375855_12a0",
           "cf_tx_mb_1794930230487_ebb2f8",
+          "cf_tx_mb_1794782909026_ea02d2",
+          "cf_tx_mb_1793733682551_c4316b",
+          "cf_tx_mb_1793921843708_2ace5d",
+          "cf_tx_mb_1794520459065_ddaaf3",
         ];
         const combinedDeletedIds = [
           ...new Set([
@@ -852,14 +864,32 @@ export const useCashFlowStore = create(
         const mergedWants = unionById(source?.wants, cachedLocal?.wants);
         const mergedWealth = unionById(source?.wealth, cachedLocal?.wealth);
 
+        const activeExpenseCleanIds = new Set(
+          sanitizedExpensesLog.map((e) => (e?.id || "").replace(/^cf_/, ""))
+        );
+
         let sanitizedCreditPurchases = (mergedCreditPurchases || []).filter((cp) => {
           if (!cp || !cp.id) return false;
           if (deletedPurchaseIds.has(cp.id)) return false;
           const cleanTxId = cp.id.startsWith("cp_") ? cp.id.replace("cp_", "") : cp.id;
-          if (deletedPurchaseIds.has(cleanTxId)) return false;
-          if (deletedExpenseIds.has(cp.id) || deletedExpenseIds.has(cleanTxId) || deletedExpenseIds.has(`cf_${cleanTxId}`)) return false;
+          const baseTxId = cleanTxId.replace(/^cf_/, "");
+          if (deletedPurchaseIds.has(cleanTxId) || deletedPurchaseIds.has(baseTxId)) return false;
+          if (
+            deletedExpenseIds.has(cp.id) ||
+            deletedExpenseIds.has(cleanTxId) ||
+            deletedExpenseIds.has(`cf_${baseTxId}`)
+          ) {
+            return false;
+          }
           if (cp.id === "cp_tx_mb_1793143745550_ad067e" || cp.description?.includes("SURTIMAYORISTA")) return false;
           if (cp.id === "cp_tx_mb_1793340159066_a88869" || cp.description?.toLowerCase().includes("bold")) return false;
+          // Drop orphan cp_tx_* rows whose corresponding movement was deleted from expensesLog
+          if (
+            (cp.id.startsWith("cp_tx_") || cp.id.startsWith("cp_cf_tx_")) &&
+            !activeExpenseCleanIds.has(baseTxId)
+          ) {
+            return false;
+          }
           return true;
         });
 
@@ -1429,10 +1459,20 @@ export const useCashFlowStore = create(
             (tx) => tx.id !== id && tx.splitParentId !== id
           );
           const nextDeletedIds = [...new Set([...(state.deletedExpenseIds || []), id])];
+          const nextDeletedPurchaseIds = [
+            ...new Set([
+              ...(state.deletedCreditPurchaseIds || []),
+              id,
+              cleanId,
+              `cp_${cleanId}`,
+              `cp_${id}`,
+            ]),
+          ];
 
           return {
             expensesLog: filteredExpenses,
             deletedExpenseIds: nextDeletedIds,
+            deletedCreditPurchaseIds: nextDeletedPurchaseIds,
             creditCards: updatedCards,
             creditCardPayments: updatedPayments,
             creditPurchases: updatedPurchases,
@@ -1445,6 +1485,8 @@ export const useCashFlowStore = create(
         }
         get().syncStateWithBackend();
         deleteExpenseApi(id).catch(() => {});
+        const cleanPurchaseId = id.replace(/^cf_/, "");
+        directDeleteCreditPurchase(`cp_${cleanPurchaseId}`).catch(() => {});
         toast.success("Movimiento eliminado", { icon: "🗑️" });
       },
 

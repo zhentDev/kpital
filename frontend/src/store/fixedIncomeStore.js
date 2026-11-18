@@ -105,17 +105,39 @@ export const useFixedIncomeStore = create((set, get) => ({
         "tx_cf_1794686257611",
       ]);
 
+      const FAKE_CC_ACCOUNT_IDS = new Set(["acc_tarjetanum_aaf8", "acc_rappicardv_288a"]);
       const rawTransactions = Array.isArray(res?.transactions) ? res.transactions : [];
       let finalTransactions = rawTransactions
-        .filter((t) => t && t.id && !deletedTxSet.has(t.id) && !isTestTx(t) && !isZombieOrOrphanTx(t))
+        .filter(
+          (t) =>
+            t &&
+            t.id &&
+            !deletedTxSet.has(t.id) &&
+            !FAKE_CC_ACCOUNT_IDS.has(t.accountId) &&
+            !isTestTx(t) &&
+            !isZombieOrOrphanTx(t)
+        )
+        .map((t) => {
+          if (t.id === "tx_24_57ac7b") {
+            return { ...t, type: "debit", amount: -Math.abs(Number(t.amount || 250000)) };
+          }
+          return t;
+        })
         .sort(
           (a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || "").localeCompare(a.createdAt || "")
         );
 
-      let finalAccounts = (Array.isArray(res?.accounts) ? res.accounts : []).map((acc) => {
-        const { disableDailyCompounding, ...rest } = acc;
-        return rest;
-      });
+      let finalAccounts = (Array.isArray(res?.accounts) ? res.accounts : [])
+        .filter(
+          (acc) =>
+            acc &&
+            !FAKE_CC_ACCOUNT_IDS.has(acc.id) &&
+            !/^(tarjeta\s+nu|rappicard\s+visa)/i.test((acc.name || "").trim())
+        )
+        .map((acc) => {
+          const { disableDailyCompounding, ...rest } = acc;
+          return rest;
+        });
 
       // Sanitizar duplicados por reclasificación en Cuenta RappiPay (Principal)
       const hasRappiCompra150k = finalTransactions.some(

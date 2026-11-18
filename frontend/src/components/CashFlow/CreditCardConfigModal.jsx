@@ -6,6 +6,7 @@ import { getSfcRateForBank, SFC_USURY_RATE_EA } from "../../utils/sfcCreditRates
 import { formatCashFlowMoney } from "../../utils/cashFlowFormatters";
 import toast from "react-hot-toast";
 import { toastConfirm } from "../../utils/toastAlerts";
+import { useTheme } from "../../context/ThemeContext";
 import "./CashFlow.css";
 
 export default function CreditCardConfigModal({
@@ -19,6 +20,8 @@ export default function CreditCardConfigModal({
   onSaveCard,
   onDeleteCard,
 }) {
+  const { theme } = useTheme();
+  const isLight = theme === "light";
   const isEditing = Boolean(cardToEdit && cardToEdit.id);
 
   const [bankId, setBankId] = useState("nu");
@@ -125,7 +128,7 @@ export default function CreditCardConfigModal({
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Preset Picker */}
           <div>
-            <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 6, fontWeight: 700 }}>
+            <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 6, fontWeight: 700 }}>
               Entidad Emisora (Banco / Fintech)
             </label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 6, maxHeight: "130px", overflowY: "auto" }}>
@@ -142,13 +145,20 @@ export default function CreditCardConfigModal({
                       gap: 6,
                       padding: "6px 8px",
                       borderRadius: "8px",
-                      background: isSelected ? `${bank.color}22` : "rgba(13, 18, 38, 0.6)",
-                      border: isSelected ? `2px solid ${bank.color}` : "1px solid rgba(255, 255, 255, 0.06)",
-                      color: isSelected ? "#ffffff" : "#94a3b8",
+                      background: isSelected
+                        ? (isLight ? `${bank.color}18` : `${bank.color}28`)
+                        : (isLight ? "#f8fafc" : "rgba(13, 18, 38, 0.6)"),
+                      border: isSelected
+                        ? `2px solid ${bank.color}`
+                        : (isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.08)"),
+                      color: isSelected
+                        ? (isLight ? "#0f172a" : "#ffffff")
+                        : (isLight ? "#334155" : "#94a3b8"),
                       cursor: "pointer",
                       fontSize: "0.76rem",
                       fontWeight: isSelected ? 700 : 500,
                       textAlign: "left",
+                      transition: "all 0.15s ease",
                     }}
                   >
                     <span>{bank.icon}</span>
@@ -163,13 +173,22 @@ export default function CreditCardConfigModal({
 
           {/* Name */}
           <div>
-            <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
+            <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
               Nombre / Alias de la Tarjeta
             </label>
             <input
               type="text"
               className="currency-native-input"
-              style={{ width: "100%", boxSizing: "border-box", background: "rgba(13, 18, 38, 0.7)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "10px", padding: "10px 14px", color: "#f8fafc", fontSize: "0.9rem" }}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.7)",
+                border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "10px",
+                padding: "10px 14px",
+                color: isLight ? "#0f172a" : "#f8fafc",
+                fontSize: "0.9rem",
+              }}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="ej. Tarjeta Nu Mastercard, RappiCard..."
@@ -180,7 +199,7 @@ export default function CreditCardConfigModal({
           {/* Cupo Total & Cupo Usado (Editable!) */}
           <div className="cashflow-form-row">
             <div>
-              <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
+              <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
                 Cupo Total Otorgado ({currency})
               </label>
               <CurrencyInput
@@ -192,7 +211,7 @@ export default function CreditCardConfigModal({
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
+              <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
                 Cupo Usado / Deuda Actual ({currency})
               </label>
               <CurrencyInput
@@ -207,8 +226,12 @@ export default function CreditCardConfigModal({
           {/* ── Live 50% Net Salary Exposure Alert ── */}
           <div
             style={{
-              background: isProjectedOverLimit ? "rgba(244, 63, 94, 0.1)" : "rgba(16, 185, 129, 0.1)",
-              border: isProjectedOverLimit ? "1px solid rgba(244, 63, 94, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
+              background: isProjectedOverLimit
+                ? (isLight ? "rgba(244, 63, 94, 0.08)" : "rgba(244, 63, 94, 0.1)")
+                : (isLight ? "rgba(16, 185, 129, 0.08)" : "rgba(16, 185, 129, 0.1)"),
+              border: isProjectedOverLimit
+                ? (isLight ? "1px solid rgba(244, 63, 94, 0.35)" : "1px solid rgba(244, 63, 94, 0.3)")
+                : (isLight ? "1px solid rgba(16, 185, 129, 0.35)" : "1px solid rgba(16, 185, 129, 0.3)"),
               borderRadius: "10px",
               padding: "10px 14px",
               fontSize: "0.75rem",
@@ -216,14 +239,14 @@ export default function CreditCardConfigModal({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-              <span style={{ fontWeight: 700, color: isProjectedOverLimit ? "#f43f5e" : "#10b981" }}>
+              <span style={{ fontWeight: 700, color: isProjectedOverLimit ? (isLight ? "#e11d48" : "#f43f5e") : (isLight ? "#059669" : "#10b981") }}>
                 {isProjectedOverLimit ? "⚠️ Exposición Proyectada Alta" : "🛡️ Exposición Crediticia Segura"} ({projectedExposurePct}%)
               </span>
-              <span style={{ color: "#94a3b8", fontSize: "0.7rem" }}>
+              <span style={{ color: isLight ? "#475569" : "#94a3b8", fontSize: "0.7rem", fontWeight: 600 }}>
                 Tope 50%: {formatMoney(maxSafeCreditLimit)}
               </span>
             </div>
-            <div style={{ color: isProjectedOverLimit ? "#fca5a5" : "#a7f3d0" }}>
+            <div style={{ color: isProjectedOverLimit ? (isLight ? "#be123c" : "#fca5a5") : (isLight ? "#047857" : "#a7f3d0") }}>
               {isProjectedOverLimit ? (
                 <span>
                   Con este cupo, la suma total de tus tarjetas será <strong>{formatMoney(projectedTotalLimit)}</strong>, superando el 50% de tu sueldo neto por <strong>{formatMoney(projectedExcess)}</strong>.
@@ -239,7 +262,7 @@ export default function CreditCardConfigModal({
           {/* Dates */}
           <div className="cashflow-form-row">
             <div>
-              <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
+              <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
                 Día de Corte Mensual
               </label>
               <input
@@ -247,7 +270,16 @@ export default function CreditCardConfigModal({
                 min="1"
                 max="31"
                 className="currency-native-input"
-                style={{ width: "100%", boxSizing: "border-box", background: "rgba(13, 18, 38, 0.7)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "10px", padding: "10px 14px", color: "#f8fafc", fontSize: "0.9rem" }}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.7)",
+                  border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: "10px",
+                  padding: "10px 14px",
+                  color: isLight ? "#0f172a" : "#f8fafc",
+                  fontSize: "0.9rem",
+                }}
                 value={closingDay}
                 onChange={(e) => setClosingDay(e.target.value)}
                 placeholder="15"
@@ -256,7 +288,7 @@ export default function CreditCardConfigModal({
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: "0.78rem", color: "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
+              <label style={{ display: "block", fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", marginBottom: 5, fontWeight: 700 }}>
                 Día Límite de Pago
               </label>
               <input
@@ -264,7 +296,16 @@ export default function CreditCardConfigModal({
                 min="1"
                 max="31"
                 className="currency-native-input"
-                style={{ width: "100%", boxSizing: "border-box", background: "rgba(13, 18, 38, 0.7)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "10px", padding: "10px 14px", color: "#f8fafc", fontSize: "0.9rem" }}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.7)",
+                  border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: "10px",
+                  padding: "10px 14px",
+                  color: isLight ? "#0f172a" : "#f8fafc",
+                  fontSize: "0.9rem",
+                }}
                 value={paymentDay}
                 onChange={(e) => setPaymentDay(e.target.value)}
                 placeholder="2"
@@ -276,7 +317,7 @@ export default function CreditCardConfigModal({
           {/* Rate & SFC Official Fetch */}
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-              <label style={{ fontSize: "0.78rem", color: "#94a3b8", fontWeight: 700 }}>
+              <label style={{ fontSize: "0.78rem", color: isLight ? "#475569" : "#94a3b8", fontWeight: 700 }}>
                 Tasa de Interés Nominal / E.A. (% Anual)
               </label>
               <button
@@ -285,8 +326,9 @@ export default function CreditCardConfigModal({
                 style={{
                   background: "transparent",
                   border: "none",
-                  color: "#00e5ff",
+                  color: isLight ? "#0284c7" : "#00e5ff",
                   fontSize: "0.72rem",
+                  fontWeight: 600,
                   cursor: "pointer",
                   padding: 0,
                   textDecoration: "underline",
@@ -301,7 +343,16 @@ export default function CreditCardConfigModal({
               min="0"
               max="100"
               className="currency-native-input"
-              style={{ width: "100%", boxSizing: "border-box", background: "rgba(13, 18, 38, 0.7)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "10px", padding: "10px 14px", color: "#f8fafc", fontSize: "0.9rem" }}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.7)",
+                border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "10px",
+                padding: "10px 14px",
+                color: isLight ? "#0f172a" : "#f8fafc",
+                fontSize: "0.9rem",
+              }}
               value={rateEA}
               onChange={(e) => setRateEA(e.target.value)}
               placeholder="24.5"
