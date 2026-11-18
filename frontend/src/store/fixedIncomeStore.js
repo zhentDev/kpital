@@ -782,27 +782,37 @@ export const useFixedIncomeStore = create((set, get) => ({
       if (!tx || !tx.paymentSource) return null;
       const ps = tx.paymentSource;
       if (ps.type === "credit_card" || ps.type === "cash" || ps.type === "investment_cash") return null;
-      if (ps.targetId === "acc_nu_debito") return null;
 
       let acc = null;
       if (ps.targetId) {
         acc = state.accounts.find((a) => a.id === ps.targetId);
       }
+      if (!acc && ps.type === "payroll") {
+        acc = state.accounts.find(
+          (a) =>
+            a.id === "acc_nu_debito" ||
+            a.accountCategory === "payroll" ||
+            (a.name || "").toLowerCase().includes("nu débito") ||
+            (a.name || "").toLowerCase().includes("nómina"),
+        );
+      }
       if (!acc && ps.targetName) {
         const qNorm = ps.targetName.toLowerCase().trim();
         acc = state.accounts.find((a) => {
-          if (a.id === "acc_nu_debito") return false;
           const aName = (a.name || "").toLowerCase().trim();
           return aName === qNorm || (aName.length > 3 && qNorm.includes(aName));
         });
       }
-      if (!acc || acc.id === "acc_nu_debito") return null;
-      // Aplicar a cuentas de Renta Fija / Bolsillos / Billeteras Digitales (Nequi, Daviplata, Rappi, Finandina, Plenti, Nu Cajitas)
+      if (!acc) return null;
+      // Aplicar a Cuenta Nómina Principal (acc_nu_debito) y cuentas de Renta Fija / Bolsillos / Billeteras Digitales
       if (
+        ps.type === "payroll" ||
         ps.type === "fixed_pocket" ||
         ps.type === "savings" ||
         ps.type === "nequi" ||
         ps.type === "digital_wallet" ||
+        acc.id === "acc_nu_debito" ||
+        acc.accountCategory === "payroll" ||
         acc.accountCategory === "high_yield" ||
         acc.accountCategory === "digital_wallet" ||
         acc.type === "pocket" ||

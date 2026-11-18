@@ -377,6 +377,10 @@ export default function ExpensesLogSection({
     .filter((tx) => tx.itemType === "income")
     .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
 
+  const totalPayrollIncomeInPeriod = standaloneExpenses
+    .filter((tx) => tx.itemType === "income" && isPayrollOutflow(tx))
+    .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
+
   const totalSavedInPeriod = standaloneExpenses
     .filter((tx) => tx.itemType === "wealth_saving")
     .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
@@ -390,6 +394,19 @@ export default function ExpensesLogSection({
   const totalPaidToCardsFromPayroll = periodPayments
     .filter((p) => isPayrollOutflow(p))
     .reduce((acc, p) => {
+      // Check how much of this payment is already represented by split child rows in standaloneExpenses
+      const alreadyInStandalone = standaloneExpenses
+        .filter(
+          (tx) =>
+            isPayrollOutflow(tx) &&
+            (tx.creditCardPaymentId === p.id ||
+              tx.splitParentId === p.id ||
+              String(tx.id || "").startsWith(`${p.id}_split_`)),
+        )
+        .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+      if (alreadyInStandalone > 0) {
+        return acc + Math.max(0, (Number(p.amount) || 0) - alreadyInStandalone);
+      }
       // If payment had deductions covered by high-yield savings (Cajitas), don't double-charge Nómina
       const savingsDeduction = (p.budgetDeductions || [])
         .filter((d) => d.isEmergencySavingsDeduction || d.budgetItemType === "wealth" || d.budgetItemId?.startsWith("wealth_"))
@@ -398,17 +415,18 @@ export default function ExpensesLogSection({
     }, 0);
 
   const payrollNetBalance =
-    totalIncomeInPeriod - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll;
+    totalPayrollIncomeInPeriod - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll;
 
-  // Saldo en Nómina 100% dinámico y reactivo en vivo:
-  // Si hay ingresos en el mes, refleja el flujo neto real del período (Ingresos - Salidas de nómina).
-  // Si no hay ingresos pero hay saldo base registrado de la cuenta bancaria, descuenta en vivo las salidas de nómina.
-  const staticBase = matchedPayrollAccount && matchedPayrollAccount.balance !== undefined ? Number(matchedPayrollAccount.balance) || 0 : 0;
-  const payrollAvailableBalance = totalIncomeInPeriod > 0
-    ? payrollNetBalance
-    : staticBase > 0
-    ? staticBase - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll
-    : payrollNetBalance;
+  // Saldo en Nómina 100% sincronizado con el saldo real de la cuenta principal (acc_nu_debito en Supabase fi_accounts):
+  // Se actualiza en tiempo real ante cualquier movimiento nuevo, edición o eliminación tanto en Kpital Web como en Kpital Mobile,
+  // y conserva automáticamente el saldo remanente al iniciar el siguiente ciclo mensual (ej. 25 de noviembre).
+  const hasSyncedPayrollAccount =
+    matchedPayrollAccount &&
+    matchedPayrollAccount.balance !== undefined &&
+    matchedPayrollAccount.balance !== null &&
+    !Number.isNaN(Number(matchedPayrollAccount.balance));
+  const staticBase = hasSyncedPayrollAccount ? Number(matchedPayrollAccount.balance) : 0;
+  const payrollAvailableBalance = hasSyncedPayrollAccount ? staticBase : payrollNetBalance;
 
   const payrollCount = useMemo(() => {
     return combinedActivities.filter(

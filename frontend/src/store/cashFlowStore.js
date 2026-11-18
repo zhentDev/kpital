@@ -70,7 +70,7 @@ function getRecurringItems(items = [], targetPeriod) {
   return items
     .filter((item) => {
       if (item.isOneTime || item.frequency === "one_time") {
-        return item.targetPeriod === targetPeriod;
+        return (item.targetPeriod || item.period) === targetPeriod;
       }
       return true;
     })
@@ -185,7 +185,10 @@ export const useCashFlowStore = create(
   (set, get) => ({
     // ── State ────────────────────────────────────────
     startPeriod: INCOME_SYSTEM_START_PERIOD, // Activo a partir del pago del 23 de Oct (ciclo 2026-11: 23 Oct - 24 Nov)
-    activePeriod: getCurrentPeriod() < INCOME_SYSTEM_START_PERIOD ? INCOME_SYSTEM_START_PERIOD : getCurrentPeriod(), // Currently viewed period
+    activePeriod:
+      getCurrentPeriod(DEFAULT_PAYROLL_ACCOUNT.payDay) < INCOME_SYSTEM_START_PERIOD
+        ? INCOME_SYSTEM_START_PERIOD
+        : getCurrentPeriod(DEFAULT_PAYROLL_ACCOUNT.payDay), // Currently viewed period
     currency: "COP", // 'COP' | 'USD'
     allocationModel: "custom", // 'custom' | '50_30_20' | 'pay_yourself_first' | 'envelope'
     customRatios: DEFAULT_RATIOS,
@@ -277,9 +280,14 @@ export const useCashFlowStore = create(
           return Array.from(map.values());
         };
 
-        // Mes calendario actual en tiempo real (ej. "2026-10", "2026-11", etc.)
-        const now = new Date();
-        const currentCalPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        // Ciclo financiero actual en tiempo real según día de pago (payDay = 25: a partir del 25 de Nov inicia automáticamente 2026-12)
+        const configuredPayDay = Number(
+          source?.payrollAccount?.payDay ||
+            cachedLocal?.payrollAccount?.payDay ||
+            DEFAULT_PAYROLL_ACCOUNT.payDay ||
+            25,
+        );
+        const currentCalPeriod = getCurrentPeriod(configuredPayDay);
 
         // El sistema de ingresos está activo únicamente a partir del pago del 23 de Octubre de 2026 (ciclo 2026-11: 23 Oct - 24 Nov)
         const rawStartP = source?.startPeriod || cachedLocal?.startPeriod || INCOME_SYSTEM_START_PERIOD;
@@ -339,6 +347,14 @@ export const useCashFlowStore = create(
         const KNOWN_PHANTOM_CREDIT_PURCHASE_IDS = [
           "cp_tx_mb_1793340159066_a88869",
           "tx_mb_1793340159066_a88869",
+          "cp_tx_mb_1793940185466_353506",
+          "tx_mb_1793940185466_353506",
+          "cp_tx_mb_1793925151614_33c2fa",
+          "tx_mb_1793925151614_33c2fa",
+          "cp_tx_mb_1794924670336_286b66",
+          "tx_mb_1794924670336_286b66",
+          "cp_cf_tx_mb_1794008266178_f481",
+          "cp_tx_mb_1794008266178_f481",
         ];
         const combinedDeletedPurchaseIds = [
           ...new Set([
@@ -386,6 +402,19 @@ export const useCashFlowStore = create(
           "pay_conv_1792863163027_gx31h_split_2_1792875528218",
           "pay_conv_1792863163027_gx31h_split_3_1792875528218",
           "cf_tx_in_1794686489118",
+          "cf_tx_mb_1793918432534_5d29",
+          "cf_tx_mb_1793940185466_353506",
+          "cf_tx_mb_1793926681026_aa97d2",
+          "cf_tx_mb_1793925151614_33c2fa",
+          "cf_tx_mb_1793922112857_e7f",
+          "cf_tx_mb_1793982784837_a08",
+          "cf_tx_mb_1794008266178_f481",
+          "cf_tx_mb_1794078760560_549b",
+          "cf_tx_mb_1794096764681_6ab509",
+          "cf_tx_mb_1794084538970_7d84",
+          "cf_tx_mb_1794102521887_0d2d2a",
+          "cf_tx_mb_1794165375855_12a0",
+          "cf_tx_mb_1794930230487_ebb2f8",
         ];
         const combinedDeletedIds = [
           ...new Set([
@@ -939,6 +968,48 @@ export const useCashFlowStore = create(
           };
         });
 
+        // Automatic monthly cycle rollover on payday (e.g. Nov 25 -> 2026-12):
+        // Preserve previous period snapshot and inherit recurring budget envelopes into the new active period without manual code changes.
+        const savedActiveP = source?.activePeriod || startP;
+        if (savedActiveP >= startP && !cleanedPeriodsData[savedActiveP]) {
+          cleanedPeriodsData[savedActiveP] = {
+            inflows: mergedInflows,
+            needs: mergedNeeds,
+            wants: mergedWants,
+            wealth: mergedWealth,
+            customRatios: resolvedRatios,
+            allocationModel: source?.allocationModel || cachedLocal?.allocationModel || "custom",
+          };
+        }
+
+        let activeInflows = mergedInflows;
+        let activeNeeds = mergedNeeds;
+        let activeWants = mergedWants;
+        let activeWealth = mergedWealth;
+
+        if (activeP > savedActiveP) {
+          if (cleanedPeriodsData[activeP]) {
+            const targetSnap = cleanedPeriodsData[activeP];
+            activeInflows = targetSnap.inflows?.length ? targetSnap.inflows : getRecurringItems(mergedInflows, activeP);
+            activeNeeds = targetSnap.needs?.length ? targetSnap.needs : getRecurringItems(mergedNeeds, activeP);
+            activeWants = targetSnap.wants?.length ? targetSnap.wants : getRecurringItems(mergedWants, activeP);
+            activeWealth = targetSnap.wealth?.length ? targetSnap.wealth : getRecurringItems(mergedWealth, activeP);
+          } else {
+            activeInflows = getRecurringItems(mergedInflows, activeP);
+            activeNeeds = getRecurringItems(mergedNeeds, activeP);
+            activeWants = getRecurringItems(mergedWants, activeP);
+            activeWealth = getRecurringItems(mergedWealth, activeP);
+            cleanedPeriodsData[activeP] = {
+              inflows: activeInflows,
+              needs: activeNeeds,
+              wants: activeWants,
+              wealth: activeWealth,
+              customRatios: resolvedRatios,
+              allocationModel: source?.allocationModel || cachedLocal?.allocationModel || "custom",
+            };
+          }
+        }
+
         const resolvedState = {
           startPeriod: startP,
           activePeriod: activeP,
@@ -962,10 +1033,10 @@ export const useCashFlowStore = create(
           deletedExpenseIds: combinedDeletedIds,
           debts: syncExpenseLoansToDebts(sanitizedExpensesLog, mergedDebts),
           deletedDebtIds: combinedDeletedDebtIds,
-          inflows: mergedInflows,
-          needs: mergedNeeds,
-          wants: mergedWants,
-          wealth: mergedWealth,
+          inflows: activeInflows,
+          needs: activeNeeds,
+          wants: activeWants,
+          wealth: activeWealth,
           salaryHistory: unionById(source?.salaryHistory, cachedLocal?.salaryHistory),
           periodsData: cleanedPeriodsData,
           isInitialized: true,

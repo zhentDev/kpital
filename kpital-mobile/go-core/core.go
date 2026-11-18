@@ -569,12 +569,30 @@ func resolveColombiaTimeFromMs(timestampMs int64) time.Time {
 	return time.Now().UTC().Add(-5 * time.Hour)
 }
 
+func resolvePayrollPeriod(txTime time.Time, payDay int) string {
+	y, m, d := txTime.Date()
+	if payDay <= 0 {
+		payDay = 25
+	}
+	effDate := time.Date(y, m, payDay, 0, 0, 0, 0, time.UTC)
+	if effDate.Weekday() == time.Saturday {
+		effDate = effDate.AddDate(0, 0, -1)
+	} else if effDate.Weekday() == time.Sunday {
+		effDate = effDate.AddDate(0, 0, -2)
+	}
+	if d >= effDate.Day() {
+		nextMonth := time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)
+		return nextMonth.Format("2006-01")
+	}
+	return txTime.Format("2006-01")
+}
+
 // syncToSupabaseDirect inserts the transaction directly into Supabase PostgreSQL (cf_movements + fi_transactions/fi_accounts)
 // as a resilient fallback when the backend webhook is unavailable or times out.
 func syncToSupabaseDirect(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string, timestampMs int64) error {
 	txTime := resolveColombiaTimeFromMs(timestampMs) // America/Bogota (UTC-5)
 	now := time.Now().UTC().Add(-5 * time.Hour)
-	period := txTime.Format("2006-01")
+	period := resolvePayrollPeriod(txTime, 25)
 	dateStr := txTime.Format("2006-01-02")
 	timeStr := txTime.Format("15:04:05")
 
@@ -604,7 +622,12 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		"targetName": targetName,
 	}
 	if matchedAcc != nil {
-		paymentSource["type"] = "fixed_pocket"
+		accNameLower := strings.ToLower(matchedAcc.Name)
+		if matchedAcc.ID == "acc_nu_debito" || strings.Contains(accNameLower, "nómina") || strings.Contains(accNameLower, "nomina") || strings.Contains(accNameLower, "nu débito") || strings.Contains(accNameLower, "nu debito") {
+			paymentSource["type"] = "payroll"
+		} else {
+			paymentSource["type"] = "fixed_pocket"
+		}
 		paymentSource["targetId"] = matchedAcc.ID
 		paymentSource["targetName"] = matchedAcc.Name
 	}

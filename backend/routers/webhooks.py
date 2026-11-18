@@ -884,19 +884,70 @@ def register_mobile_transaction(
             break
 
     # Also detect from notification text (e.g., "tarjeta terminada en 3887 ha sido APROBADA")
-    if not is_cc_purchase and tx_type == "debit":
-        cc_notification_patterns = [
-            "ha sido aprobada", "ha sido aprobada.", "compra aprobada",
-            "tarjeta de credito", "tarjeta de crédito", "con tu tarjeta"
+    # Never override to credit_card if notification explicitly mentions debit card (e.g. "tarjeta débito terminada en 5639")
+    is_explicit_debit_card = any(
+        d in search_context
+        for d in [
+            "tarjeta debito",
+            "tarjeta débito",
+            "mastercard debit",
+            "5639",
+            "debito terminada",
+            "débito terminada",
         ]
-        if any(p in search_context for p in cc_notification_patterns) or "3887" in search_context:
+    )
+    if not is_cc_purchase and not is_explicit_debit_card and tx_type == "debit":
+        cc_notification_patterns = [
+            "tarjeta de credito",
+            "tarjeta de crédito",
+            "3887",
+            "0681",
+            "rappicard",
+        ]
+        if any(p in search_context for p in cc_notification_patterns):
             is_cc_purchase = True
             if "3887" in search_context or "nu" in search_context:
-                matched_cc = next((c for c in available_cards if "3887" in normalize_text(c.get("name", "")) or "nu" in normalize_text(c.get("name", ""))), None)
-            elif "rappi" in search_context:
-                matched_cc = next((c for c in available_cards if "rappi" in normalize_text(c.get("name", ""))), None)
+                matched_cc = next(
+                    (
+                        c
+                        for c in available_cards
+                        if "3887" in normalize_text(c.get("name", ""))
+                        or "nu" in normalize_text(c.get("name", ""))
+                    ),
+                    None,
+                )
+            elif "rappi" in search_context or "0681" in search_context:
+                matched_cc = next(
+                    (c for c in available_cards if "rappi" in normalize_text(c.get("name", ""))),
+                    None,
+                )
             if not matched_cc and available_cards:
                 matched_cc = available_cards[0]
+
+    # 4c. Deduplicate if mobile app already pushed a direct fallback row during Render cold-start wake-up
+    if payload.raw_text and payload.raw_text.strip():
+        raw_clean = payload.raw_text.strip()
+        existing_cf_dups = [
+            e
+            for e in (cf_temp.get("expensesLog") or [])
+            if e.get("date") == tx_date
+            and abs(float(e.get("amount") or 0) - amount_val) < 1.0
+            and (e.get("rawText") == raw_clean or (e.get("extra_json") or {}).get("rawText") == raw_clean)
+            and str(e.get("id", "")).startswith("cf_tx_mb_")
+            and len(str(e.get("id", "")).split("_")[-1]) <= 4
+        ]
+        if existing_cf_dups:
+            logger.info(
+                f"[Webhook] Detected {len(existing_cf_dups)} direct mobile fallback row(s) for '{raw_clean[:40]}'; skipping duplicate webhook insert."
+            )
+            dup_item = existing_cf_dups[0]
+            return {
+                "success": True,
+                "message": "Movimiento ya sincronizado previamente por fallback directo",
+                "tx_id": dup_item.get("id"),
+                "deduplicated": True,
+                "timestamp": now_colombia.isoformat(),
+            }
 
     # 5. Update Account Balance with Pocket Overdraft / Cascading Fallback
     previous_balance = float(account.get("balance", 0.0))
@@ -1111,7 +1162,31 @@ def register_mobile_transaction(
     card_limit_released = False
     try:
         cf = load_cash_flow_db(effective_uid)
-        active_period = cf.get("activePeriod") or tx_date[:7]
+        pay_day = int((cf.get("payrollAccount") or {}).get("payDay") or 25)
+        try:
+            import calendar
+            from datetime import date as _dt_date, timedelta as _td
+            y_int, m_int, d_int = [int(x) for x in tx_date[:10].split("-")]
+            max_d = calendar.monthrange(y_int, m_int)[1]
+            eff_d = _dt_date(y_int, m_int, min(pay_day, max_d))
+            if eff_d.weekday() == 5:  # Saturday -> Friday
+                eff_d -= _td(days=1)
+            elif eff_d.weekday() == 6:  # Sunday -> Friday
+                eff_d -= _td(days=2)
+            tx_d_obj = _dt_date(y_int, m_int, d_int)
+            if tx_d_obj >= eff_d:
+                next_y = y_int + 1 if m_int == 12 else y_int
+                next_m = 1 if m_int == 12 else m_int + 1
+                computed_period = f"{next_y:04d}-{next_m:02d}"
+            else:
+                computed_period = f"{y_int:04d}-{m_int:02d}"
+        except Exception:
+            computed_period = tx_date[:7]
+
+        saved_active_period = cf.get("activePeriod") or computed_period
+        active_period = max(saved_active_period, computed_period)
+        if active_period != saved_active_period:
+            cf["activePeriod"] = active_period
         acc_name_norm = normalize_text(account.get("name") or "")
         is_payroll = (
             account.get("id") == "acc_nu_debito"
