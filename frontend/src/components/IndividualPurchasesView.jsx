@@ -3316,11 +3316,36 @@ export default function IndividualPurchasesView({ portfolioId = "hist_default", 
                 >
                   <span
                     style={{
-                      display: "inline-block",
-                      animation: isRefreshingChart ? "spin 0.8s linear infinite" : "none",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 15,
+                      height: 15,
+                      borderRadius: 3.5,
+                      background: "linear-gradient(180deg, #38bdf8 0%, #0284c7 100%)",
+                      boxShadow: "0 1px 2px rgba(2, 132, 199, 0.25)",
+                      flexShrink: 0,
                     }}
                   >
-                    🔄
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="10.5"
+                      height="10.5"
+                      fill="none"
+                      stroke="#ffffff"
+                      strokeWidth="2.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        animation: isRefreshingChart ? "spin 0.8s linear infinite" : "none",
+                        transformOrigin: "center",
+                      }}
+                    >
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                      <path d="M16 16h5v5" />
+                    </svg>
                   </span>
                   <span>{isRefreshingChart ? "Actualizando…" : "Actualizar"}</span>
                 </button>
