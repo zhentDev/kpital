@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { formatCashFlowMoney, sortMovementsByDateTimeDesc } from "../../utils/cashFlowFormatters";
 import GlassModalWrapper from "../Common/GlassModalWrapper";
 import LoanSettlementModal from "./LoanSettlementModal";
@@ -8,6 +8,8 @@ import toast from "react-hot-toast";
 import { toastConfirm, toastPrompt } from "../../utils/toastAlerts";
 import { useTheme } from "../../context/ThemeContext";
 import { useCashFlowStore } from "../../store/cashFlowStore";
+import { useFixedIncomeStore } from "../../store/fixedIncomeStore";
+import { updateFixedIncomeAccountApi } from "../../api/client";
 import "./CashFlow.css";
 
 export default function ExpensesLogSection({
@@ -417,16 +419,77 @@ export default function ExpensesLogSection({
   const payrollNetBalance =
     totalPayrollIncomeInPeriod - totalSpentFromPayroll - totalSavedFromPayroll - totalPaidToCardsFromPayroll;
 
-  // Saldo en Nómina 100% sincronizado con el saldo real de la cuenta principal (acc_nu_debito en Supabase fi_accounts):
-  // Se actualiza en tiempo real ante cualquier movimiento nuevo, edición o eliminación tanto en Kpital Web como en Kpital Mobile,
-  // y conserva automáticamente el saldo remanente al iniciar el siguiente ciclo mensual (ej. 25 de noviembre).
-  const hasSyncedPayrollAccount =
-    matchedPayrollAccount &&
-    matchedPayrollAccount.balance !== undefined &&
-    matchedPayrollAccount.balance !== null &&
-    !Number.isNaN(Number(matchedPayrollAccount.balance));
-  const staticBase = hasSyncedPayrollAccount ? Number(matchedPayrollAccount.balance) : 0;
-  const payrollAvailableBalance = hasSyncedPayrollAccount ? staticBase : payrollNetBalance;
+  // Saldo en Nómina 100% dinámico calculado a partir de todos los movimientos reales de Cuenta Nu Débito (Nómina)
+  // (desde el periodo 2026-11 en adelante, incluyendo el remanente automático al pasar al ciclo 2026-12 el 25 de nov).
+  // Con la calibración histórica al cierre de 2026-11-18 (-37873.16 -> $16.657,85), todo movimiento nuevo, editado
+  // o eliminado (como -$5.000 y +$200.000 del 19 de nov -> +$211.657,85) suma o resta en tiempo real sin quedar fijo.
+  const PAYROLL_RECONCILIATION_OFFSET = -37873.16;
+
+  const payrollAvailableBalance = useMemo(() => {
+    const allTaggedMovements = (expensesLog || [])
+      .filter((tx) => !tx.period || tx.period >= "2026-11")
+      .map((tx) => {
+        const isIncome = tx.type === "credit" || tx.budgetItemType === "income";
+        const isWealth =
+          (tx.budgetItemType === "wealth" || tx.budgetItemId?.startsWith("wealth_")) && !isIncome && !tx.isLoan;
+        return {
+          ...tx,
+          itemType: isIncome ? "income" : isWealth ? "wealth_saving" : "expense",
+        };
+      });
+
+    let inc = 0;
+    let exp = 0;
+    let sav = 0;
+    allTaggedMovements.forEach((tx) => {
+      if (!isPayrollOutflow(tx)) return;
+      const amt = Number(tx.amount) || 0;
+      if (tx.itemType === "income") inc += amt;
+      else if (tx.itemType === "wealth_saving") sav += amt;
+      else exp += amt;
+    });
+
+    const paidCards = (creditCardPayments || [])
+      .filter((p) => (!p.period || p.period >= "2026-11") && isPayrollOutflow(p))
+      .reduce((acc, p) => {
+        const alreadyInMovements = allTaggedMovements
+          .filter(
+            (tx) =>
+              isPayrollOutflow(tx) &&
+              (tx.creditCardPaymentId === p.id ||
+                tx.splitParentId === p.id ||
+                String(tx.id || "").startsWith(`${p.id}_split_`)),
+          )
+          .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+        if (alreadyInMovements > 0) {
+          return acc + Math.max(0, (Number(p.amount) || 0) - alreadyInMovements);
+        }
+        const savingsDeduction = (p.budgetDeductions || [])
+          .filter(
+            (d) =>
+              d.isEmergencySavingsDeduction ||
+              d.budgetItemType === "wealth" ||
+              d.budgetItemId?.startsWith("wealth_"),
+          )
+          .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+        return acc + Math.max(0, (Number(p.amount) || 0) - savingsDeduction);
+      }, 0);
+
+    return Number((inc - exp - sav - paidCards + PAYROLL_RECONCILIATION_OFFSET).toFixed(2));
+  }, [expensesLog, creditCardPayments]);
+
+  // Sincroniza automáticamente el saldo dinámico calculado hacia acc_nu_debito en Renta Fija / Supabase
+  useEffect(() => {
+    if (!matchedPayrollAccount || Number.isNaN(payrollAvailableBalance)) return;
+    const currentAccBal = Number(matchedPayrollAccount.balance || 0);
+    if (Math.abs(currentAccBal - payrollAvailableBalance) > 0.01) {
+      const updatedAcc = { ...matchedPayrollAccount, balance: payrollAvailableBalance };
+      useFixedIncomeStore.setState((state) => ({
+        accounts: (state.accounts || []).map((a) => (a.id === matchedPayrollAccount.id ? updatedAcc : a)),
+      }));
+      updateFixedIncomeAccountApi(matchedPayrollAccount.id, updatedAcc).catch(() => {});
+    }
+  }, [payrollAvailableBalance, matchedPayrollAccount]);
 
   const payrollCount = useMemo(() => {
     return combinedActivities.filter(

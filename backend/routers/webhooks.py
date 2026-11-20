@@ -874,18 +874,19 @@ def register_mobile_transaction(
     is_cc_purchase = False
     matched_cc = None
 
-    # Check if user selected a credit card from MacroDroid
-    for c in available_cards:
-        c_name_norm = normalize_text(c.get("name", ""))
-        c_id_norm = normalize_text(c.get("id", ""))
-        if (c_id_norm and c_id_norm == aq_clean_norm) or (c_name_norm and (c_name_norm in aq_clean_norm or aq_clean_norm in c_name_norm)):
-            matched_cc = c
-            is_cc_purchase = True
-            break
-        if "3887" in aq_clean_norm and ("3887" in c_name_norm or "nu" in c_name_norm):
-            matched_cc = c
-            is_cc_purchase = True
-            break
+    # Check if user selected a credit card from MacroDroid (only for debit / outgoing purchases)
+    if tx_type == "debit":
+        for c in available_cards:
+            c_name_norm = normalize_text(c.get("name", ""))
+            c_id_norm = normalize_text(c.get("id", ""))
+            if (c_id_norm and c_id_norm == aq_clean_norm) or (c_name_norm and (c_name_norm in aq_clean_norm or aq_clean_norm in c_name_norm)):
+                matched_cc = c
+                is_cc_purchase = True
+                break
+            if "3887" in aq_clean_norm and ("3887" in c_name_norm or "nu" in c_name_norm):
+                matched_cc = c
+                is_cc_purchase = True
+                break
 
     # Also detect from notification text (e.g., "tarjeta terminada en 3887 ha sido APROBADA")
     # Never override to credit_card if notification explicitly mentions debit card (e.g. "tarjeta débito terminada en 5639")
@@ -1115,6 +1116,9 @@ def register_mobile_transaction(
             clean_desc = f"Gasto {account['name']}"
         else:
             clean_desc = "Gasto bancario" if tx_type == "debit" else "Abono bancario"
+
+    if tx_type == "credit" and clean_desc.lower().startswith("compra "):
+        clean_desc = clean_desc[7:].strip()
 
     if cascaded and principal_acc:
         if covered_by_pocket > 0:
