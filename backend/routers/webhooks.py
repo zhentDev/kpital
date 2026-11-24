@@ -1415,23 +1415,40 @@ def register_mobile_transaction(
                 raw_bid == "loan_receivable"
                 or raw_btype in ("receivable", "loan")
             )
-            assigned_budget_id = "loan_receivable" if is_loan_tx else (raw_bid or None)
+            is_debt_collection_tx = (
+                tx_type == "credit"
+                and (not raw_bid or raw_bid == "debt_collection" or "deudas pagadas" in raw_bname.lower())
+            )
+            assigned_budget_id = (
+                "loan_receivable"
+                if is_loan_tx
+                else ("debt_collection" if is_debt_collection_tx else (raw_bid or None))
+            )
             assigned_budget_name = (
                 "🤝 Préstamos (Por Cobrar)"
                 if is_loan_tx
-                else (raw_bname if raw_bid else None)
+                else (
+                    "💸 Deudas Pagadas (Cobro de Préstamo)"
+                    if is_debt_collection_tx
+                    else (raw_bname if raw_bid else None)
+                )
             )
             assigned_budget_type = (
                 "receivable"
                 if is_loan_tx
-                else (raw_btype or ("needs" if tx_type == "debit" else "income"))
+                else (
+                    "income"
+                    if is_debt_collection_tx
+                    else (raw_btype or ("needs" if tx_type == "debit" else "income"))
+                )
             )
 
             # Auto-registrar nuevo rubro en el pilar si no existía (excepto rubros especiales sin cupo fijo)
             if (
                 not is_loan_tx
+                and not is_debt_collection_tx
                 and payload.budget_item_id
-                and payload.budget_item_id != "want_gastos_hormiga"
+                and payload.budget_item_id not in ("want_gastos_hormiga", "debt_collection")
                 and payload.budget_item_name
                 and payload.budget_item_type in ["wealth", "needs", "wants"]
             ):
@@ -1462,6 +1479,8 @@ def register_mobile_transaction(
                 "time": tx_time,
                 "type": tx_type,
                 "isLoan": is_loan_tx,
+                "isDebtCollection": is_debt_collection_tx,
+                "isDebtPayment": is_debt_collection_tx,
                 "loanAmount": amount_val if is_loan_tx else None,
                 "loanRecipient": clean_desc if is_loan_tx else None,
                 "loanStatus": "pending" if is_loan_tx else None,

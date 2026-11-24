@@ -158,14 +158,25 @@ export function calculateEffectiveExpense(tx, debts = []) {
 
   const pendingLoan = Math.max(0, totalLoaned - repaidAmount);
   const purePersonalSpent = Math.max(0, grossAmount - totalLoaned);
+  const effectiveReimbursed = Math.min(totalLoaned, repaidAmount);
 
-  // A recoverable loan is NOT a personal living expense: only the user's non-recoverable share
-  // (purePersonalSpent, e.g. in a shared split expense where the user participated) consumes the budget envelope!
-  const effectiveSpent = purePersonalSpent;
+  // If this is a 100% pure loan assigned to the standalone 'Préstamos (Por Cobrar)' pillar,
+  // it does not consume any living-expense budget envelope.
+  // If it is a shared expense (or loan) assigned to a living-expense envelope (e.g. Alimentación),
+  // it charges the full grossAmount initially and dynamically liberates/reduces the envelope
+  // by the repaidAmount as participants pay back, down to purePersonalSpent!
+  const isPureLoanEnvelope =
+    tx.budgetItemId === "loan_receivable" ||
+    tx.budgetItemType === "receivable" ||
+    (!tx.isSplit && purePersonalSpent === 0 && !tx.budgetItemId);
+
+  const effectiveSpent = isPureLoanEnvelope
+    ? 0
+    : Math.max(0, grossAmount - effectiveReimbursed);
 
   return {
     grossAmount,
-    repaidAmount,
+    repaidAmount: effectiveReimbursed,
     effectiveSpent,
     pendingLoan,
     purePersonalSpent,

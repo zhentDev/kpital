@@ -785,10 +785,55 @@ export const useCashFlowStore = create(
           wealth_viaje: { id: "wealth_travel_goal", name: "Meta Viaje / Estudio", type: "wealth" },
         };
 
-        // Normalize 100% pure loans into their own separate rubro ("loan_receivable" / "🤝 Préstamos (Por Cobrar)")
+        // Normalize 100% pure loans into their own separate rubro ("loan_receivable" / "🤝 Préstamos (Por Cobrar)"),
+        // normalize incoming mobile credits without expense rubros into "debt_collection" ("💸 Deudas Pagadas"),
         // and map any Kpital Mobile fallback rubro IDs/names to their canonical web envelope IDs.
         const normalizedReconciledExpenses = reconciledExpenses.map((tx) => {
           if (!tx) return tx;
+          if (tx.id === "cf_tx_mb_1795194768013_aeea22" || (tx.description || "").toUpperCase().includes("GRUPO MONCANTE")) {
+            tx = {
+              ...tx,
+              budgetItemId: "need_groceries",
+              budgetItemName: "Alimentación & Supermercado",
+              budgetItemType: "needs",
+              originalBudgetItemId: "need_groceries",
+              originalBudgetItemName: "Alimentación & Supermercado",
+              originalBudgetItemType: "needs",
+            };
+          }
+          if (tx.id === "cf_tx_mb_1795556291894_832ed0") {
+            return {
+              ...tx,
+              description: "Recibiste 33.000,00 en tu cuenta (Abono Nico • GRUPO MONCANTE)",
+              budgetItemId: "debt_collection",
+              budgetItemName: "💸 Deudas Pagadas (Cobro de Préstamo)",
+              budgetItemType: "income",
+              isDebtCollection: true,
+              isDebtPayment: true,
+              debtId: "debt_tx_cf_tx_mb_1795194768013_aeea22",
+              participantName: "Nico",
+            };
+          }
+          if (
+            tx.type === "credit" &&
+            (!tx.budgetItemId ||
+              tx.budgetItemId === "debt_collection" ||
+              tx.isDebtCollection ||
+              (tx.description || "").toLowerCase().includes("recibiste") ||
+              (tx.description || "").toLowerCase().includes("te envió") ||
+              (tx.description || "").toLowerCase().includes("te envio"))
+          ) {
+            if (!tx.budgetItemId || tx.budgetItemId === "debt_collection") {
+              return {
+                ...tx,
+                budgetItemId: "debt_collection",
+                budgetItemName: "💸 Deudas Pagadas (Cobro de Préstamo)",
+                budgetItemType: "income",
+                isDebtCollection: true,
+                isDebtPayment: true,
+              };
+            }
+          }
           if (tx.budgetItemId && MOBILE_RUBRO_ALIAS_MAP[tx.budgetItemId]) {
             const mapped = MOBILE_RUBRO_ALIAS_MAP[tx.budgetItemId];
             tx = {
@@ -820,6 +865,14 @@ export const useCashFlowStore = create(
               budgetItemId: "loan_receivable",
               budgetItemName: "🤝 Préstamos (Por Cobrar)",
               budgetItemType: "receivable",
+            };
+          }
+          if (tx.isSplit && (!tx.budgetItemId || tx.budgetItemId === "loan_receivable") && tx.originalBudgetItemId) {
+            return {
+              ...tx,
+              budgetItemId: tx.originalBudgetItemId,
+              budgetItemName: tx.originalBudgetItemName || tx.budgetItemName,
+              budgetItemType: tx.originalBudgetItemType || tx.budgetItemType || "needs",
             };
           }
           return tx;
@@ -2932,9 +2985,25 @@ export const useCashFlowStore = create(
         set((state) => {
           const updatedExpensesLog = (state.expensesLog || []).map((tx) => {
             if (tx.id === txId) {
+              const nextIsSplit = splitConfig.isSplit !== undefined ? splitConfig.isSplit : tx.isSplit;
+              const nextUserShare = splitConfig.userShare !== undefined ? Number(splitConfig.userShare) : Number(tx.userShare || 0);
+              const restoreOriginalEnvelope =
+                nextIsSplit &&
+                nextUserShare > 0 &&
+                (tx.budgetItemId === "loan_receivable" || !tx.budgetItemId) &&
+                tx.originalBudgetItemId &&
+                tx.originalBudgetItemId !== "loan_receivable";
+
               return {
                 ...tx,
                 ...splitConfig,
+                ...(restoreOriginalEnvelope
+                  ? {
+                      budgetItemId: tx.originalBudgetItemId,
+                      budgetItemName: tx.originalBudgetItemName || tx.budgetItemName,
+                      budgetItemType: tx.originalBudgetItemType || "needs",
+                    }
+                  : {}),
               };
             }
             return tx;
@@ -3006,28 +3075,39 @@ export const useCashFlowStore = create(
                   : gross
                 : 0;
               const personalShare = Math.max(0, gross - effectiveLoanAmt);
-              const isPureLoan = isLoan && (!tx.isSplit || personalShare < 1);
+              const hasExistingEnvelope =
+                Boolean(tx.budgetItemId) &&
+                tx.budgetItemId !== "loan_receivable" &&
+                tx.budgetItemType !== "receivable";
+              const savedOrigId = hasExistingEnvelope ? tx.budgetItemId : (tx.originalBudgetItemId || null);
+              const savedOrigName = hasExistingEnvelope ? tx.budgetItemName : (tx.originalBudgetItemName || null);
+              const savedOrigType = hasExistingEnvelope ? tx.budgetItemType : (tx.originalBudgetItemType || null);
+
+              // Si ya estaba asignado a un rubro de gasto (ej. Alimentación) y es gasto compartido, conservar su rubro
+              const isPureLoan = isLoan && !tx.isSplit && personalShare < 1 && !hasExistingEnvelope;
               return {
                 ...tx,
                 isLoan,
+                originalBudgetItemId: savedOrigId,
+                originalBudgetItemName: savedOrigName,
+                originalBudgetItemType: savedOrigType,
                 loanRecipient: isLoan ? loanRecipient || "Amigo / Familiar" : null,
                 loanAmount: isLoan ? effectiveLoanAmt : null,
                 loanStatus: isLoan ? (tx.loanStatus || "pending") : null,
-                // Si es un préstamo 100% retornable, va a su rubro independiente "🤝 Préstamos (Por Cobrar)"
                 budgetItemType: isPureLoan
                   ? "receivable"
                   : !isLoan && tx.budgetItemType === "receivable"
-                  ? null
+                  ? savedOrigType
                   : tx.budgetItemType,
                 budgetItemId: isPureLoan
                   ? "loan_receivable"
                   : !isLoan && tx.budgetItemId === "loan_receivable"
-                  ? null
+                  ? savedOrigId
                   : tx.budgetItemId,
                 budgetItemName: isPureLoan
                   ? "🤝 Préstamos (Por Cobrar)"
                   : !isLoan && tx.budgetItemId === "loan_receivable"
-                  ? tx.description || "Sin Asignar"
+                  ? savedOrigName || tx.description || "Sin Asignar"
                   : tx.budgetItemName,
               };
             }
@@ -3039,7 +3119,7 @@ export const useCashFlowStore = create(
         get().syncStateWithBackend();
         toast.success(
           isLoan
-            ? "Asignado a 🤝 Préstamos (Por Cobrar) y sincronizado a Deudas"
+            ? "Préstamo / Gasto por cobrar activado y sincronizado a Deudas"
             : "Movimiento desmarcado de préstamo",
           { icon: "🤝" }
         );

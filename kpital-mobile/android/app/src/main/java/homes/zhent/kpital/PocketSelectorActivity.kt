@@ -341,8 +341,9 @@ class PocketSelectorActivity : Activity() {
         container.removeAllViews()
 
         // 1. Cabecera Paso 2
+        val isCreditIncoming = txType.equals("credit", ignoreCase = true)
         val titleView = TextView(this).apply {
-            text = "🎯 ¿A qué rubro pertenece?"
+            text = if (isCreditIncoming) "📥 ¿De qué es este dinero recibido?" else "🎯 ¿A qué rubro pertenece?"
             textSize = 20f
             setTextColor(Color.WHITE)
             setTypeface(null, Typeface.BOLD)
@@ -352,7 +353,7 @@ class PocketSelectorActivity : Activity() {
         // Badge de resumen de cuenta y monto
         val summaryBadge = TextView(this).apply {
             val formatted = String.format(Locale.US, "%,.0f", finalAmount)
-            text = "💳 $selectedAccount • $$formatted COP"
+            text = if (isCreditIncoming) "📥 $selectedAccount • +$$formatted COP" else "💳 $selectedAccount • $$formatted COP"
             textSize = 12f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#38bdf8"))
@@ -477,6 +478,7 @@ class PocketSelectorActivity : Activity() {
                 loadingRubros.visibility = View.GONE
                 renderRubroSections(
                     rubrosLayout = rubrosLayout,
+                    txType = txType,
                     wealthList = wealthList,
                     needsList = needsList,
                     wantsList = wantsList,
@@ -500,11 +502,56 @@ class PocketSelectorActivity : Activity() {
 
     private fun renderRubroSections(
         rubrosLayout: LinearLayout,
+        txType: String,
         wealthList: List<Triple<String, String, String>>,
         needsList: List<Triple<String, String, String>>,
         wantsList: List<Triple<String, String, String>>,
         onRubroSelected: (String, String, String) -> Unit
     ) {
+        val isCreditIncoming = txType.equals("credit", ignoreCase = true)
+        if (isCreditIncoming) {
+            addPillarHeader(rubrosLayout, "💸 Cobros & Deudas Pagadas (Recomendado 1 Toque)", "#10b981", "#052e16")
+            addRubroButton(rubrosLayout, "Deudas Pagadas (Cobro de Préstamo / Vaca)", "💸", "#10b981", "#052e16") {
+                onRubroSelected("debt_collection", "💸 Deudas Pagadas (Cobro de Préstamo)", "income")
+            }
+
+            addPillarHeader(rubrosLayout, "📥 Otros Ingresos o Transferencias", "#0ea5e9", "#082f49")
+            addRubroButton(rubrosLayout, "Salario / Nómina / Quincena", "💼", "#0ea5e9", "#082f49") {
+                onRubroSelected("income_salary", "💼 Salario / Nómina", "income")
+            }
+            addRubroButton(rubrosLayout, "Ingreso Extra / Venta / Rendimientos", "📈", "#38bdf8", "#082f49") {
+                onRubroSelected("income_extra", "📈 Ingreso Extra / Venta", "income")
+            }
+            addRubroButton(rubrosLayout, "Transferencia entre mis Cuentas", "🔄", "#c084fc", "#2e1065") {
+                onRubroSelected("internal_transfer", "🔄 Transferencia Propia", "transfer")
+            }
+
+            val skipIncomeBtn = Button(this).apply {
+                text = "⚡ Registrar Rápido en Deudas Pagadas"
+                textSize = 12f
+                isAllCaps = false
+                setTextColor(Color.parseColor("#6ee7b7"))
+                background = GradientDrawable().apply {
+                    cornerRadius = 14f
+                    setColor(Color.parseColor("#052e16"))
+                    setStroke(1, Color.parseColor("#10b981"))
+                }
+                setPadding(24, 18, 24, 18)
+                val p = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 12, 0, 10)
+                }
+                layoutParams = p
+                setOnClickListener {
+                    onRubroSelected("debt_collection", "💸 Deudas Pagadas (Cobro de Préstamo)", "income")
+                }
+            }
+            rubrosLayout.addView(skipIncomeBtn)
+            return
+        }
+
         // ── 0. CLASIFICACIÓN RÁPIDA (1 TOQUE: GASTOS HORMIGA & PRÉSTAMOS) ──
         addPillarHeader(rubrosLayout, "⚡ Clasificación Rápida (1 Toque)", "#f59e0b", "#271a05")
         addRubroButton(rubrosLayout, "Gastos Hormiga (Sin rubro fijo)", "🐜", "#f59e0b", "#271a05") {

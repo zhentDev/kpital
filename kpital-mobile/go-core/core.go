@@ -636,6 +636,7 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 	}
 
 	isLoanTx := budgetItemId == "loan_receivable" || budgetItemType == "receivable" || budgetItemType == "loan"
+	isDebtCollectionTx := strings.EqualFold(txType, "credit") && (budgetItemId == "" || budgetItemId == "debt_collection")
 	effectiveBudgetId := budgetItemId
 	effectiveBudgetName := budgetItemName
 	effectiveBudgetType := budgetItemType
@@ -643,6 +644,10 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		effectiveBudgetId = "loan_receivable"
 		effectiveBudgetName = "🤝 Préstamos (Por Cobrar)"
 		effectiveBudgetType = "receivable"
+	} else if isDebtCollectionTx {
+		effectiveBudgetId = "debt_collection"
+		effectiveBudgetName = "💸 Deudas Pagadas (Cobro de Préstamo)"
+		effectiveBudgetType = "income"
 	}
 
 	extraMap := map[string]interface{}{
@@ -657,6 +662,12 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		extraMap["loanAmount"] = amount
 		extraMap["loanRecipient"] = description
 		extraMap["loanStatus"] = "pending"
+	} else if isDebtCollectionTx {
+		extraMap["isDebtCollection"] = true
+		extraMap["isDebtPayment"] = true
+		extraMap["budgetItemId"] = effectiveBudgetId
+		extraMap["budgetItemName"] = effectiveBudgetName
+		extraMap["budgetItemType"] = effectiveBudgetType
 	}
 
 	payload := map[string]interface{}{

@@ -392,7 +392,7 @@ export default function ExpensesLogSection({
     );
   }, [fixedIncomeAccounts, payrollAccount]);
 
-  // Total Gastado Real excluye préstamos por cobrar (100% retornables) y solo suma la porción propia no retornable en gastos divididos
+  // Total Gastado Real excluye préstamos por cobrar (100% retornables) y en gastos compartidos descuenta dinámicamente lo que ya te pagaron (liberando el rubro)
   const totalSpentInPeriod = standaloneExpenses
     .filter((tx) => tx.itemType === "expense")
     .reduce((acc, tx) => {
@@ -401,7 +401,23 @@ export default function ExpensesLogSection({
       if (!isLoanTx) return acc + gross;
       const loaned = Number(tx.loanAmount) > 0 ? Number(tx.loanAmount) : gross;
       const personalShare = Math.max(0, gross - loaned);
-      return acc + personalShare;
+      const isPureLoan =
+        tx.budgetItemId === "loan_receivable" ||
+        tx.budgetItemType === "receivable" ||
+        (!tx.isSplit && personalShare === 0 && !tx.budgetItemId);
+      if (isPureLoan) return acc;
+      const settlementsArr = Array.isArray(tx.settlements)
+        ? tx.settlements
+        : tx.settlementDetails
+        ? [tx.settlementDetails]
+        : [];
+      const repaid = Math.max(
+        Number(tx.totalSettled) || 0,
+        settlementsArr.reduce((s, x) => s + (Number(x.amount) || 0), 0),
+        tx.loanStatus === "settled" ? loaned : 0
+      );
+      const liberated = Math.min(loaned, repaid);
+      return acc + Math.max(0, gross - liberated);
     }, 0);
 
   const totalSpentFromPayroll = standaloneExpenses
@@ -1630,26 +1646,35 @@ export default function ExpensesLogSection({
             const isLoan = Boolean(item.isLoan);
             const isSettled = item.loanStatus === "settled";
             const isIncome = item.itemType === "income";
+            const isDebtCollectionItem = Boolean(
+              item.isDebtCollection ||
+                item.isDebtPayment ||
+                item.budgetItemId === "debt_collection" ||
+                (item.budgetItemName || "").toLowerCase().includes("deudas pagadas") ||
+                (item.budgetItemName || "").toLowerCase().includes("cobro de préstamo")
+            );
             const isHormigaItem =
               item.budgetItemId === "want_gastos_hormiga" ||
               (item.budgetItemName || "").toLowerCase().includes("hormiga");
             const matchedBudgetEnvelope = (budgetItems || []).find(
               (b) =>
                 (item.budgetItemId && b.id === item.budgetItemId) ||
+                (item.originalBudgetItemId && b.id === item.originalBudgetItemId) ||
                 (b.name &&
                   item.budgetItemName &&
                   b.name.toLowerCase().trim() === item.budgetItemName.toLowerCase().trim())
             );
             const isAlreadyAssigned = Boolean(
               isLoan ||
-                item.isDebtCollection ||
-                item.isDebtPayment ||
+                isDebtCollectionItem ||
                 item.isInternalTransfer ||
                 isHormigaItem ||
                 item.budgetItemId ||
                 matchedBudgetEnvelope
             );
-            const resolvedRubroDisplayName = isHormigaItem
+            const resolvedRubroDisplayName = isDebtCollectionItem
+              ? "💸 Deudas Pagadas (Cobro de Préstamo)"
+              : isHormigaItem
               ? "🐜 Gastos Hormiga"
               : matchedBudgetEnvelope
               ? `${matchedBudgetEnvelope.icon || "🏷️"} ${matchedBudgetEnvelope.name}`
@@ -1809,9 +1834,9 @@ export default function ExpensesLogSection({
                           fontWeight: 700,
                         }}
                       >
-                        {item.isDebtCollection ? "🤝 Cobro de Préstamo" : "📥 Entrada"}
+                        {isDebtCollectionItem ? "💸 Deudas Pagadas (Cobro)" : "📥 Entrada"}
                       </span>
-                      {item.isDebtCollection && (
+                      {(isDebtCollectionItem || isAlreadyAssigned) && (
                         <span
                           style={{
                             background: isLight ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.18)",
@@ -1823,7 +1848,9 @@ export default function ExpensesLogSection({
                             fontWeight: 700,
                           }}
                         >
-                          ✓ Asignado a Préstamo
+                          {isDebtCollectionItem
+                            ? "✓ Abonado a Deudas Pagadas"
+                            : `✓ ${resolvedRubroDisplayName || item.budgetItemName || "Ingreso Registrado"}`}
                         </span>
                       )}
                     </>
@@ -1832,7 +1859,7 @@ export default function ExpensesLogSection({
                       {isLoan ? (
                         (() => {
                           const personalShareAmt = Math.max(0, (Number(item.amount) || 0) - loanTotal);
-                          const isPureLoan = !item.isSplit || personalShareAmt < 1;
+                          const isPureLoan = !item.isSplit || (personalShareAmt < 1 && !matchedBudgetEnvelope);
                           if (isPureLoan) {
                             return (
                               <>
@@ -1865,37 +1892,58 @@ export default function ExpensesLogSection({
                               </>
                             );
                           }
+                          const liberatedAmt = Math.min(loanTotal, totalSettledAmt);
+                          const effectiveRubroCharge = Math.max(0, (Number(item.amount) || 0) - liberatedAmt);
+                          const envelopeLabel =
+                            matchedBudgetEnvelope?.name ||
+                            (item.budgetItemId && item.budgetItemId !== "loan_receivable"
+                              ? item.budgetItemName
+                              : "Sin rubro");
                           return (
                             <>
-                              <span
-                                style={{
-                                  background: isLight ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.2)",
-                                  border: isLight ? "1px solid rgba(217, 119, 6, 0.4)" : "1px solid #f59e0b",
-                                  padding: "2px 8px",
-                                  borderRadius: "6px",
-                                  fontSize: "0.71rem",
-                                  color: isLight ? "#92400e" : "#fcd34d",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                🤝 Préstamo: {formatMoney(loanTotal, currency)}
-                              </span>
                               <span
                                 style={{
                                   background: isLight ? "rgba(59, 130, 246, 0.1)" : "rgba(59, 130, 246, 0.18)",
                                   border: "1px solid rgba(59, 130, 246, 0.35)",
                                   padding: "2px 8px",
                                   borderRadius: "6px",
-                                  fontSize: "0.70rem",
+                                  fontSize: "0.71rem",
                                   color: isLight ? "#1d4ed8" : "#93c5fd",
                                   fontWeight: 700,
                                 }}
                               >
-                                👥 Tu parte ({formatMoney(personalShareAmt, currency)}):{" "}
-                                {item.budgetItemId && item.budgetItemId !== "loan_receivable"
-                                  ? item.budgetItemName
-                                  : "Sin rubro"}
+                                🏷️ {envelopeLabel} • Neto: {formatMoney(effectiveRubroCharge, currency)}
                               </span>
+                              {liberatedAmt > 0 ? (
+                                <span
+                                  style={{
+                                    background: isLight ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.2)",
+                                    border: "1px solid rgba(16, 185, 129, 0.4)",
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    fontSize: "0.69rem",
+                                    color: isLight ? "#047857" : "#34d399",
+                                    fontWeight: 700,
+                                  }}
+                                  title="El pago recibido liberó este valor del rubro presupuestal"
+                                >
+                                  🌱 Liberado en rubro: -{formatMoney(liberatedAmt, currency)}
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    background: isLight ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.2)",
+                                    border: isLight ? "1px solid rgba(217, 119, 6, 0.4)" : "1px solid #f59e0b",
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    fontSize: "0.70rem",
+                                    color: isLight ? "#92400e" : "#fcd34d",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  ⏳ Por cobrar (liberará rubro): {formatMoney(loanTotal, currency)}
+                                </span>
+                              )}
                             </>
                           );
                         })()

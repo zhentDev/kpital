@@ -458,13 +458,14 @@ object PocketOverlayManager {
         val mainHandler = Handler(Looper.getMainLooper())
 
         // Actualizar cabecera fija
-        titleView.text = "🎯 ¿A qué rubro pertenece?"
+        val isCreditIncoming = txType.equals("credit", ignoreCase = true)
+        titleView.text = if (isCreditIncoming) "📥 ¿De qué es este dinero recibido?" else "🎯 ¿A qué rubro pertenece?"
         amountPrompt.visibility = View.GONE
         amountInput.visibility = View.GONE
         val formatted = String.format(Locale.US, "%,.0f", finalAmount)
-        summaryBadge.text = "💳 $selectedAccount • $$formatted COP"
+        summaryBadge.text = if (isCreditIncoming) "📥 $selectedAccount • +$$formatted COP" else "💳 $selectedAccount • $$formatted COP"
         summaryBadge.visibility = View.VISIBLE
-        subTitleView.text = "Selecciona el rubro presupuestario de Kpital:"
+        subTitleView.text = if (isCreditIncoming) "Clasifica esta entrada de dinero (no se mezcla con gastos):" else "Selecciona el rubro presupuestario de Kpital:"
 
         // Activar botón volver en el pie fijo
         backBtn.visibility = View.VISIBLE
@@ -541,6 +542,7 @@ object PocketOverlayManager {
                 renderOverlayRubroButtons(
                     appContext = appContext,
                     layout = bodyContentLayout,
+                    txType = txType,
                     wealthList = wealthList,
                     needsList = needsList,
                     wantsList = wantsList,
@@ -568,11 +570,57 @@ object PocketOverlayManager {
     private fun renderOverlayRubroButtons(
         appContext: Context,
         layout: LinearLayout,
+        txType: String,
         wealthList: List<Triple<String, String, String>>,
         needsList: List<Triple<String, String, String>>,
         wantsList: List<Triple<String, String, String>>,
         onRubroSelected: (String, String, String) -> Unit
     ) {
+        val isCreditIncoming = txType.equals("credit", ignoreCase = true)
+        if (isCreditIncoming) {
+            // ── MODO ENTRADA DE DINERO (NO MOSTRAR RUBROS DE GASTO) ──
+            addOverlayPillarTag(appContext, layout, "💸 Cobros & Deudas Pagadas (Recomendado 1 Toque)", "#10b981", "#052e16")
+            addOverlayRubroButton(appContext, layout, "Deudas Pagadas (Cobro de Préstamo / Vaca)", "💸", "#10b981") {
+                onRubroSelected("debt_collection", "💸 Deudas Pagadas (Cobro de Préstamo)", "income")
+            }
+
+            addOverlayPillarTag(appContext, layout, "📥 Otros Ingresos o Transferencias", "#0ea5e9", "#082f49")
+            addOverlayRubroButton(appContext, layout, "Salario / Nómina / Quincena", "💼", "#0ea5e9") {
+                onRubroSelected("income_salary", "💼 Salario / Nómina", "income")
+            }
+            addOverlayRubroButton(appContext, layout, "Ingreso Extra / Venta / Rendimientos", "📈", "#38bdf8") {
+                onRubroSelected("income_extra", "📈 Ingreso Extra / Venta", "income")
+            }
+            addOverlayRubroButton(appContext, layout, "Transferencia entre mis Cuentas", "🔄", "#c084fc") {
+                onRubroSelected("internal_transfer", "🔄 Transferencia Propia", "transfer")
+            }
+
+            val skipIncomeBtn = Button(appContext).apply {
+                text = "⚡ Registrar Rápido en Deudas Pagadas"
+                textSize = 11f
+                isAllCaps = false
+                setTextColor(Color.parseColor("#6ee7b7"))
+                background = GradientDrawable().apply {
+                    cornerRadius = 12f
+                    setColor(Color.parseColor("#052e16"))
+                    setStroke(1, Color.parseColor("#10b981"))
+                }
+                setPadding(20, 14, 20, 14)
+                val p = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 10, 0, 8)
+                }
+                layoutParams = p
+                setOnClickListener {
+                    onRubroSelected("debt_collection", "💸 Deudas Pagadas (Cobro de Préstamo)", "income")
+                }
+            }
+            layout.addView(skipIncomeBtn)
+            return
+        }
+
         // ── 0. ACCIONES RÁPIDAS (1 TOQUE: GASTOS HORMIGA & PRÉSTAMOS POR COBRAR) ──
         addOverlayPillarTag(appContext, layout, "⚡ Clasificación Rápida (1 Toque)", "#f59e0b", "#271a05")
         addOverlayRubroButton(appContext, layout, "Gastos Hormiga (Sin rubro fijo)", "🐜", "#f59e0b") {

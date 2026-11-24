@@ -122,7 +122,11 @@ export default function ExpenseTransactionModal({
           editTransaction.budgetItemType === "income";
 
         setMovementNature(isTxIncome ? "income" : "expense");
-        setSelectedBudgetItemId(editTransaction.budgetItemId || "");
+        const initialBudgetId =
+          editTransaction.budgetItemId === "loan_receivable" && editTransaction.originalBudgetItemId
+            ? editTransaction.originalBudgetItemId
+            : editTransaction.budgetItemId || editTransaction.originalBudgetItemId || "";
+        setSelectedBudgetItemId(initialBudgetId);
         setDescription(editTransaction.description || "");
         setAmount(Number(editTransaction.amount) || 0);
         setDate(editTransaction.date || new Date().toISOString().split("T")[0]);
@@ -405,21 +409,30 @@ export default function ExpenseTransactionModal({
       // 💸 OUTGOING EXPENSE (Gasto Real o Préstamo Por Cobrar)
       const isPureLoanTx = Boolean(isLoan && (!isSplit || !userIncluded || userShareCalculated < 1));
       const isHormigaTx = selectedBudgetItemId === "want_gastos_hormiga";
+      const fallbackOriginalId =
+        editTransaction?.originalBudgetItemId ||
+        (editTransaction?.budgetItemId && editTransaction.budgetItemId !== "loan_receivable"
+          ? editTransaction.budgetItemId
+          : null);
+      const fallbackOriginalItem = fallbackOriginalId
+        ? (budgetItems || []).find((b) => b.id === fallbackOriginalId)
+        : null;
+      const effectiveSelectedBudgetItem = selectedBudgetItem || fallbackOriginalItem;
       const resolvedBudgetId = isPureLoanTx
         ? "loan_receivable"
         : isHormigaTx
         ? "want_gastos_hormiga"
-        : selectedBudgetItem?.id || null;
+        : effectiveSelectedBudgetItem?.id || null;
       const resolvedBudgetName = isPureLoanTx
         ? "🤝 Préstamos (Por Cobrar)"
         : isHormigaTx
         ? "🐜 Gastos Hormiga"
-        : selectedBudgetItem?.name || (description.trim() || "Sin Asignar");
+        : effectiveSelectedBudgetItem?.name || (description.trim() || "Sin Asignar");
       const resolvedBudgetType = isPureLoanTx
         ? "receivable"
         : isHormigaTx
         ? "wants"
-        : selectedBudgetItem?.pillarType || null;
+        : effectiveSelectedBudgetItem?.pillarType || null;
 
       const txPayload = {
         ...(editTransaction || {}),
@@ -428,6 +441,15 @@ export default function ExpenseTransactionModal({
         budgetItemId: resolvedBudgetId,
         budgetItemName: resolvedBudgetName,
         budgetItemType: resolvedBudgetType,
+        originalBudgetItemId:
+          effectiveSelectedBudgetItem?.id ||
+          (isHormigaTx ? "want_gastos_hormiga" : fallbackOriginalId),
+        originalBudgetItemName:
+          effectiveSelectedBudgetItem?.name ||
+          (isHormigaTx ? "🐜 Gastos Hormiga" : editTransaction?.originalBudgetItemName || null),
+        originalBudgetItemType:
+          effectiveSelectedBudgetItem?.pillarType ||
+          (isHormigaTx ? "wants" : editTransaction?.originalBudgetItemType || null),
         itemType: isWealthItem ? "wealth_saving" : "expense",
         isExplicitBudgetIncome: false,
         isExplicitSankeyIncome: false,

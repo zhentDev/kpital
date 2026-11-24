@@ -85,7 +85,7 @@ export default function CashFlowSankey({
   const totalAllocated = totalNeeds + totalWants + totalWealth;
   const freeCashFlow = Math.max(0, totalInflow - totalAllocated);
 
-  // ── 1b. Calculate Real-Time Hormiga Expenses & Recoverable Loans (Préstamos por Cobrar) ──
+  // ── 1b. Calculate Real-Time Hormiga Expenses, Recoverable Loans & Paid Debts (Deudas Pagadas) ──
   const { hormigaSpent, totalLoansGross, totalLoansPending, totalLoansRepaid } = useMemo(() => {
     let hSpent = 0;
     let lGross = 0;
@@ -95,7 +95,22 @@ export default function CashFlowSankey({
     (expensesLog || []).forEach((tx) => {
       if (!tx) return;
       if (tx.period && activePeriod && tx.period !== activePeriod) return;
-      if (tx.type === "credit" || tx.budgetItemType === "income") return;
+
+      const isCreditTx = tx.type === "credit" || tx.budgetItemType === "income";
+      if (isCreditTx) {
+        const isStandaloneDebtCollection =
+          (tx.budgetItemId === "debt_collection" ||
+            tx.isDebtCollection ||
+            tx.isDebtPayment ||
+            (tx.budgetItemName || "").toLowerCase().includes("deudas pagadas")) &&
+          !tx.debtId;
+        if (isStandaloneDebtCollection) {
+          const amt = Number(tx.amount) || 0;
+          lRepaid += amt;
+          lGross += amt;
+        }
+        return;
+      }
 
       const isHormiga =
         tx.budgetItemId === "want_gastos_hormiga" ||
@@ -170,8 +185,8 @@ export default function CashFlowSankey({
       {
         id: "pillar_loans",
         pillarType: "loans",
-        name: "🟠 Préstamos (Por Cobrar)",
-        amount: totalLoansPending > 0 ? totalLoansPending : totalLoansGross,
+        name: "🟠 Préstamos & Deudas",
+        amount: Math.max(totalLoansGross, totalLoansPending + totalLoansRepaid),
         isLoanPillar: true,
         color: isLight ? "#d97706" : "#f59e0b", // Ámbar / Dorado para retornables
         glowColor: "#fbbf24",
@@ -242,7 +257,26 @@ export default function CashFlowSankey({
         pillarType: "loans",
         color: isLight ? "#d97706" : "#f59e0b",
       },
-    ].filter((d) => d.amount > 0 || d.isDynamicHormiga || d.isDynamicLoan);
+      {
+        id: "debt_collection",
+        name: "Deudas Pagadas",
+        icon: "💸",
+        amount: totalLoansRepaid,
+        totalLoansGross,
+        totalLoansPending,
+        totalLoansRepaid,
+        isDynamicDebtPaid: true,
+        pillarId: "pillar_loans",
+        pillarType: "loans",
+        color: isLight ? "#059669" : "#10b981",
+      },
+    ].filter(
+      (d) =>
+        d.amount > 0 ||
+        d.isDynamicHormiga ||
+        d.isDynamicLoan ||
+        (d.isDynamicDebtPaid && (totalLoansRepaid > 0 || totalLoansGross > 0))
+    );
 
     const destCount = Math.max(1, validDestinations.length);
     const destNodeH = 60;
@@ -291,12 +325,22 @@ export default function CashFlowSankey({
       const y = destStartY + idx * (destNodeH + nodeGap);
       const isHormigaNode = Boolean(item.isDynamicHormiga);
       const isLoanNode = Boolean(item.isDynamicLoan);
+      const isDebtPaidNode = Boolean(item.isDynamicDebtPaid);
       const budgeted = Number(item.amount) || 0;
       const pct = totalInflow > 0 ? ((budgeted / totalInflow) * 100).toFixed(1) : 0;
 
       // Real execution matching from expensesLog with dynamic loan liberation
       const matchingTxs = (expensesLog || []).filter((tx) => {
         if (tx.period && activePeriod && tx.period !== activePeriod) return false;
+        if (isDebtPaidNode) {
+          return Boolean(
+            (tx.type === "credit" &&
+              (tx.budgetItemId === "debt_collection" ||
+                tx.isDebtCollection ||
+                tx.isDebtPayment)) ||
+              (tx.isLoan && Number(tx.totalSettled) > 0)
+          );
+        }
         if (tx.type === "credit" || tx.budgetItemType === "income") return false;
         if (isLoanNode) {
           return Boolean(
@@ -312,8 +356,9 @@ export default function CashFlowSankey({
               (tx.budgetItemName || "").toLowerCase().includes("hormiga")
           );
         }
-        // Si está explícitamente asignado al rubro por su ID, siempre cuenta como ejecución
+        // Si está explícitamente asignado al rubro por su ID (o era su rubro original en gasto compartido), siempre cuenta como ejecución
         if (tx.budgetItemId && tx.budgetItemId === item.id) return true;
+        if (tx.originalBudgetItemId && tx.originalBudgetItemId === item.id && tx.isSplit) return true;
         // No mezclar préstamos 100% retornables con sobres de gastos reales
         if (tx.budgetItemId === "loan_receivable" || tx.budgetItemType === "receivable") return false;
         const desc = (tx.description || "").toLowerCase();
@@ -331,7 +376,13 @@ export default function CashFlowSankey({
       let pendingLoanAmount = 0;
       let purePersonalSpent = 0;
 
-      if (isLoanNode) {
+      if (isDebtPaidNode) {
+        grossSpent = totalLoansGross;
+        spent = totalLoansRepaid;
+        liberatedAmount = totalLoansRepaid;
+        pendingLoanAmount = totalLoansPending;
+        purePersonalSpent = 0;
+      } else if (isLoanNode) {
         grossSpent = totalLoansGross;
         spent = totalLoansPending;
         liberatedAmount = totalLoansRepaid;
@@ -348,20 +399,41 @@ export default function CashFlowSankey({
         }
       }
 
-      const effectiveDisplayAmount = isHormigaNode && budgeted === 0 ? spent : isLoanNode ? (totalLoansPending > 0 ? totalLoansPending : totalLoansGross) : budgeted;
-      const progressPct = isLoanNode
+      const effectiveDisplayAmount =
+        isHormigaNode && budgeted === 0
+          ? spent
+          : isDebtPaidNode
+          ? totalLoansRepaid > 0
+            ? totalLoansRepaid
+            : totalLoansGross
+          : isLoanNode
+          ? totalLoansPending > 0
+            ? totalLoansPending
+            : totalLoansGross
+          : budgeted;
+      const progressPct = isDebtPaidNode
+        ? totalLoansGross > 0
+          ? Math.min(100, (totalLoansRepaid / totalLoansGross) * 100)
+          : totalLoansRepaid > 0
+          ? 100
+          : 0
+        : isLoanNode
         ? (totalLoansGross > 0 ? Math.min(100, (totalLoansPending / totalLoansGross) * 100) : 0)
         : isHormigaNode && budgeted === 0
         ? (spent > 0 ? 100 : 0)
         : budgeted > 0
         ? (spent / budgeted) * 100
         : 0;
-      const remaining = isLoanNode ? totalLoansPending : Math.max(0, budgeted - spent);
+      const remaining = isDebtPaidNode || isLoanNode ? totalLoansPending : Math.max(0, budgeted - spent);
 
       let isPaid = false;
       let isExceeded = false;
       let isNearLimit = false;
-      let isActive = isLoanNode ? (totalLoansPending > 0 || totalLoansGross > 0) : spent > 0;
+      let isActive = isDebtPaidNode
+        ? totalLoansRepaid > 0
+        : isLoanNode
+        ? totalLoansPending > 0 || totalLoansGross > 0
+        : spent > 0;
 
       // ── HERENCIA CROMÁTICA DE LOS PILARES PRINCIPALES ──
       // Wealth: Verde Esmeralda / Menta
@@ -385,7 +457,25 @@ export default function CashFlowSankey({
       let liquidColorStart = item.color;
       let liquidColorEnd = item.color;
 
-      if (pType === "loans") {
+      if (isDebtPaidNode) {
+        // ── NODO DEUDAS PAGADAS (COBROS RECUPERADOS QUE LIBERAN RUBRO) ──
+        if (totalLoansRepaid > 0) {
+          statusLabel = "✅ Recuperado";
+          statusColor = isLight ? "#047857" : "#00f5a0";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.22)" : "rgba(0, 245, 160, 0.24)";
+          isPaid = totalLoansPending === 0;
+          dynamicNodeColor = isLight ? "#059669" : "#10b981";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.34)" : "rgba(16, 185, 129, 0.44)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.16)" : "rgba(0, 245, 160, 0.22)";
+        } else {
+          statusLabel = "⏳ Sin Cobros";
+          statusColor = isLight ? "#059669" : "#34d399";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.12)" : "rgba(16, 185, 129, 0.15)";
+          dynamicNodeColor = isLight ? "#059669" : "#10b981";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.16)" : "rgba(16, 185, 129, 0.22)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.08)" : "rgba(0, 245, 160, 0.12)";
+        }
+      } else if (pType === "loans") {
         // ── RAMA PRÉSTAMOS POR COBRAR (ÁMBAR / DORADO RETORNABLE) ──
         if (totalLoansPending > 0) {
           statusLabel = "🔄 Por Cobrar";
@@ -543,6 +633,7 @@ export default function CashFlowSankey({
         pillarType: pType,
         isHormigaNode,
         isLoanNode,
+        isDebtPaidNode,
         name: item.name,
         icon: item.icon || "🎯",
         amount: effectiveDisplayAmount,
@@ -588,9 +679,7 @@ export default function CashFlowSankey({
       const children = col3Nodes.filter((d) => d.pillarId === p.id);
       const pillarSpent = children.reduce((acc, c) => acc + (c.spent || 0), 0);
       const effectivePillarAmount = p.isLoanPillar
-        ? totalLoansPending > 0
-          ? totalLoansPending
-          : totalLoansGross
+        ? Math.max(totalLoansGross, totalLoansPending + totalLoansRepaid)
         : p.id === "pillar_wants"
         ? Math.max(p.amount, p.amount + hormigaSpent)
         : p.amount;
@@ -1611,7 +1700,9 @@ export default function CashFlowSankey({
                         fontWeight={800}
                         fontFamily="JetBrains Mono, monospace"
                       >
-                        {node.col === 3 && node.isLoanNode
+                        {node.col === 3 && node.isDebtPaidNode
+                          ? `${formatAmount(node.spent || 0, currency)} cobrado`
+                          : node.col === 3 && node.isLoanNode
                           ? `${formatAmount(node.pendingLoanAmount || 0, currency)} por cobrar`
                           : node.col === 3 && node.isHormigaNode && (node.budgetedAmount || 0) === 0
                           ? `${formatAmount(node.spent || 0, currency)} (Variable)`
