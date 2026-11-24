@@ -85,21 +85,63 @@ export default function CashFlowSankey({
   const totalAllocated = totalNeeds + totalWants + totalWealth;
   const freeCashFlow = Math.max(0, totalInflow - totalAllocated);
 
+  // ── 1b. Calculate Real-Time Hormiga Expenses & Recoverable Loans (Préstamos por Cobrar) ──
+  const { hormigaSpent, totalLoansGross, totalLoansPending, totalLoansRepaid } = useMemo(() => {
+    let hSpent = 0;
+    let lGross = 0;
+    let lPending = 0;
+    let lRepaid = 0;
+
+    (expensesLog || []).forEach((tx) => {
+      if (!tx) return;
+      if (tx.period && activePeriod && tx.period !== activePeriod) return;
+      if (tx.type === "credit" || tx.budgetItemType === "income") return;
+
+      const isHormiga =
+        tx.budgetItemId === "want_gastos_hormiga" ||
+        (tx.budgetItemName || "").toLowerCase().includes("hormiga");
+      if (isHormiga) {
+        hSpent += Number(tx.amount) || 0;
+      }
+
+      const isLoanTx = Boolean(
+        tx.isLoan ||
+          tx.budgetItemId === "loan_receivable" ||
+          tx.budgetItemType === "receivable" ||
+          Number(tx.loanAmount) > 0
+      );
+      if (isLoanTx) {
+        const eff = calculateEffectiveExpense(tx, debts);
+        const grossLoan = Number(tx.loanAmount) > 0 ? Number(tx.loanAmount) : Number(tx.amount) || 0;
+        lGross += grossLoan;
+        lPending += eff.pendingLoan;
+        lRepaid += eff.repaidAmount;
+      }
+    });
+
+    return {
+      hormigaSpent: hSpent,
+      totalLoansGross: lGross,
+      totalLoansPending: lPending,
+      totalLoansRepaid: lRepaid,
+    };
+  }, [expensesLog, debts, activePeriod]);
+
   // ── 2. Build SVG Nodes & Layout Coordinates ──────────
   const layout = useMemo(() => {
     const W = 1260;
-    const paddingY = 40;
+    const paddingY = 48;
     const nodeWidth = 210;
-    const nodeH = 54;
+    const nodeH = 56;
     const nodeGap = 16;
 
-    const colX = [30, 370, 710, 1010]; // 4 Well-distributed columns
+    const colX = [30, 362, 705, 1010]; // 4 Well-distributed columns
 
     // Column 0: Valid Inflow Sources (Preserva los 3 de siempre limpios)
     const validInflows = activeInflows;
     const col0Count = Math.max(1, validInflows.length);
 
-    // Column 2: Pillars con herencia cromática parental pura
+    // Column 2: Pillars con herencia cromática parental pura + Préstamos (Por Cobrar)
     const pillars = [
       {
         id: "pillar_wealth",
@@ -125,11 +167,21 @@ export default function CashFlowSankey({
         color: isLight ? "#9333ea" : "#c084fc", // Púrpura / Fucsia vibrante
         glowColor: "#e879f9",
       },
+      {
+        id: "pillar_loans",
+        pillarType: "loans",
+        name: "🟠 Préstamos (Por Cobrar)",
+        amount: totalLoansPending > 0 ? totalLoansPending : totalLoansGross,
+        isLoanPillar: true,
+        color: isLight ? "#d97706" : "#f59e0b", // Ámbar / Dorado para retornables
+        glowColor: "#fbbf24",
+      },
     ];
 
     if (freeCashFlow > 0) {
       pillars.push({
         id: "pillar_fcf",
+        pillarType: "fcf",
         name: "⚪ Flujo Libre",
         amount: freeCashFlow,
         color: isLight ? "#059669" : "#10b981",
@@ -137,6 +189,18 @@ export default function CashFlowSankey({
     }
 
     const col2Count = pillars.length;
+
+    // Ensure "🐜 Gastos Hormiga" exists under Wants and "🤝 Préstamos (Por Cobrar)" exists under Loans
+    const wantsWithHormiga = [...wants];
+    if (!wantsWithHormiga.some((w) => w.id === "want_gastos_hormiga" || (w.name || "").toLowerCase().includes("hormiga"))) {
+      wantsWithHormiga.push({
+        id: "want_gastos_hormiga",
+        name: "Gastos Hormiga",
+        icon: "🐜",
+        amount: 0,
+        isDynamicHormiga: true,
+      });
+    }
 
     // Column 3: Specific Subcategory Destinations (Pockets) heredando el tono de su pilar padre
     const validDestinations = [
@@ -154,29 +218,51 @@ export default function CashFlowSankey({
         pillarType: "needs",
         color: isLight ? "#0284c7" : "#0ea5e9",
       })),
-      ...wants.map((w) => ({
+      ...wantsWithHormiga.map((w) => ({
         ...w,
         amount: Number(w.amount) || 0,
+        isDynamicHormiga:
+          Boolean(w.isDynamicHormiga) ||
+          w.id === "want_gastos_hormiga" ||
+          (w.name || "").toLowerCase().includes("hormiga"),
         pillarId: "pillar_wants",
         pillarType: "wants",
         color: isLight ? "#9333ea" : "#c084fc",
       })),
-    ].filter((d) => d.amount > 0);
+      {
+        id: "loan_receivable",
+        name: "Préstamos (Por Cobrar)",
+        icon: "🤝",
+        amount: totalLoansPending > 0 ? totalLoansPending : totalLoansGross,
+        totalLoansGross,
+        totalLoansPending,
+        totalLoansRepaid,
+        isDynamicLoan: true,
+        pillarId: "pillar_loans",
+        pillarType: "loans",
+        color: isLight ? "#d97706" : "#f59e0b",
+      },
+    ].filter((d) => d.amount > 0 || d.isDynamicHormiga || d.isDynamicLoan);
 
     const destCount = Math.max(1, validDestinations.length);
+    const destNodeH = 60;
+    const col2NodeH = 64;
 
-    // Compute dynamic Canvas Height H
-    const maxRows = Math.max(col0Count, col2Count, destCount, 5);
-    const totalContentH = maxRows * nodeH + (maxRows - 1) * nodeGap;
-    const H = Math.max(520, totalContentH + paddingY * 2);
+    // Compute dynamic Canvas Height H based on actual tallest column (Col 3 uses destNodeH = 60) so top/bottom nodes never clip!
+    const col0TotalH = col0Count * nodeH + Math.max(0, col0Count - 1) * 22;
+    const col2MinTotalH = col2Count * col2NodeH + Math.max(0, col2Count - 1) * 38;
+    const destTotalBlockH = destCount * destNodeH + Math.max(0, destCount - 1) * nodeGap;
+    const totalContentH = Math.max(col0TotalH, col2MinTotalH, destTotalBlockH, 360);
+    const H = Math.max(580, totalContentH + paddingY * 2);
     const usableH = H - paddingY * 2;
 
-    // ── Position Column 0 Nodes (Inflows) ──
-    const inflowTotalBlockH = col0Count * nodeH + (col0Count - 1) * nodeGap;
+    // ── Position Column 0 Nodes (Inflows) with generous spacing ──
+    const col0Gap = col0Count > 1 ? Math.max(22, Math.min(36, (usableH * 0.55 - col0Count * nodeH) / (col0Count - 1))) : 22;
+    const inflowTotalBlockH = col0Count * nodeH + Math.max(0, col0Count - 1) * col0Gap;
     const inflowStartY = paddingY + (usableH - inflowTotalBlockH) / 2;
 
     const col0Nodes = validInflows.map((item, idx) => {
-      const y = inflowStartY + idx * (nodeH + nodeGap);
+      const y = inflowStartY + idx * (nodeH + col0Gap);
       const amt = Number(item.amount) || 0;
       const pct = totalInflow > 0 ? ((amt / totalInflow) * 100).toFixed(1) : 0;
       return {
@@ -198,44 +284,44 @@ export default function CashFlowSankey({
       };
     });
 
-    // ── Position Column 1 Node (Central Net Income Hub) ──
-    const hubH = Math.max(90, Math.min(140, col0Count * 42));
-    const col1Node = {
-      id: "net_income_hub",
-      name: "Ingreso Neto Total",
-      icon: "⚡",
-      amount: totalInflow,
-      pct: 100,
-      col: 1,
-      x: colX[1],
-      y: paddingY + (usableH - hubH) / 2,
-      width: nodeWidth + 15,
-      height: hubH,
-      color: isLight ? "#0284c7" : "#00e5ff",
-    };
-
     // ── Position Column 3 Nodes (Destinations with Living Dynamic Tone & Glow) ──
-    const destNodeH = 60;
-    const destTotalBlockH = destCount * destNodeH + (destCount - 1) * nodeGap;
     const destStartY = paddingY + (usableH - destTotalBlockH) / 2;
 
     const col3Nodes = validDestinations.map((item, idx) => {
       const y = destStartY + idx * (destNodeH + nodeGap);
+      const isHormigaNode = Boolean(item.isDynamicHormiga);
+      const isLoanNode = Boolean(item.isDynamicLoan);
       const budgeted = Number(item.amount) || 0;
       const pct = totalInflow > 0 ? ((budgeted / totalInflow) * 100).toFixed(1) : 0;
 
       // Real execution matching from expensesLog with dynamic loan liberation
       const matchingTxs = (expensesLog || []).filter((tx) => {
         if (tx.period && activePeriod && tx.period !== activePeriod) return false;
+        if (tx.type === "credit" || tx.budgetItemType === "income") return false;
+        if (isLoanNode) {
+          return Boolean(
+            tx.isLoan ||
+              tx.budgetItemId === "loan_receivable" ||
+              tx.budgetItemType === "receivable" ||
+              Number(tx.loanAmount) > 0
+          );
+        }
+        if (isHormigaNode) {
+          return Boolean(
+            tx.budgetItemId === "want_gastos_hormiga" ||
+              (tx.budgetItemName || "").toLowerCase().includes("hormiga")
+          );
+        }
         // Si está explícitamente asignado al rubro por su ID, siempre cuenta como ejecución
         if (tx.budgetItemId && tx.budgetItemId === item.id) return true;
+        // No mezclar préstamos 100% retornables con sobres de gastos reales
+        if (tx.budgetItemId === "loan_receivable" || tx.budgetItemType === "receivable") return false;
         const desc = (tx.description || "").toLowerCase();
         const bName = (tx.budgetItemName || "").toLowerCase();
-        const itemName = item.name.toLowerCase();
-        if (bName && (bName.includes(itemName) || itemName.includes(bName))) return true;
+        const itemName = (item.name || "").toLowerCase();
+        if (bName && itemName && (bName.includes(itemName) || itemName.includes(bName))) return true;
         if (itemName.includes("emergencia") && (desc.includes("emergencia") || bName.includes("emergencia") || desc.includes("rappicuenta"))) return true;
         if (itemName.includes("arriendo") && (desc.includes("arriendo") || bName.includes("arriendo"))) return true;
-        if (tx.type === "credit" || tx.budgetItemType === "income") return false;
         return false;
       });
 
@@ -245,28 +331,52 @@ export default function CashFlowSankey({
       let pendingLoanAmount = 0;
       let purePersonalSpent = 0;
 
-      for (const tx of matchingTxs) {
-        const eff = calculateEffectiveExpense(tx, debts);
-        grossSpent += eff.grossAmount;
-        spent += eff.effectiveSpent;
-        liberatedAmount += eff.repaidAmount;
-        pendingLoanAmount += eff.pendingLoan;
-        purePersonalSpent += eff.purePersonalSpent;
+      if (isLoanNode) {
+        grossSpent = totalLoansGross;
+        spent = totalLoansPending;
+        liberatedAmount = totalLoansRepaid;
+        pendingLoanAmount = totalLoansPending;
+        purePersonalSpent = 0;
+      } else {
+        for (const tx of matchingTxs) {
+          const eff = calculateEffectiveExpense(tx, debts);
+          grossSpent += eff.grossAmount;
+          spent += eff.effectiveSpent;
+          liberatedAmount += eff.repaidAmount;
+          pendingLoanAmount += eff.pendingLoan;
+          purePersonalSpent += eff.purePersonalSpent;
+        }
       }
 
-      const progressPct = budgeted > 0 ? (spent / budgeted) * 100 : 0;
-      const remaining = Math.max(0, budgeted - spent);
+      const effectiveDisplayAmount = isHormigaNode && budgeted === 0 ? spent : isLoanNode ? (totalLoansPending > 0 ? totalLoansPending : totalLoansGross) : budgeted;
+      const progressPct = isLoanNode
+        ? (totalLoansGross > 0 ? Math.min(100, (totalLoansPending / totalLoansGross) * 100) : 0)
+        : isHormigaNode && budgeted === 0
+        ? (spent > 0 ? 100 : 0)
+        : budgeted > 0
+        ? (spent / budgeted) * 100
+        : 0;
+      const remaining = isLoanNode ? totalLoansPending : Math.max(0, budgeted - spent);
 
       let isPaid = false;
       let isExceeded = false;
       let isNearLimit = false;
-      let isActive = spent > 0;
+      let isActive = isLoanNode ? (totalLoansPending > 0 || totalLoansGross > 0) : spent > 0;
 
-      // ── HERENCIA CROMÁTICA DE LOS 3 PADRES PRINCIPALES ──
+      // ── HERENCIA CROMÁTICA DE LOS PILARES PRINCIPALES ──
       // Wealth: Verde Esmeralda / Menta
       // Needs: Azul Cielo / Índigo Eléctrico
       // Wants: Púrpura / Fucsia Radiante
-      const pType = item.pillarType || (item.id?.startsWith("wealth") ? "wealth" : item.id?.startsWith("need") ? "needs" : "wants");
+      // Loans: Ámbar / Dorado Retornable
+      const pType =
+        item.pillarType ||
+        (isLoanNode
+          ? "loans"
+          : item.id?.startsWith("wealth")
+          ? "wealth"
+          : item.id?.startsWith("need")
+          ? "needs"
+          : "wants");
 
       let statusLabel = "⏳ Pendiente";
       let statusColor = item.color;
@@ -275,7 +385,39 @@ export default function CashFlowSankey({
       let liquidColorStart = item.color;
       let liquidColorEnd = item.color;
 
-      if (pType === "wealth") {
+      if (pType === "loans") {
+        // ── RAMA PRÉSTAMOS POR COBRAR (ÁMBAR / DORADO RETORNABLE) ──
+        if (totalLoansPending > 0) {
+          statusLabel = "🔄 Por Cobrar";
+          statusColor = isLight ? "#b45309" : "#fcd34d";
+          statusBg = isLight ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.26)";
+          dynamicNodeColor = isLight ? "#d97706" : "#f59e0b";
+          liquidColorStart = isLight ? "rgba(245, 158, 11, 0.32)" : "rgba(245, 158, 11, 0.42)";
+          liquidColorEnd = isLight ? "rgba(217, 119, 6, 0.14)" : "rgba(251, 191, 36, 0.2)";
+        } else if (totalLoansGross > 0) {
+          statusLabel = "✅ Cobrado";
+          statusColor = isLight ? "#047857" : "#00f5a0";
+          statusBg = isLight ? "rgba(16, 185, 129, 0.22)" : "rgba(0, 245, 160, 0.24)";
+          isPaid = true;
+          dynamicNodeColor = isLight ? "#059669" : "#10b981";
+          liquidColorStart = isLight ? "rgba(16, 185, 129, 0.32)" : "rgba(16, 185, 129, 0.42)";
+          liquidColorEnd = isLight ? "rgba(5, 150, 105, 0.14)" : "rgba(0, 245, 160, 0.2)";
+        } else {
+          statusLabel = "🤝 Sin Deuda";
+          statusColor = isLight ? "#d97706" : "#fbbf24";
+          statusBg = isLight ? "rgba(245, 158, 11, 0.12)" : "rgba(245, 158, 11, 0.15)";
+          dynamicNodeColor = isLight ? "#d97706" : "#f59e0b";
+          liquidColorStart = isLight ? "rgba(245, 158, 11, 0.16)" : "rgba(245, 158, 11, 0.22)";
+          liquidColorEnd = isLight ? "rgba(217, 119, 6, 0.08)" : "rgba(251, 191, 36, 0.12)";
+        }
+      } else if (isHormigaNode && budgeted === 0) {
+        statusLabel = spent > 0 ? "🐜 Variable" : "🐜 Libre";
+        statusColor = isLight ? "#7e22ce" : "#e879f9";
+        statusBg = isLight ? "rgba(147, 51, 234, 0.16)" : "rgba(217, 70, 239, 0.22)";
+        dynamicNodeColor = isLight ? "#9333ea" : "#c084fc";
+        liquidColorStart = isLight ? "rgba(147, 51, 234, 0.26)" : "rgba(217, 70, 239, 0.36)";
+        liquidColorEnd = isLight ? "rgba(126, 34, 206, 0.12)" : "rgba(232, 121, 249, 0.18)";
+      } else if (pType === "wealth") {
         // ── RAMA PATRIMONIO & AHORRO (VERDES / ESMERALDA) ──
         if (spent === 0) {
           statusLabel = "⏳ Pendiente";
@@ -398,10 +540,13 @@ export default function CashFlowSankey({
         id: item.id,
         fillGradId: `node_fill_${String(item.id).replace(/[^a-zA-Z0-9]/g, "_")}`,
         rawItem: item,
-        pillarType: item.pillarType,
+        pillarType: pType,
+        isHormigaNode,
+        isLoanNode,
         name: item.name,
         icon: item.icon || "🎯",
-        amount: budgeted,
+        amount: effectiveDisplayAmount,
+        budgetedAmount: budgeted,
         spent,
         grossSpent,
         liberatedAmount,
@@ -430,31 +575,69 @@ export default function CashFlowSankey({
       };
     });
 
-    // ── Position Column 2 Nodes (Pillars with Aggregate Real Execution) ──
-    const pillarTotalBlockH = col2Count * (nodeH + 6) + (col2Count - 1) * 18;
+    // ── Position Column 2 Nodes (Pillars with Generous Vertical Breathing Room) ──
+    const col2Gap =
+      col2Count > 1
+        ? Math.max(40, Math.min(72, (usableH * 0.76 - col2Count * col2NodeH) / (col2Count - 1)))
+        : 40;
+    const pillarTotalBlockH = col2Count * col2NodeH + Math.max(0, col2Count - 1) * col2Gap;
     const pillarStartY = paddingY + (usableH - pillarTotalBlockH) / 2;
 
     const col2Nodes = pillars.map((p, idx) => {
-      const y = pillarStartY + idx * (nodeH + 6 + 18);
-      const pct = totalInflow > 0 ? ((p.amount / totalInflow) * 100).toFixed(1) : 0;
+      const y = pillarStartY + idx * (col2NodeH + col2Gap);
       const children = col3Nodes.filter((d) => d.pillarId === p.id);
       const pillarSpent = children.reduce((acc, c) => acc + (c.spent || 0), 0);
-      const pillarProgressPct = p.amount > 0 ? Math.min(100, (pillarSpent / p.amount) * 100) : 0;
+      const effectivePillarAmount = p.isLoanPillar
+        ? totalLoansPending > 0
+          ? totalLoansPending
+          : totalLoansGross
+        : p.id === "pillar_wants"
+        ? Math.max(p.amount, p.amount + hormigaSpent)
+        : p.amount;
+      const pct = totalInflow > 0 ? ((effectivePillarAmount / totalInflow) * 100).toFixed(1) : 0;
+      const pillarProgressPct =
+        effectivePillarAmount > 0 ? Math.min(100, (pillarSpent / effectivePillarAmount) * 100) : 0;
 
       return {
         ...p,
+        amount: effectivePillarAmount,
         fillGradId: `pillar_fill_${String(p.id).replace(/[^a-zA-Z0-9]/g, "_")}`,
         pct,
         spent: pillarSpent,
         progressPct: pillarProgressPct,
-        isActive: pillarSpent > 0,
+        isActive: pillarSpent > 0 || p.isLoanPillar,
         col: 2,
         x: colX[2],
         y,
-        width: nodeWidth + 10,
-        height: nodeH + 6,
+        width: nodeWidth + 12,
+        height: col2NodeH,
       };
     });
+
+    // ── Position Column 1 Node (Central Net Income Hub — Enriched & Perfectly Centered) ──
+    const totalExecutedReal = col3Nodes
+      .filter((n) => !n.isLoanNode)
+      .reduce((acc, n) => acc + (Number(n.spent) || 0), 0);
+    const hubH = 160;
+    const hubW = nodeWidth + 28;
+    const col1Node = {
+      id: "net_income_hub",
+      name: "Ingreso Neto Total",
+      icon: "⚡",
+      amount: totalInflow,
+      totalAllocated,
+      totalExecutedReal,
+      totalLoansPending,
+      hormigaSpent,
+      freeCashFlow,
+      pct: 100,
+      col: 1,
+      x: colX[1],
+      y: paddingY + (usableH - hubH) / 2,
+      width: hubW,
+      height: hubH,
+      color: isLight ? "#0284c7" : "#00e5ff",
+    };
 
     // ── 3. Build Flow Links with Distributed Port Anchors ──
     const links = [];
@@ -555,7 +738,25 @@ export default function CashFlowSankey({
       W,
       H,
     };
-  }, [inflows, needs, wants, wealth, totalInflow, totalNeeds, totalWants, totalWealth, freeCashFlow, expensesLog, debts, activePeriod, isLight]);
+  }, [
+    inflows,
+    needs,
+    wants,
+    wealth,
+    totalInflow,
+    totalNeeds,
+    totalWants,
+    totalWealth,
+    freeCashFlow,
+    hormigaSpent,
+    totalLoansGross,
+    totalLoansPending,
+    totalLoansRepaid,
+    expensesLog,
+    debts,
+    activePeriod,
+    isLight,
+  ]);
 
   return (
     <div className="cashflow-sankey-section">
@@ -715,6 +916,23 @@ export default function CashFlowSankey({
                 }}
               >
                 🟣 Estilo de Vida ({customRatios.wants}%)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPillarFilter("loans")}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "8px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: pillarFilter === "loans" ? "1.5px solid #f59e0b" : "1px solid rgba(245, 158, 11, 0.25)",
+                  background: pillarFilter === "loans" ? (isLight ? "#fef3c7" : "rgba(245, 158, 11, 0.2)") : "transparent",
+                  color: pillarFilter === "loans" ? (isLight ? "#b45309" : "#fcd34d") : "var(--text-muted)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                🟠 Préstamos (Por Cobrar)
               </button>
             </div>
 
@@ -1228,66 +1446,182 @@ export default function CashFlowSankey({
                     fill={node.color}
                   />
 
-                  {/* Node Icon & Name */}
-                  <text
-                    x={13}
-                    y={node.col === 3 ? 23 : node.height === 54 ? 22 : 30}
-                    fill={isLight ? "#0f172a" : "#f8fafc"}
-                    fontSize={node.col === 1 ? 14 : node.col === 3 ? 11.5 : 12.5}
-                    fontWeight={700}
-                    fontFamily="Inter, sans-serif"
-                  >
-                    {node.icon ? `${node.icon} ` : ""}
-                    {node.col === 3 && node.name.length > 15 ? `${node.name.slice(0, 14)}…` : displayName}
-                  </text>
-
-                  {/* Destination Status Pill (Col 3) */}
-                  {node.col === 3 && node.statusLabel && (
-                    <g transform={`translate(${node.width - 82}, 8)`}>
+                  {node.col === 1 ? (
+                    /* ── Central Net Income Hub (100% Centered + Enriched Summary Metrics) ── */
+                    <g>
+                      {/* Top Pill Tag */}
                       <rect
-                        width={74}
+                        x={node.width / 2 - 74}
+                        y={11}
+                        width={148}
                         height={18}
-                        rx={6}
-                        fill={node.statusBg}
-                        stroke={node.statusColor}
-                        strokeWidth={node.isActive ? 1.1 : 0.7}
+                        rx={9}
+                        fill={isLight ? "rgba(2, 132, 199, 0.14)" : "rgba(0, 229, 255, 0.18)"}
+                        stroke={node.color}
+                        strokeWidth={0.8}
                       />
                       <text
-                        x={37}
-                        y={12.5}
+                        x={node.width / 2}
+                        y={23}
                         textAnchor="middle"
-                        fill={node.statusColor}
+                        fill={node.color}
                         fontSize={9.5}
                         fontWeight={800}
                         fontFamily="Inter, sans-serif"
+                        letterSpacing="0.4px"
                       >
-                        {node.statusLabel}
+                        ⚡ FLUJO CENTRAL ({activePeriod || "MES"})
+                      </text>
+
+                      {/* Main Hub Title */}
+                      <text
+                        x={node.width / 2}
+                        y={47}
+                        textAnchor="middle"
+                        fill={isLight ? "#0f172a" : "#f8fafc"}
+                        fontSize={13.5}
+                        fontWeight={800}
+                        fontFamily="Inter, sans-serif"
+                      >
+                        Ingreso Neto Total
+                      </text>
+
+                      {/* Main Hub Amount */}
+                      <text
+                        x={node.width / 2}
+                        y={68}
+                        textAnchor="middle"
+                        fill={node.color}
+                        fontSize={13.5}
+                        fontWeight={800}
+                        fontFamily="JetBrains Mono, monospace"
+                      >
+                        {formatAmount(node.amount, currency)} (100%)
+                      </text>
+
+                      {/* Center Divider */}
+                      <line
+                        x1={18}
+                        y1={80}
+                        x2={node.width - 18}
+                        y2={80}
+                        stroke={isLight ? "rgba(2, 132, 199, 0.25)" : "rgba(0, 229, 255, 0.25)"}
+                        strokeWidth={1}
+                        strokeDasharray="3 2"
+                      />
+
+                      {/* Enriched Metric 1: Ejecutado Real */}
+                      <text
+                        x={node.width / 2}
+                        y={100}
+                        textAnchor="middle"
+                        fill={isLight ? "#334155" : "#cbd5e1"}
+                        fontSize={10.5}
+                        fontWeight={700}
+                        fontFamily="Inter, sans-serif"
+                      >
+                        🔥 Ejecutado: {formatAmount(node.totalExecutedReal || 0, currency)}
+                      </text>
+
+                      {/* Enriched Metric 2: Gastos Hormiga */}
+                      <text
+                        x={node.width / 2}
+                        y={121}
+                        textAnchor="middle"
+                        fill={isLight ? "#7e22ce" : "#e879f9"}
+                        fontSize={10.5}
+                        fontWeight={700}
+                        fontFamily="Inter, sans-serif"
+                      >
+                        🐜 Gastos Hormiga: {formatAmount(node.hormigaSpent || 0, currency)}
+                      </text>
+
+                      {/* Enriched Metric 3: Préstamos por Cobrar */}
+                      <text
+                        x={node.width / 2}
+                        y={142}
+                        textAnchor="middle"
+                        fill={isLight ? "#b45309" : "#fcd34d"}
+                        fontSize={10.5}
+                        fontWeight={700}
+                        fontFamily="Inter, sans-serif"
+                      >
+                        🤝 Por Cobrar: {formatAmount(node.totalLoansPending || 0, currency)}
+                      </text>
+                    </g>
+                  ) : (
+                    /* ── Standard Nodes (Col 0, Col 2, Col 3) Vertically Centered ── */
+                    <g>
+                      {/* Node Icon & Name */}
+                      <text
+                        x={14}
+                        y={node.col === 3 ? 23 : Math.round(node.height / 2) - 6}
+                        fill={isLight ? "#0f172a" : "#f8fafc"}
+                        fontSize={node.col === 3 ? 11.5 : 12.5}
+                        fontWeight={700}
+                        fontFamily="Inter, sans-serif"
+                      >
+                        {node.icon ? `${node.icon} ` : ""}
+                        {node.col === 3 && node.name.length > 15 ? `${node.name.slice(0, 14)}…` : displayName}
+                      </text>
+
+                      {/* Destination Status Pill (Col 3) */}
+                      {node.col === 3 && node.statusLabel && (
+                        <g transform={`translate(${node.width - 82}, 8)`}>
+                          <rect
+                            width={74}
+                            height={18}
+                            rx={6}
+                            fill={node.statusBg}
+                            stroke={node.statusColor}
+                            strokeWidth={node.isActive ? 1.1 : 0.7}
+                          />
+                          <text
+                            x={37}
+                            y={12.5}
+                            textAnchor="middle"
+                            fill={node.statusColor}
+                            fontSize={9.5}
+                            fontWeight={800}
+                            fontFamily="Inter, sans-serif"
+                          >
+                            {node.statusLabel}
+                          </text>
+                        </g>
+                      )}
+
+                      {/* Node Amount & Executed Sub-label */}
+                      <text
+                        x={14}
+                        y={node.col === 3 ? 44 : Math.round(node.height / 2) + 14}
+                        fill={
+                          node.col === 3 && node.isPaid
+                            ? isLight
+                              ? "#047857"
+                              : "#00f5a0"
+                            : node.col === 3 && node.isExceeded
+                            ? "#ff2a5f"
+                            : node.col === 3 && node.isNearLimit
+                            ? isLight
+                              ? "#d97706"
+                              : "#fbbf24"
+                            : node.color
+                        }
+                        fontSize={11.5}
+                        fontWeight={800}
+                        fontFamily="JetBrains Mono, monospace"
+                      >
+                        {node.col === 3 && node.isLoanNode
+                          ? `${formatAmount(node.pendingLoanAmount || 0, currency)} por cobrar`
+                          : node.col === 3 && node.isHormigaNode && (node.budgetedAmount || 0) === 0
+                          ? `${formatAmount(node.spent || 0, currency)} (Variable)`
+                          : node.col === 3 && node.isActive && !node.isPaid
+                          ? `${formatAmount(node.spent, currency)} / ${formatAmount(node.amount, currency)}`
+                          : formatAmount(node.amount, currency)}
+                        {node.pct && node.col !== 3 ? ` (${node.pct}%)` : ""}
                       </text>
                     </g>
                   )}
-
-                  {/* Node Amount & Executed Sub-label */}
-                  <text
-                    x={13}
-                    y={node.col === 3 ? 44 : node.height === 54 ? 40 : 54}
-                    fill={
-                      node.col === 3 && node.isPaid
-                        ? isLight ? "#047857" : "#00f5a0"
-                        : node.col === 3 && node.isExceeded
-                        ? "#ff2a5f"
-                        : node.col === 3 && node.isNearLimit
-                        ? isLight ? "#d97706" : "#fbbf24"
-                        : node.color
-                    }
-                    fontSize={node.col === 1 ? 14 : 11.5}
-                    fontWeight={800}
-                    fontFamily="JetBrains Mono, monospace"
-                  >
-                    {node.col === 3 && node.isActive && !node.isPaid
-                      ? `${formatAmount(node.spent, currency)} / ${formatAmount(node.amount, currency)}`
-                      : formatAmount(node.amount, currency)}
-                    {node.pct && node.col !== 3 ? ` (${node.pct}%)` : ""}
-                  </text>
 
                   {/* Node Port Anchor Dots */}
                   {node.col !== 0 && (
