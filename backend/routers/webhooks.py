@@ -1298,17 +1298,33 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
+            mobile_rubro_aliases = {
+                "want_restaurants": ("want_dining", "Restaurantes, Cafés & Salidas", "wants"),
+                "want_shopping": ("want_leisure", "Ocio, Hobbies & Compras", "wants"),
+                "want_transport": ("need_health_transport", "Salud, EPS & Transporte", "needs"),
+                "need_health": ("need_health_transport", "Salud, EPS & Transporte", "needs"),
+                "need_rent": ("need_housing", "Arriendo / Vivienda & Admin", "needs"),
+                "wealth_savings": ("wealth_high_yield", "Ahorro Alto Rendimiento (Nu / Plenti / CDTs)", "wealth"),
+                "wealth_portfolio": ("wealth_tech_etf", "Portafolio Renta Variable (Al día / Tiempo Real)", "wealth"),
+                "wealth_viaje": ("wealth_travel_goal", "Meta Viaje / Estudio", "wealth"),
+            }
+            raw_bid = (payload.budget_item_id or "").strip()
+            raw_bname = (payload.budget_item_name or "").strip()
+            raw_btype = (payload.budget_item_type or "").strip()
+            if raw_bid in mobile_rubro_aliases:
+                raw_bid, raw_bname, raw_btype = mobile_rubro_aliases[raw_bid]
+
             is_loan_tx = (
-                payload.budget_item_id == "loan_receivable"
-                or payload.budget_item_type in ("receivable", "loan")
+                raw_bid == "loan_receivable"
+                or raw_btype in ("receivable", "loan")
             )
-            assigned_budget_id = "loan_receivable" if is_loan_tx else (payload.budget_item_id or None)
+            assigned_budget_id = "loan_receivable" if is_loan_tx else (raw_bid or None)
             assigned_budget_name = (
                 "🤝 Préstamos (Por Cobrar)"
                 if is_loan_tx
-                else (payload.budget_item_name or clean_desc)
+                else (raw_bname if raw_bid else None)
             )
-            assigned_budget_type = "receivable" if is_loan_tx else (payload.budget_item_type or "wants")
+            assigned_budget_type = "receivable" if is_loan_tx else (raw_btype or "wants")
 
             # Auto-registrar nuevo rubro en el pilar si no existía (excepto rubros especiales sin cupo fijo)
             if (
@@ -1379,20 +1395,36 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
+            mobile_rubro_aliases = {
+                "want_restaurants": ("want_dining", "Restaurantes, Cafés & Salidas", "wants"),
+                "want_shopping": ("want_leisure", "Ocio, Hobbies & Compras", "wants"),
+                "want_transport": ("need_health_transport", "Salud, EPS & Transporte", "needs"),
+                "need_health": ("need_health_transport", "Salud, EPS & Transporte", "needs"),
+                "need_rent": ("need_housing", "Arriendo / Vivienda & Admin", "needs"),
+                "wealth_savings": ("wealth_high_yield", "Ahorro Alto Rendimiento (Nu / Plenti / CDTs)", "wealth"),
+                "wealth_portfolio": ("wealth_tech_etf", "Portafolio Renta Variable (Al día / Tiempo Real)", "wealth"),
+                "wealth_viaje": ("wealth_travel_goal", "Meta Viaje / Estudio", "wealth"),
+            }
+            raw_bid = (payload.budget_item_id or "").strip()
+            raw_bname = (payload.budget_item_name or "").strip()
+            raw_btype = (payload.budget_item_type or "").strip()
+            if raw_bid in mobile_rubro_aliases:
+                raw_bid, raw_bname, raw_btype = mobile_rubro_aliases[raw_bid]
+
             is_loan_tx = (
-                payload.budget_item_id == "loan_receivable"
-                or payload.budget_item_type in ("receivable", "loan")
+                raw_bid == "loan_receivable"
+                or raw_btype in ("receivable", "loan")
             )
-            assigned_budget_id = "loan_receivable" if is_loan_tx else (payload.budget_item_id or None)
+            assigned_budget_id = "loan_receivable" if is_loan_tx else (raw_bid or None)
             assigned_budget_name = (
                 "🤝 Préstamos (Por Cobrar)"
                 if is_loan_tx
-                else (payload.budget_item_name or clean_desc)
+                else (raw_bname if raw_bid else None)
             )
             assigned_budget_type = (
                 "receivable"
                 if is_loan_tx
-                else (payload.budget_item_type or ("needs" if tx_type == "debit" else "income"))
+                else (raw_btype or ("needs" if tx_type == "debit" else "income"))
             )
 
             # Auto-registrar nuevo rubro en el pilar si no existía (excepto rubros especiales sin cupo fijo)

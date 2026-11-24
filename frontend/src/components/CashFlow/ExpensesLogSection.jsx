@@ -1630,6 +1630,32 @@ export default function ExpensesLogSection({
             const isLoan = Boolean(item.isLoan);
             const isSettled = item.loanStatus === "settled";
             const isIncome = item.itemType === "income";
+            const isHormigaItem =
+              item.budgetItemId === "want_gastos_hormiga" ||
+              (item.budgetItemName || "").toLowerCase().includes("hormiga");
+            const matchedBudgetEnvelope = (budgetItems || []).find(
+              (b) =>
+                (item.budgetItemId && b.id === item.budgetItemId) ||
+                (b.name &&
+                  item.budgetItemName &&
+                  b.name.toLowerCase().trim() === item.budgetItemName.toLowerCase().trim())
+            );
+            const isAlreadyAssigned = Boolean(
+              isLoan ||
+                item.isDebtCollection ||
+                item.isDebtPayment ||
+                item.isInternalTransfer ||
+                isHormigaItem ||
+                item.budgetItemId ||
+                matchedBudgetEnvelope
+            );
+            const resolvedRubroDisplayName = isHormigaItem
+              ? "🐜 Gastos Hormiga"
+              : matchedBudgetEnvelope
+              ? `${matchedBudgetEnvelope.icon || "🏷️"} ${matchedBudgetEnvelope.name}`
+              : item.budgetItemId && item.budgetItemName
+              ? item.budgetItemName
+              : null;
             const { date: itemDate, time: itemTime } = formatMovementDateTime(item);
 
             // Detailed loan metrics (works for both direct loans and shared expenses)
@@ -1875,44 +1901,47 @@ export default function ExpensesLogSection({
                         })()
                       ) : (
                         <>
-                          {item.budgetItemName && (
+                          {isAlreadyAssigned && resolvedRubroDisplayName ? (
                             <span
                               style={{
-                                background:
-                                  item.budgetItemId === "want_gastos_hormiga" ||
-                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
-                                    ? isLight
-                                      ? "rgba(192, 132, 252, 0.15)"
-                                      : "rgba(192, 132, 252, 0.2)"
-                                    : isLight
-                                    ? "rgba(0, 0, 0, 0.05)"
-                                    : "rgba(128, 128, 128, 0.1)",
-                                border:
-                                  item.budgetItemId === "want_gastos_hormiga" ||
-                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
-                                    ? "1px solid rgba(192, 132, 252, 0.45)"
-                                    : isLight
-                                    ? "1px solid rgba(0, 0, 0, 0.08)"
-                                    : "1px solid rgba(255, 255, 255, 0.06)",
+                                background: isHormigaItem
+                                  ? isLight
+                                    ? "rgba(192, 132, 252, 0.15)"
+                                    : "rgba(192, 132, 252, 0.2)"
+                                  : isLight
+                                  ? "rgba(16, 185, 129, 0.12)"
+                                  : "rgba(16, 185, 129, 0.18)",
+                                border: isHormigaItem
+                                  ? "1px solid rgba(192, 132, 252, 0.45)"
+                                  : "1px solid rgba(16, 185, 129, 0.4)",
                                 padding: "2px 8px",
                                 borderRadius: "6px",
                                 fontSize: "0.72rem",
-                                color:
-                                  item.budgetItemId === "want_gastos_hormiga" ||
-                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
-                                    ? isLight
-                                      ? "#7e22ce"
-                                      : "#d8b4fe"
-                                    : isLight
-                                    ? "#475569"
-                                    : "var(--text-muted)",
+                                color: isHormigaItem
+                                  ? isLight
+                                    ? "#7e22ce"
+                                    : "#d8b4fe"
+                                  : isLight
+                                  ? "#047857"
+                                  : "#34d399",
                                 fontWeight: 700,
                               }}
                             >
-                              {item.budgetItemId === "want_gastos_hormiga" ||
-                              (item.budgetItemName || "").toLowerCase().includes("hormiga")
-                                ? "🐜 Gastos Hormiga"
-                                : item.budgetItemName}
+                              ✓ {resolvedRubroDisplayName}
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                background: isLight ? "rgba(245, 158, 11, 0.1)" : "rgba(245, 158, 11, 0.14)",
+                                border: "1px solid rgba(245, 158, 11, 0.35)",
+                                padding: "2px 8px",
+                                borderRadius: "6px",
+                                fontSize: "0.71rem",
+                                color: isLight ? "#b45309" : "#fbbf24",
+                                fontWeight: 700,
+                              }}
+                            >
+                              ⚠️ Sin Rubro Asignado
                             </span>
                           )}
                           <span
@@ -1999,80 +2028,98 @@ export default function ExpensesLogSection({
                     )}
 
                   {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
-                    <>
-                      {(() => {
-                        const match = getMatchingMerchantRule(item);
-                        if (!match || !onReclassifyMovement) return null;
-                        return (
+                    isAlreadyAssigned ? (
+                      <button
+                        type="button"
+                        onClick={() => setAssignModalItem(item)}
+                        className="expense-action-pill"
+                        style={{
+                          background: "transparent",
+                          border: isLight ? "1px dashed rgba(0,0,0,0.18)" : "1px dashed rgba(255,255,255,0.16)",
+                          color: "var(--text-muted)",
+                          fontSize: "0.70rem",
+                          fontWeight: 600,
+                        }}
+                        title="Este movimiento ya tiene rubro asignado. Haz clic si deseas cambiar su rubro o cuenta."
+                      >
+                        <span>🔄</span> Cambiar Rubro
+                      </button>
+                    ) : (
+                      <>
+                        {(() => {
+                          const match = getMatchingMerchantRule(item);
+                          if (!match || !onReclassifyMovement) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onReclassifyMovement({
+                                  movementId: item.id,
+                                  destinationType: "budget_envelope",
+                                  targetId: match.envelope.id,
+                                  targetItem: match.envelope,
+                                  subItem: match.rule.subItemId ? { id: match.rule.subItemId, name: match.rule.subItemName } : null,
+                                  destinationAccount: null,
+                                  paymentSource: item.paymentSource,
+                                });
+                                toast.success(`Movimiento asignado a ${match.envelope.name} (${match.rule.keyword})`);
+                              }}
+                              className="expense-action-pill"
+                              style={{
+                                background: isLight ? "#eff6ff" : "rgba(37, 99, 235, 0.15)",
+                                color: isLight ? "#1d4ed8" : "#93c5fd",
+                                border: isLight ? "1px solid #bfdbfe" : "1px solid rgba(59, 130, 246, 0.3)",
+                                fontWeight: 600,
+                              }}
+                              title={`Asignar automáticamente a "${match.envelope.name}" según regla para "${match.rule.keyword}"`}
+                            >
+                              <span>✨</span> Auto: {match.envelope.name}
+                            </button>
+                          );
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => setAssignModalItem(item)}
+                          className="expense-action-pill"
+                          title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
+                        >
+                          <span>🏷️</span> Asignar Movimiento
+                        </button>
+                        {!item.isIncome && item.itemType !== "income" && onReclassifyMovement && (
                           <button
                             type="button"
                             onClick={() => {
                               onReclassifyMovement({
                                 movementId: item.id,
                                 destinationType: "budget_envelope",
-                                targetId: match.envelope.id,
-                                targetItem: match.envelope,
-                                subItem: match.rule.subItemId ? { id: match.rule.subItemId, name: match.rule.subItemName } : null,
+                                targetId: "want_gastos_hormiga",
+                                targetItem: {
+                                  id: "want_gastos_hormiga",
+                                  name: "🐜 Gastos Hormiga",
+                                  pillarType: "wants",
+                                },
+                                subItem: null,
                                 destinationAccount: null,
                                 paymentSource: item.paymentSource,
                               });
-                              toast.success(`Movimiento asignado a ${match.envelope.name} (${match.rule.keyword})`);
                             }}
                             className="expense-action-pill"
                             style={{
-                              background: isLight ? "#eff6ff" : "rgba(37, 99, 235, 0.15)",
-                              color: isLight ? "#1d4ed8" : "#93c5fd",
-                              border: isLight ? "1px solid #bfdbfe" : "1px solid rgba(59, 130, 246, 0.3)",
-                              fontWeight: 600,
+                              background: isLight ? "rgba(192, 132, 252, 0.1)" : "rgba(192, 132, 252, 0.14)",
+                              color: isLight ? "#7e22ce" : "#d8b4fe",
+                              border: isLight ? "1px solid rgba(192, 132, 252, 0.35)" : "1px solid rgba(192, 132, 252, 0.3)",
+                              fontWeight: 700,
                             }}
-                            title={`Asignar automáticamente a "${match.envelope.name}" según regla para "${match.rule.keyword}"`}
+                            title="Clasificar en 1 clic como Gasto Hormiga (sin rubro específico)"
                           >
-                            <span>✨</span> Auto: {match.envelope.name}
+                            <span>🐜</span> Gasto Hormiga
                           </button>
-                        );
-                      })()}
-                      <button
-                        type="button"
-                        onClick={() => setAssignModalItem(item)}
-                        className="expense-action-pill"
-                        title="Asignar este movimiento a un rubro de presupuesto, deuda personal o tarjeta de crédito"
-                      >
-                        <span>🏷️</span> Asignar Movimiento
-                      </button>
-                      {!item.isIncome && item.itemType !== "income" && item.budgetItemId !== "want_gastos_hormiga" && onReclassifyMovement && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onReclassifyMovement({
-                              movementId: item.id,
-                              destinationType: "budget_envelope",
-                              targetId: "want_gastos_hormiga",
-                              targetItem: {
-                                id: "want_gastos_hormiga",
-                                name: "🐜 Gastos Hormiga",
-                                pillarType: "wants",
-                              },
-                              subItem: null,
-                              destinationAccount: null,
-                              paymentSource: item.paymentSource,
-                            });
-                          }}
-                          className="expense-action-pill"
-                          style={{
-                            background: isLight ? "rgba(192, 132, 252, 0.1)" : "rgba(192, 132, 252, 0.14)",
-                            color: isLight ? "#7e22ce" : "#d8b4fe",
-                            border: isLight ? "1px solid rgba(192, 132, 252, 0.35)" : "1px solid rgba(192, 132, 252, 0.3)",
-                            fontWeight: 700,
-                          }}
-                          title="Clasificar en 1 clic como Gasto Hormiga (sin rubro específico)"
-                        >
-                          <span>🐜</span> Gasto Hormiga
-                        </button>
-                      )}
-                    </>
+                        )}
+                      </>
+                    )
                   )}
 
-                  {!isLoan && !item.isDebtCollection && onToggleExpenseLoan && (
+                  {!isLoan && !isAlreadyAssigned && !item.isDebtCollection && onToggleExpenseLoan && (
                     <button
                       type="button"
                       onClick={async () => {

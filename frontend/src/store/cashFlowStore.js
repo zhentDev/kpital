@@ -774,10 +774,30 @@ export const useCashFlowStore = create(
           }
         }
 
+        const MOBILE_RUBRO_ALIAS_MAP = {
+          want_restaurants: { id: "want_dining", name: "Restaurantes, Cafés & Salidas", type: "wants" },
+          want_shopping: { id: "want_leisure", name: "Ocio, Hobbies & Compras", type: "wants" },
+          want_transport: { id: "need_health_transport", name: "Salud, EPS & Transporte", type: "needs" },
+          need_health: { id: "need_health_transport", name: "Salud, EPS & Transporte", type: "needs" },
+          need_rent: { id: "need_housing", name: "Arriendo / Vivienda & Admin", type: "needs" },
+          wealth_savings: { id: "wealth_high_yield", name: "Ahorro Alto Rendimiento (Nu / Plenti / CDTs)", type: "wealth" },
+          wealth_portfolio: { id: "wealth_tech_etf", name: "Portafolio Renta Variable (Al día / Tiempo Real)", type: "wealth" },
+          wealth_viaje: { id: "wealth_travel_goal", name: "Meta Viaje / Estudio", type: "wealth" },
+        };
+
         // Normalize 100% pure loans into their own separate rubro ("loan_receivable" / "🤝 Préstamos (Por Cobrar)")
-        // so they never mix with living expense envelopes (needs/wants) or show as unassigned expenses.
+        // and map any Kpital Mobile fallback rubro IDs/names to their canonical web envelope IDs.
         const normalizedReconciledExpenses = reconciledExpenses.map((tx) => {
           if (!tx) return tx;
+          if (tx.budgetItemId && MOBILE_RUBRO_ALIAS_MAP[tx.budgetItemId]) {
+            const mapped = MOBILE_RUBRO_ALIAS_MAP[tx.budgetItemId];
+            tx = {
+              ...tx,
+              budgetItemId: mapped.id,
+              budgetItemName: mapped.name,
+              budgetItemType: mapped.type,
+            };
+          }
           if (tx.budgetItemId === "want_gastos_hormiga" || (tx.budgetItemName || "").toLowerCase().includes("hormiga")) {
             return {
               ...tx,

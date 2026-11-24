@@ -448,28 +448,26 @@ class PocketSelectorActivity : Activity() {
                 Log.w("PocketSelector", "Error fetch budget items: ${e.message}")
             }
 
-            // Fallback canónico si no hay conexión o viene vacío
+            // Fallback canónico sincronizado con los IDs reales de cf_budget_envelopes en Supabase
             if (wealthList.isEmpty() && needsList.isEmpty() && wantsList.isEmpty()) {
                 wealthList = mutableListOf(
-                    Triple("wealth_emergency", "Fondo de Emergencia", "🛡️"),
-                    Triple("wealth_savings", "Ahorro Alto Rendimiento", "🏛️"),
+                    Triple("wealth_emergency", "Fondo de Emergencia (6 Meses)", "🛡️"),
+                    Triple("wealth_high_yield", "Ahorro Alto Rendimiento (Nu / Plenti / CDTs)", "🏛️"),
                     Triple("wealth_impresora", "Meta Impresora 3D", "🖨️"),
-                    Triple("wealth_portfolio", "Portafolio Renta Fija", "🚀"),
-                    Triple("wealth_viaje", "Meta Viaje / Europa", "✈️")
+                    Triple("wealth_tech_etf", "Portafolio Renta Variable", "🚀"),
+                    Triple("wealth_travel_goal", "Meta Viaje / Estudio", "✈️")
                 )
                 needsList = mutableListOf(
-                    Triple("need_utilities", "Servicios Públicos, Luz & Internet", "💡"),
                     Triple("need_groceries", "Alimentación & Supermercado", "🛒"),
-                    Triple("need_health", "Salud, EPS & Tratamientos", "🎯"),
-                    Triple("need_rent", "Arriendo / Vivienda", "🏠"),
-                    Triple("need_debts", "Pago Tarjeta / Deuda", "💳")
+                    Triple("need_utilities", "Servicios Públicos, Luz & Fibra Óptica", "💡"),
+                    Triple("need_health_transport", "Salud, EPS & Transporte", "🎯"),
+                    Triple("need_housing", "Arriendo / Vivienda & Admin", "🏠")
                 )
                 wantsList = mutableListOf(
                     Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"),
-                    Triple("want_restaurants", "Restaurantes, Salidas & Domicilios", "🍷"),
-                    Triple("want_shopping", "Compras & Ropa", "🛍️"),
-                    Triple("want_leisure", "Ocio & Entretenimiento", "🎮"),
-                    Triple("want_transport", "Transporte & Gasolina", "🚗")
+                    Triple("want_dining", "Restaurantes, Cafés & Salidas", "🍷"),
+                    Triple("want_leisure", "Ocio, Hobbies & Compras", "🎮"),
+                    Triple("want_subs", "Suscripciones (Netflix, Spotify, Gym)", "📺")
                 )
             } else if (wantsList.none { it.first == "want_gastos_hormiga" || it.second.contains("Hormiga", ignoreCase = true) }) {
                 wantsList.add(0, Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"))

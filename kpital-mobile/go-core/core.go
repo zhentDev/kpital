@@ -57,6 +57,9 @@ var (
 	httpClient = &http.Client{
 		Timeout: 30 * time.Second,
 	}
+	fastDialogClient = &http.Client{
+		Timeout: 4 * time.Second,
+	}
 	parserEngine = parser.NewEngine()
 )
 
@@ -780,7 +783,7 @@ func FetchMobileBudgetItems() string {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
 		}
 
-		resp, err := httpClient.Do(req)
+		resp, err := fastDialogClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
 			bodyBytes, _ := io.ReadAll(resp.Body)
@@ -820,9 +823,19 @@ func FetchMobileBudgetItems() string {
 
 	wealth := []map[string]interface{}{}
 	needs := []map[string]interface{}{}
-	wants := []map[string]interface{}{}
+	wants := []map[string]interface{}{
+		{
+			"id":     "want_gastos_hormiga",
+			"name":   "Gastos Hormiga",
+			"icon":   "🐜",
+			"amount": 0.0,
+			"pillar": "wants",
+		},
+	}
 
-	seen := make(map[string]bool)
+	seen := map[string]bool{
+		"wants:want_gastos_hormiga": true,
+	}
 	for _, r := range rows {
 		key := fmt.Sprintf("%s:%s", r.Pillar, r.ID)
 		if seen[key] {
@@ -900,7 +913,7 @@ func FetchMobilePockets(bank, txType string) string {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
 		}
 
-		resp, err := httpClient.Do(req)
+		resp, err := fastDialogClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
 			bodyBytes, _ := io.ReadAll(resp.Body)
