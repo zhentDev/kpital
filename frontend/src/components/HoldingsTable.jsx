@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { InfoTooltip, MarketScheduleBadge } from "./Common";
 import StockAlertModal from "./StockAlertModal";
 import { fetchStockAlerts, saveStockAlert, deleteStockAlert } from "../api/client";
@@ -26,9 +26,33 @@ export default function HoldingsTable({
 }) {
   const [activeTab, setActiveTab] = useState(closedOnly ? "closed" : "active"); // 'active' | 'closed'
   const [mobileViewMode, setMobileViewMode] = useState("auto"); // 'auto' | 'card' | 'table'
+  // null = orden por defecto original | 'desc' = mayor a menor hoy | 'asc' = menor a mayor hoy
+  const [todaySortDir, setTodaySortDir] = useState(null);
   const { user } = useAuthStore();
   const { theme } = useTheme();
   const isLight = theme === "light";
+
+  // Reset to default order whenever switching strategy
+  useEffect(() => {
+    setTodaySortDir(null);
+  }, [strategyId]);
+
+  const displayedHoldings = useMemo(() => {
+    if (!todaySortDir || !Array.isArray(holdings)) return holdings;
+    return [...holdings].sort((a, b) => {
+      const aSelected = a.selected !== false ? 1 : 0;
+      const bSelected = b.selected !== false ? 1 : 0;
+      if (aSelected !== bSelected) return bSelected - aSelected;
+      const valA = Number(a.change_pct_1d ?? 0);
+      const valB = Number(b.change_pct_1d ?? 0);
+      if (valA !== valB) {
+        return todaySortDir === "asc" ? valA - valB : valB - valA;
+      }
+      const usdA = Number(a.change_usd_1d ?? 0) * Number(a.shares || 1);
+      const usdB = Number(b.change_usd_1d ?? 0) * Number(b.shares || 1);
+      return todaySortDir === "asc" ? usdA - usdB : usdB - usdA;
+    });
+  }, [holdings, todaySortDir]);
 
   // Alerts State
   const [alerts, setAlerts] = useState([]);
@@ -372,7 +396,7 @@ export default function HoldingsTable({
       {currentTab === "active" ? (
         mobileViewMode === "card" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-          {holdings.map((h) => {
+          {displayedHoldings.map((h) => {
             const isSelected = h.selected !== false;
             const returnPct = h.return_pct ?? 0;
             const returnUsd = h.return_usd ?? (h.current_price - h.start_price) * (h.shares || 0);
@@ -589,27 +613,81 @@ export default function HoldingsTable({
                 "Precio actual",
                 "Movimiento Hoy (24h)",
                 "Valor actual",
-              ].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: "10px 12px",
-                    textAlign:
-                      h === "Simulación" || h.startsWith("Empresa") || h === "Sector"
-                        ? "left"
-                        : "right",
-                    color: "var(--text-muted)",
-                    fontWeight: 500,
-                    fontSize: "0.72rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    whiteSpace: "nowrap",
-                    ...(h.startsWith("Empresa") ? { width: "230px", minWidth: "210px", maxWidth: "250px" } : {}),
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              ].map((h) => {
+                const isTickerHeader = h.startsWith("Empresa");
+                const isTodayHeader = h.startsWith("Movimiento Hoy");
+                const isClickableHeader = isTickerHeader || isTodayHeader;
+                const isTodayActive = isTodayHeader && todaySortDir !== null;
+
+                return (
+                  <th
+                    key={h}
+                    onClick={
+                      isTodayHeader
+                        ? () => setTodaySortDir((prev) => (prev === "desc" ? "asc" : "desc"))
+                        : isTickerHeader
+                        ? () => setTodaySortDir(null)
+                        : undefined
+                    }
+                    title={
+                      isTodayHeader
+                        ? "Haz clic para ordenar por Movimiento Hoy (24h) de mayor a menor o menor a mayor"
+                        : isTickerHeader
+                        ? "Haz clic para restaurar el orden normal por defecto"
+                        : undefined
+                    }
+                    style={{
+                      padding: "10px 12px",
+                      textAlign:
+                        h === "Simulación" || h === "Posición Real" || isTickerHeader || h === "Sector"
+                          ? "left"
+                          : "right",
+                      color: isTodayActive
+                        ? "var(--accent-primary)"
+                        : isTickerHeader && todaySortDir !== null
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
+                      fontWeight: isTodayActive ? 700 : isClickableHeader ? 600 : 500,
+                      fontSize: "0.72rem",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      whiteSpace: "nowrap",
+                      cursor: isClickableHeader ? "pointer" : "default",
+                      transition: "color 0.15s ease",
+                      ...(isTickerHeader ? { width: "230px", minWidth: "210px", maxWidth: "250px" } : {}),
+                    }}
+                  >
+                    {isTodayHeader ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span>{h}</span>
+                        <span style={{ fontSize: "0.75rem", opacity: isTodayActive ? 1 : 0.6 }}>
+                          {todaySortDir === "desc" ? "▼" : todaySortDir === "asc" ? "▲" : "⇅"}
+                        </span>
+                      </span>
+                    ) : isTickerHeader ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <span>{h}</span>
+                        {todaySortDir !== null && (
+                          <span
+                            style={{
+                              fontSize: "0.62rem",
+                              padding: "1px 5px",
+                              borderRadius: 4,
+                              background: isLight ? "rgba(59, 130, 246, 0.12)" : "rgba(59, 130, 246, 0.2)",
+                              color: isLight ? "#1d4ed8" : "#93c5fd",
+                              fontWeight: 700,
+                            }}
+                          >
+                            ↺ Por defecto
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      h
+                    )}
+                  </th>
+                );
+              })}
               <th
                 style={{
                   padding: "10px 12px",
@@ -651,7 +729,7 @@ export default function HoldingsTable({
             </tr>
           </thead>
           <tbody>
-            {holdings.map((h, i) => {
+            {displayedHoldings.map((h, i) => {
               const isSelected = h.selected !== false;
               const returnPct = h.return_pct ?? 0;
               const returnUsd = h.return_usd ?? (h.current_price - h.start_price) * (h.shares || 0);
