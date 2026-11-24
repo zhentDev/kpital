@@ -629,7 +629,7 @@ export default function LoanSettlementModal({
               gap: 6,
             }}
           >
-            <span>👥</span> Dividir en Partes Iguales (Vaca)
+            <span>👥</span> Dividir Gasto Compartido (Vaca / % / Cuotas)
           </button>
 
           <button
@@ -788,6 +788,52 @@ export default function LoanSettlementModal({
 
             {/* Participant Management Controls */}
             <div>
+              {externalCount > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 600 }}>
+                    ⚡ Reparto Rápido (Ellos / Tú):
+                  </span>
+                  {[
+                    { label: "⚖️ Partes Iguales", otherPct: null },
+                    { label: "60% / 40%", otherPct: 60 },
+                    { label: "70% / 30%", otherPct: 70 },
+                    { label: "80% / 20%", otherPct: 80 },
+                    { label: "40% / 60%", otherPct: 40 },
+                    { label: "30% / 70%", otherPct: 30 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        const updated = participants.map((p) => {
+                          if (p.isUser) return p;
+                          if (preset.otherPct === null) {
+                            return { ...p, customShare: null, percentage: null };
+                          }
+                          const perPartPct = Number((preset.otherPct / externalCount).toFixed(2));
+                          const customAmt = Math.round((totalAmountToSplit * perPartPct) / 100);
+                          return { ...p, customShare: customAmt, percentage: perPartPct };
+                        });
+                        setParticipants(updated);
+                        persistSplitConfig(updated, userIncluded, false);
+                      }}
+                      style={{
+                        padding: "2px 7px",
+                        fontSize: "0.66rem",
+                        fontWeight: 600,
+                        borderRadius: 5,
+                        border: `1px solid ${isLight ? "rgba(37,99,235,0.25)" : "rgba(96,165,250,0.3)"}`,
+                        background: isLight ? "rgba(37,99,235,0.06)" : "rgba(59,130,246,0.14)",
+                        color: isLight ? "#1d4ed8" : "#93c5fd",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary)" }}>
                   Participantes que deben pagar ({externalCount}):

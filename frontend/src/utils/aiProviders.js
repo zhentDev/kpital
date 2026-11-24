@@ -27,18 +27,25 @@ export const AI_PROVIDERS = {
     badge: "Gratis / CORS OK",
     requiresKey: true,
     supportsBaseUrl: false,
-    defaultModel: "gemini-2.0-flash",
+    defaultModel: "gemini-2.5-flash",
     suggestedModels: [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest",
+      "gemini-flash-lite-latest",
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-8b",
+      "gemma-3-27b-it",
+      "gemma-3-12b-it",
+      "gemini-2.5-pro",
+      "gemini-1.5-pro",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-flash-latest",
     ],
     keyPlaceholder: "AIzaSy...",
     helpUrl: "https://aistudio.google.com/apikey",
     helpText:
-      "Obtén tu API key gratis en Google AI Studio. Funciona directo desde https://zhent.homes.",
+      "Obtén tu API key gratis en Google AI Studio. Incluye rotación anti-429/503 entre Gemini 2.5, 1.5 y Gemma 3.",
   },
   groq: {
     id: "groq",
@@ -265,13 +272,20 @@ function mapHttpError(status, detail = "", providerId = "") {
 
 function scoreGeminiModel(modelId) {
   const id = String(modelId || "").toLowerCase();
-  if (!id.startsWith("gemini-")) return -1;
-  if (id === "gemini-2.0-flash") return 12000;
-  if (id === "gemini-2.0-flash-lite") return 11000;
-  if (id === "gemini-1.5-flash") return 10000;
-  if (id === "gemini-1.5-pro") return 9500;
-  if (id === "gemini-flash-latest") return 9000;
-  if (id === "gemini-pro-latest") return 8500;
+  if (!id.startsWith("gemini-") && !id.startsWith("gemma-")) return -1;
+  if (id === "gemini-2.5-flash") return 16000;
+  if (id === "gemini-2.5-flash-lite") return 15500;
+  if (id === "gemini-flash-latest") return 15000;
+  if (id === "gemini-flash-lite-latest") return 14500;
+  if (id === "gemini-1.5-flash") return 14000;
+  if (id === "gemini-1.5-flash-8b") return 13500;
+  if (id === "gemma-3-27b-it") return 13000;
+  if (id === "gemma-3-12b-it") return 12500;
+  if (id === "gemini-2.5-pro") return 12000;
+  if (id === "gemini-1.5-pro") return 11500;
+  if (id === "gemini-pro-latest") return 11000;
+  if (id === "gemini-2.0-flash") return 9000;
+  if (id === "gemini-2.0-flash-lite") return 8500;
 
   let score = 1000;
   const verMatch = id.match(/^gemini-(\d+(?:\.\d+)?)/);
@@ -281,23 +295,44 @@ function scoreGeminiModel(modelId) {
   if (id.includes("flash") && !id.includes("lite")) score += 400;
   else if (id.includes("flash-lite")) score += 350;
   else if (id.includes("pro")) score += 200;
+  else if (id.startsWith("gemma-3-")) score += 300;
 
   if (id.includes("preview") || id.includes("exp")) score -= 60;
   return score;
 }
 
 /**
- * Picks the strongest available Gemini text/chat model from a `v1beta/models` list.
+ * Picks the strongest available Gemini/Gemma text/chat model from a `v1beta/models` list.
  */
 export function pickBestGeminiFallbackModel(modelsList = [], excludeModels = []) {
   const excluded = new Set(excludeModels.map((m) => String(m || "").toLowerCase()));
-  const candidates = (modelsList || [])
-    .map((m) =>
-      String(m || "")
-        .replace(/^models\//i, "")
-        .trim(),
-    )
-    .filter((m) => m && !excluded.has(m.toLowerCase()));
+  const defaultFallbacks = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemma-3-27b-it",
+    "gemma-3-12b-it",
+    "gemini-2.5-pro",
+    "gemini-1.5-pro",
+    "gemini-pro-latest",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+  ];
+  const combined = [...(modelsList || []), ...defaultFallbacks];
+  const seen = new Set();
+  const candidates = [];
+  for (const raw of combined) {
+    const clean = String(raw || "")
+      .replace(/^models\//i, "")
+      .trim();
+    const lower = clean.toLowerCase();
+    if (!clean || excluded.has(lower) || seen.has(lower)) continue;
+    seen.add(lower);
+    candidates.push(clean);
+  }
 
   candidates.sort((a, b) => scoreGeminiModel(b) - scoreGeminiModel(a));
   return candidates[0] || null;
@@ -313,6 +348,7 @@ const EXCLUDED_GEMINI_KEYWORDS = [
   "robotics",
   "computer-use",
   "bisect",
+  "learnlm",
 ];
 
 /**
@@ -360,7 +396,7 @@ export async function fetchAvailableProviderModels({ providerId, apiKey = "", ba
         )
         .filter(
           (name) =>
-            name?.startsWith("gemini-") &&
+            (name?.startsWith("gemini-") || name?.startsWith("gemma-3-")) &&
             !EXCLUDED_GEMINI_KEYWORDS.some((kw) => name.toLowerCase().includes(kw)),
         );
 
@@ -427,22 +463,34 @@ export function buildProviderRequestSpec({
   if (providerId === "gemini") {
     if (!apiKey.trim()) throw new Error("Ingresa tu API Key de Google Gemini.");
     const systemMsg = messages[0].content;
-    const contents = messages.slice(1).map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-    const cleanModel = (resolvedModel || "gemini-flash-latest").replace(/^models\//i, "");
+    const cleanModel = (resolvedModel || "gemini-2.5-flash").replace(/^models\//i, "");
+    const isGemmaModel = cleanModel.toLowerCase().startsWith("gemma-");
+    const rawTurns = messages.slice(1);
+    const contents = rawTurns.map((m, idx) => {
+      const role = m.role === "assistant" ? "model" : "user";
+      const text =
+        isGemmaModel && idx === 0 && role === "user"
+          ? `${systemMsg}\n\n---\n\n${m.content}`
+          : m.content;
+      return {
+        role,
+        parts: [{ text }],
+      };
+    });
     const safeModel = encodeURIComponent(cleanModel);
     const safeKey = encodeURIComponent(apiKey.trim());
+    const body = {
+      contents,
+      generationConfig: { temperature: 0.35, maxOutputTokens: 2048 },
+    };
+    if (!isGemmaModel) {
+      body.systemInstruction = { parts: [{ text: systemMsg }] };
+    }
     return {
       kind: "gemini",
       url: `https://generativelanguage.googleapis.com/v1beta/models/${safeModel}:generateContent?key=${safeKey}`,
       headers: { "Content-Type": "application/json" },
-      body: {
-        systemInstruction: { parts: [{ text: systemMsg }] },
-        contents,
-        generationConfig: { temperature: 0.35, maxOutputTokens: 2048 },
-      },
+      body,
       modelUsed: cleanModel,
     };
   }
@@ -630,6 +678,227 @@ async function executeProviderFetch(spec, providerId) {
   return reply;
 }
 
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Deterministic quantitative analyst fallback when all external cloud API buckets
+ * return 429 (quota exhausted) or 503 (high demand). Synthesizes real figures
+ * directly from the user's Kpital contextText so the user always gets a complete answer.
+ */
+export function buildLocalQuantitativeFallbackReply(question = "", contextText = "") {
+  const qLower = String(question || "").toLowerCase();
+  const ctx = String(contextText || "");
+  const lines = ctx.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Parse portfolios and individual stock/ETF holdings from contextText
+  const portfolios = [];
+  let currentPortfolio = null;
+  const allPositions = [];
+  const strategies = [];
+
+  for (const line of lines) {
+    // Match portfolio header: **Name** (USD) — Invertido: $X | Actual: $Y (+Z%) | PnL Realizado ...
+    const portMatch = line.match(
+      /^\*\*(.+?)\*\*\s*\((USD|COP)\)\s*—\s*Invertido:\s*\$([\d.,]+)\s*\|\s*Actual:\s*\$([\d.,]+)\s*\(([+-]?[\d.,]+)%\)/i,
+    );
+    if (portMatch) {
+      currentPortfolio = {
+        name: portMatch[1].trim(),
+        currency: portMatch[2],
+        invested: Number(portMatch[3].replace(/,/g, "")) || 0,
+        current: Number(portMatch[4].replace(/,/g, "")) || 0,
+        retPct: Number(portMatch[5].replace(/,/g, "")) || 0,
+        positions: [],
+      };
+      portfolios.push(currentPortfolio);
+      continue;
+    }
+
+    // Match position line: * TICKER: X uds @ $Avg -> Actual $Cur (Hoy: +A%, Retorno: +B%)
+    const posMatch = line.match(
+      /^\*\s*([A-Z0-9.-]+):\s*([\d.]+)\s*uds\s*@\s*\$([\d.]+)\s*->\s*Actual\s*\$([\d.]+)\s*\(Hoy:\s*([+-]?[\d.]+)%,\s*Retorno:\s*([+-]?[\d.]+)%\)/i,
+    );
+    if (posMatch) {
+      const pos = {
+        ticker: posMatch[1],
+        shares: Number(posMatch[2]) || 0,
+        avgPrice: Number(posMatch[3]) || 0,
+        curPrice: Number(posMatch[4]) || 0,
+        chg1d: Number(posMatch[5]) || 0,
+        retPct: Number(posMatch[6]) || 0,
+        portfolioName: currentPortfolio?.name || "Portafolio",
+      };
+      pos.invested = pos.shares * pos.avgPrice;
+      pos.currentValue = pos.shares * pos.curPrice;
+      allPositions.push(pos);
+      if (currentPortfolio) currentPortfolio.positions.push(pos);
+      continue;
+    }
+
+    // Match targeted position format: - **TICKER** (Name) en 'Portfolio': X uds | Precio Medio: $A | Actual: $B | Hoy: +C% | Retorno: +D%
+    const targetMatch = line.match(
+      /^-\s*\*\*([A-Z0-9.-]+)\*\*\s*\((.+?)\)\s*en\s*'(.+?)':\s*([\d.]+)\s*uds\s*\|\s*Precio Medio:\s*\$([\d.]+)\s*\|\s*Actual:\s*\$([\d.]+)\s*\|\s*Hoy:\s*([+-]?[\d.]+)%\s*\|\s*Retorno:\s*([+-]?[\d.]+)%/i,
+    );
+    if (targetMatch) {
+      const pos = {
+        ticker: targetMatch[1],
+        name: targetMatch[2],
+        portfolioName: targetMatch[3],
+        shares: Number(targetMatch[4]) || 0,
+        avgPrice: Number(targetMatch[5]) || 0,
+        curPrice: Number(targetMatch[6]) || 0,
+        chg1d: Number(targetMatch[7]) || 0,
+        retPct: Number(targetMatch[8]) || 0,
+      };
+      pos.invested = pos.shares * pos.avgPrice;
+      pos.currentValue = pos.shares * pos.curPrice;
+      allPositions.push(pos);
+      continue;
+    }
+
+    // Match quantitative strategy line: - Name: Capital $X ...
+    if (line.startsWith("- ") && line.includes("Capital $") && line.includes("Benchmark:")) {
+      strategies.push(line.replace(/^-\s*/, ""));
+    } else if (line.startsWith("* Último Rebalanceo:") && strategies.length > 0) {
+      strategies[strategies.length - 1] += `\n  ${line}`;
+    }
+  }
+
+  // Filter positions if user asks about a specific strategy/region (e.g. China)
+  const isChinaQuery =
+    qLower.includes("china") ||
+    qLower.includes("asi") ||
+    qLower.includes("cnya") ||
+    qLower.includes("kweb") ||
+    qLower.includes("3cp") ||
+    qLower.includes("nnnd");
+
+  const chinaTickersSet = new Set([
+    "CNYA.L",
+    "CNYA",
+    "KWEB.L",
+    "KWEB",
+    "3CP.F",
+    "NNND.F",
+    "BABA",
+    "JD",
+    "PDD",
+    "TCEHY",
+    "BYDDY",
+    "NIO",
+    "FXI",
+    "MCHI",
+    "EMIM.L",
+  ]);
+
+  let focusPositions = allPositions;
+  let focusTitle = "Todas tus posiciones activas en Renta Variable";
+
+  if (isChinaQuery) {
+    const byPortOrTicker = allPositions.filter(
+      (p) =>
+        p.portfolioName.toLowerCase().includes("china") ||
+        chinaTickersSet.has(p.ticker.toUpperCase()),
+    );
+    if (byPortOrTicker.length > 0) {
+      focusPositions = byPortOrTicker;
+      focusTitle = `Posiciones de tu Estrategia / Portafolio China (${byPortOrTicker.length} activos)`;
+    }
+  } else {
+    // Check if user mentioned a specific portfolio name
+    const matchedPort = portfolios.find((p) => qLower.includes(p.name.toLowerCase()));
+    if (matchedPort && matchedPort.positions.length > 0) {
+      focusPositions = matchedPort.positions;
+      focusTitle = `Portafolio '${matchedPort.name}' (${matchedPort.positions.length} activos)`;
+    }
+  }
+
+  const out = [
+    "⚡ **Análisis Cuantitativo Kpital (Modo Respaldo Activo — Cuota Google Gemini 429/503 Saturada)**",
+    "",
+  ];
+
+  if (focusPositions.length > 0) {
+    const sortedByReturn = [...focusPositions].sort((a, b) => b.retPct - a.retPct);
+    const sortedByValue = [...focusPositions].sort((a, b) => b.currentValue - a.currentValue);
+    const totalInv = focusPositions.reduce((s, p) => s + p.invested, 0);
+    const totalCur = focusPositions.reduce((s, p) => s + p.currentValue, 0);
+    const totalRetPct = totalInv > 0 ? ((totalCur - totalInv) / totalInv) * 100 : 0;
+
+    out.push(`### 📊 1. Diagnóstico de ${focusTitle}`);
+    out.push(
+      `- **Capital Invertido:** $${totalInv.toFixed(2)} USD | **Valor Actual:** $${totalCur.toFixed(2)} USD (**${totalRetPct >= 0 ? "+" : ""}${totalRetPct.toFixed(2)}%**)`,
+    );
+    out.push("");
+    out.push("**Desglose por activo (ordenado por rendimiento acumulado):**");
+    for (const p of sortedByReturn) {
+      const weight = totalCur > 0 ? (p.currentValue / totalCur) * 100 : 0;
+      const badge = p.retPct >= 5 ? "🟢 Líder" : p.retPct >= 0 ? "🔵 Positivo" : "🟠 En descuento / DCA";
+      out.push(
+        `- **${p.ticker}** (*${p.portfolioName}*): ${p.shares.toFixed(4)} uds | Costo medio **$${p.avgPrice.toFixed(2)}** ➔ Actual **$${p.curPrice.toFixed(4)}** | Retorno: **${p.retPct >= 0 ? "+" : ""}${p.retPct.toFixed(2)}%** (Hoy: ${p.chg1d >= 0 ? "+" : ""}${p.chg1d.toFixed(2)}%) | Peso en estrategia: **${weight.toFixed(1)}%** [${badge}]`,
+      );
+    }
+
+    const bestMomentum = sortedByReturn[0];
+    const bestValueDca = [...focusPositions].sort((a, b) => a.retPct - b.retPct)[0];
+    const underweight = [...focusPositions].sort((a, b) => a.currentValue - b.currentValue)[0];
+
+    out.push("");
+    out.push("### 🎯 2. Recomendación Cuantitativa de Asignación (¿En cuál seguir invirtiendo?)");
+    if (focusPositions.length === 1) {
+      const only = focusPositions[0];
+      out.push(
+        `- Actualmente cuentas con **${only.ticker}** en este segmento (precio medio $${only.avgPrice.toFixed(2)}, actual $${only.curPrice.toFixed(4)}, retorno ${only.retPct >= 0 ? "+" : ""}${only.retPct.toFixed(2)}%).`,
+      );
+      out.push(
+        `- **Acción sugerida:** Si buscas acumular exposición de forma escalonada (DCA), prioriza aportes cuando cotice cerca o por debajo de tu costo medio ($${only.avgPrice.toFixed(2)}) o complementa con un segundo ETF/activo descorrelacionado para reducir riesgo específico.`,
+      );
+    } else {
+      out.push(
+        `1. **Por Fortaleza Relativa / Momentum (${bestMomentum.ticker}):** Es el activo con mejor desempeño acumulado (**${bestMomentum.retPct >= 0 ? "+" : ""}${bestMomentum.retPct.toFixed(2)}%**, cotizando a $${bestMomentum.curPrice.toFixed(4)} vs. compra en $${bestMomentum.avgPrice.toFixed(2)}). Ideal si priorizas seguir la tendencia ganadora.`,
+      );
+      if (bestValueDca && bestValueDca.ticker !== bestMomentum.ticker) {
+        out.push(
+          `2. **Por Precio de Descuento / Promedio a la Baja - DCA (${bestValueDca.ticker}):** Registra un retorno de **${bestValueDca.retPct >= 0 ? "+" : ""}${bestValueDca.retPct.toFixed(2)}%** ($${bestValueDca.curPrice.toFixed(4)} vs. costo medio $${bestValueDca.avgPrice.toFixed(2)}). Si los fundamentales de largo plazo se mantienen intactos, aportar aquí reduce tu precio promedio de entrada de forma más eficiente.`,
+        );
+      }
+      if (
+        underweight &&
+        underweight.ticker !== bestMomentum.ticker &&
+        underweight.ticker !== bestValueDca?.ticker
+      ) {
+        const uwPct = totalCur > 0 ? (underweight.currentValue / totalCur) * 100 : 0;
+        out.push(
+          `3. **Por Rebalanceo de Peso (${underweight.ticker}):** Representa solo el **${uwPct.toFixed(1)}%** del bloque ($${underweight.currentValue.toFixed(2)} USD), por lo que un nuevo aporte equilibra la concentración frente a **${sortedByValue[0].ticker}**.`,
+        );
+      }
+      out.push(
+        `- **Regla práctica de ejecución:** Si deseas balancear momentum y valor, divide tu próximo aporte **60% en ${bestValueDca ? bestValueDca.ticker : bestMomentum.ticker}** (mejora de precio medio / reequilibrio) y **40% en ${bestMomentum.ticker}** (continuidad de tendencia).`,
+      );
+    }
+  } else {
+    out.push("### 📋 Resumen de tu Contexto Financiero Actual:");
+    for (const l of lines.slice(0, 18)) {
+      out.push(l);
+    }
+  }
+
+  if (strategies.length > 0 && (qLower.includes("estrategia") || qLower.includes("propicks") || qLower.includes("titanes"))) {
+    out.push("");
+    out.push("### 🤖 3. Estrategias Cuantitativas Registradas");
+    for (const st of strategies) {
+      out.push(`- ${st}`);
+    }
+  }
+
+  out.push("");
+  out.push(
+    "💡 *Nota técnica: La API gratuita de Google Gemini devolvió saturación temporal (503/429) en sus servidores. Puedes cambiar el proveedor a **Groq Cloud (Gratis)** u **OpenRouter** en el botón `⚙️ Configurar API / Modelo`, o usar la pestaña `📋 Generar Prompt`.*",
+  );
+
+  return out.join("\n");
+}
+
 /**
  * Sends a multi-turn economic question to the configured provider.
  */
@@ -685,21 +954,31 @@ export async function askEconomicAI({
       fallbackUsed: false,
     };
   } catch (err) {
-    // Auto-heal deprecated (404), overloaded (503) or rate-limited (429) Gemini models via live `v1beta/models`
+    // Auto-heal deprecated (404), overloaded (503), rate-limited (429) or capability-rejected (400) Gemini models
     const retryableGemini =
       providerId === "gemini" &&
       apiKey.trim() &&
-      (err?.httpStatus === 404 || err?.httpStatus === 503 || err?.httpStatus === 429);
+      (err?.httpStatus === 404 ||
+        err?.httpStatus === 503 ||
+        err?.httpStatus === 429 ||
+        err?.httpStatus === 500 ||
+        err?.httpStatus === 400);
 
     if (retryableGemini) {
       const catalog = await fetchAvailableProviderModels({ providerId: "gemini", apiKey });
-      const tried = new Set([spec.modelUsed]);
+      const tried = new Set([String(spec.modelUsed || "").toLowerCase()]);
       let lastErr = err;
 
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Try up to 8 diverse models across Gemini 2.5, 1.5, Flash-Latest and Gemma 3 quota buckets
+      for (let attempt = 0; attempt < 8; attempt += 1) {
         const fallbackModel = pickBestGeminiFallbackModel(catalog.models, [...tried]);
         if (!fallbackModel) break;
-        tried.add(fallbackModel);
+        tried.add(fallbackModel.toLowerCase());
+
+        if (lastErr?.httpStatus === 429 || lastErr?.httpStatus === 503) {
+          await sleepMs(300 * Math.min(attempt + 1, 3));
+        }
+
         try {
           const retrySpec = buildProviderRequestSpec({
             providerId,
@@ -724,13 +1003,95 @@ export async function askEconomicAI({
           if (
             retryErr?.httpStatus !== 404 &&
             retryErr?.httpStatus !== 503 &&
-            retryErr?.httpStatus !== 429
+            retryErr?.httpStatus !== 429 &&
+            retryErr?.httpStatus !== 500 &&
+            retryErr?.httpStatus !== 400
           ) {
-            throw retryErr;
+            break;
           }
         }
       }
+
+      // Check if user has another provider key configured (e.g., Groq, OpenRouter, OpenAI, DeepSeek)
+      try {
+        const savedCfg = loadAIConfig();
+        const altProviders = ["groq", "openrouter", "openai", "deepseek", "anthropic"];
+        for (const altId of altProviders) {
+          const altKey = String(savedCfg?.apiKeysByProvider?.[altId] || "").trim();
+          if (!altKey) continue;
+          const altModel =
+            savedCfg?.modelsByProvider?.[altId] || AI_PROVIDERS[altId]?.defaultModel || "";
+          const altSpec = buildProviderRequestSpec({
+            providerId: altId,
+            model: altModel,
+            apiKey: altKey,
+            baseUrl: savedCfg?.baseUrlsByProvider?.[altId] || AI_PROVIDERS[altId]?.baseUrl || "",
+            contextText,
+            history,
+            question: cleanQ,
+          });
+          const altReply = await executeProviderFetch(altSpec, altId);
+          return {
+            reply: altReply,
+            modelUsed: `${AI_PROVIDERS[altId]?.name || altId} (${altSpec.modelUsed})`,
+            providerId: altId,
+            viaProxy: false,
+            fallbackUsed: true,
+            availableModels: catalog.models,
+          };
+        }
+      } catch {
+        // Proceed to local quantitative fallback
+      }
+
+      // If running on localhost, try local backend proxy / Ollama before falling back to deterministic engine
+      if (localHost) {
+        try {
+          return await callViaLocalBackendProxy({
+            providerId,
+            model,
+            apiKey,
+            baseUrl,
+            scope,
+            history,
+            question: cleanQ,
+            contextText,
+          });
+        } catch {
+          // Proceed to local quantitative fallback
+        }
+      }
+
+      // Never leave the user blocked by Google Free Tier 429/503: synthesize quantitative response from their real contextText
+      if (
+        !cleanQ.toLowerCase().includes("ok conectado") &&
+        (lastErr?.httpStatus === 429 || lastErr?.httpStatus === 503)
+      ) {
+        return {
+          reply: buildLocalQuantitativeFallbackReply(cleanQ, contextText),
+          modelUsed: "Motor Cuantitativo Kpital (Respaldo Local Anti-429/503)",
+          providerId,
+          viaProxy: false,
+          fallbackUsed: false,
+          availableModels: catalog.models,
+        };
+      }
+
       throw lastErr;
+    }
+
+    // For non-Gemini providers hitting 429/503, also provide quantitative fallback on real questions
+    if (
+      (err?.httpStatus === 429 || err?.httpStatus === 503) &&
+      !cleanQ.toLowerCase().includes("ok conectado")
+    ) {
+      return {
+        reply: buildLocalQuantitativeFallbackReply(cleanQ, contextText),
+        modelUsed: "Motor Cuantitativo Kpital (Respaldo Local Anti-429/503)",
+        providerId,
+        viaProxy: false,
+        fallbackUsed: false,
+      };
     }
 
     // Network / CORS / Mixed-content error handling

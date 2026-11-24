@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
-import { fetchFxHistory, generateWarrenPromptApi } from "../api/client";
+import { fetchFxHistory, fetchLiveQuotes, generateWarrenPromptApi } from "../api/client";
 import { useTheme } from "../context/ThemeContext";
 import { useAuthStore } from "../store/authStore";
 import { useCashFlowStore } from "../store/cashFlowStore";
@@ -112,7 +112,7 @@ export default function WarrenAIModal({ isOpen, onClose }) {
     });
   };
 
-  // Lazy-hydrate missing stores + live FX rate + local Ollama discovery on modal open
+  // Lazy-hydrate missing stores + live FX rate + live stock quotes + local Ollama discovery on modal open
   useEffect(() => {
     if (!isOpen) return;
 
@@ -121,6 +121,12 @@ export default function WarrenAIModal({ isOpen, onClose }) {
     }
     if (!cfInitialized) {
       initFetchCashFlow?.();
+    }
+
+    const pState = usePortfolioStore.getState();
+    if (!pState.individualPurchases || pState.individualPurchases.length === 0) {
+      pState.initFetchPurchases?.();
+      pState.initFetchCustomStrategies?.();
     }
 
     fetchFxHistory("USD", "COP")
@@ -137,6 +143,35 @@ export default function WarrenAIModal({ isOpen, onClose }) {
         .catch(() => {});
     }
   }, [isOpen, fiInitialized, cfInitialized, initFetchFixedIncome, initFetchCashFlow, isLocal]);
+
+  // Ensure live quotes are populated for all active purchase & strategy tickers when modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const tickerSet = new Set();
+    for (const lot of individualPurchases || []) {
+      const t = String(lot?.ticker || "").trim().toUpperCase();
+      if (t) tickerSet.add(t);
+    }
+    for (const rebs of Object.values(strategyRebalances || {})) {
+      const arr = Array.isArray(rebs) ? rebs : [];
+      const latest = arr[arr.length - 1];
+      for (const t of latest?.tickers || []) {
+        const cleanT = String(t || "").trim().toUpperCase();
+        if (cleanT) tickerSet.add(cleanT);
+      }
+    }
+    const missing = [...tickerSet].filter((t) => !lastKnownQuotes?.[t]?.price);
+    if (missing.length === 0) return;
+
+    fetchLiveQuotes(missing)
+      .then((res) => {
+        const quotes = res?.quotes || res;
+        if (quotes) {
+          usePortfolioStore.getState().saveLastKnownQuotes(quotes);
+        }
+      })
+      .catch(() => {});
+  }, [isOpen, individualPurchases, strategyRebalances, lastKnownQuotes]);
 
   useEffect(() => {
     if (!isOpen) return;

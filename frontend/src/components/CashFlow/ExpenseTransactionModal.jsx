@@ -65,7 +65,10 @@ export default function ExpenseTransactionModal({
   const [loanAmount, setLoanAmount] = useState(0);
   const [loanDueDate, setLoanDueDate] = useState("");
   const [isSplit, setIsSplit] = useState(false);
+  const [splitMode, setSplitMode] = useState("equal"); // "equal" | "exact" | "percentage" | "shares" | "itemized"
   const [userIncluded, setUserIncluded] = useState(true);
+  const [userUnits, setUserUnits] = useState(1);
+  const [userBaseAmount, setUserBaseAmount] = useState(0);
   const [participants, setParticipants] = useState([]);
   const [newParticipantInput, setNewParticipantInput] = useState("");
 
@@ -135,13 +138,24 @@ export default function ExpenseTransactionModal({
             : Number(editTransaction.amount) || 0
         );
         setLoanDueDate(editTransaction.loanDueDate || "");
-        setIsSplit(Boolean(editTransaction.isSplit || (Array.isArray(editTransaction.participants) && editTransaction.participants.length > 0)));
+        const hasSavedParts = Array.isArray(editTransaction.participants) && editTransaction.participants.length > 0;
+        setIsSplit(Boolean(editTransaction.isSplit || hasSavedParts));
+        const inferredSplitMode =
+          editTransaction.splitMode ||
+          (hasSavedParts && editTransaction.participants.some((p) => p.percentage !== undefined && p.percentage !== null)
+            ? "percentage"
+            : hasSavedParts && editTransaction.participants.some((p) => p.units !== undefined && Number(p.units) > 0 && Number(p.units) !== 1)
+            ? "shares"
+            : hasSavedParts && editTransaction.participants.some((p) => p.baseAmount !== undefined && Number(p.baseAmount) > 0)
+            ? "itemized"
+            : hasSavedParts && editTransaction.participants.some((p) => p.customShare !== undefined && p.customShare !== null && p.customShare !== "")
+            ? "exact"
+            : "equal");
+        setSplitMode(inferredSplitMode);
         setUserIncluded(editTransaction.userIncluded !== undefined ? Boolean(editTransaction.userIncluded) : true);
-        setParticipants(
-          Array.isArray(editTransaction.participants) && editTransaction.participants.length > 0
-            ? editTransaction.participants
-            : []
-        );
+        setUserUnits(Number(editTransaction.userUnits) > 0 ? Number(editTransaction.userUnits) : 1);
+        setUserBaseAmount(Number(editTransaction.userBaseAmount) || 0);
+        setParticipants(hasSavedParts ? editTransaction.participants : []);
 
         if (isTxIncome) {
           const matchedTarget =
@@ -190,7 +204,10 @@ export default function ExpenseTransactionModal({
         setLoanAmount(0);
         setLoanDueDate("");
         setIsSplit(false);
+        setSplitMode("equal");
         setUserIncluded(true);
+        setUserUnits(1);
+        setUserBaseAmount(0);
         setParticipants([]);
         setNewParticipantInput("");
         setSelectedBudgetItemId("");
@@ -203,12 +220,77 @@ export default function ExpenseTransactionModal({
   const selectedBudgetItem = selectedBudgetItemId ? budgetItems.find((b) => b.id === selectedBudgetItemId) || null : null;
   const isWealthItem = selectedBudgetItem?.pillarType === "wealth";
 
+  // ── 5-Mode Flexible Split Calculation Engine ──
   const externalCount = participants.length;
   const totalSharesCount = externalCount + (userIncluded ? 1 : 0);
   const totalNum = Number(amount) || 0;
-  const sharePerPerson = isSplit && totalSharesCount > 0 ? Math.round(totalNum / totalSharesCount) : totalNum;
-  const userShareCalculated = isSplit && userIncluded ? Math.max(0, totalNum - (sharePerPerson * externalCount)) : 0;
-  const finalReceivable = isSplit ? Math.max(0, totalNum - userShareCalculated) : (Number(loanAmount) || totalNum);
+  const equalSharePerPerson = isSplit && totalSharesCount > 0 ? Math.round(totalNum / totalSharesCount) : totalNum;
+
+  // 1. Units/Shares totals ("shares" mode)
+  const extUnitsSum = participants.reduce((acc, p) => acc + (Number(p.units) > 0 ? Number(p.units) : 1), 0);
+  const effUserUnits = userIncluded ? (Number(userUnits) > 0 ? Number(userUnits) : 1) : 0;
+  const totalUnitsPool = extUnitsSum + effUserUnits;
+  const valuePerUnit = totalUnitsPool > 0 ? totalNum / totalUnitsPool : 0;
+
+  // 2. Base consumption + proportional tip/delivery ("itemized" mode)
+  const extBaseSum = participants.reduce((acc, p) => acc + (Number(p.baseAmount) || 0), 0);
+  const effUserBase = userIncluded ? (Number(userBaseAmount) || 0) : 0;
+  const totalBaseConsumption = extBaseSum + effUserBase;
+  const itemizedExtraOrTip = totalNum - totalBaseConsumption;
+
+  // Compute any single participant's resolved $ share according to active `splitMode`
+  const getParticipantComputedShare = (p) => {
+    if (!isSplit) return totalNum;
+    if (splitMode === "exact") {
+      return p.customShare !== undefined && p.customShare !== null && p.customShare !== ""
+        ? Math.max(0, Math.round(Number(p.customShare) || 0))
+        : equalSharePerPerson;
+    }
+    if (splitMode === "percentage") {
+      const defaultPct = totalSharesCount > 0 ? Number((100 / totalSharesCount).toFixed(2)) : 0;
+      const pct = p.percentage !== undefined && p.percentage !== null && p.percentage !== ""
+        ? Math.max(0, Number(p.percentage) || 0)
+        : defaultPct;
+      return Math.round((totalNum * pct) / 100);
+    }
+    if (splitMode === "shares") {
+      const u = Number(p.units) > 0 ? Number(p.units) : 1;
+      return totalUnitsPool > 0 ? Math.round((totalNum * u) / totalUnitsPool) : 0;
+    }
+    if (splitMode === "itemized") {
+      const b = Math.max(0, Number(p.baseAmount) || 0);
+      if (totalBaseConsumption > 0) {
+        return Math.round((totalNum * b) / totalBaseConsumption);
+      }
+      return equalSharePerPerson;
+    }
+    // Default: "equal"
+    return equalSharePerPerson;
+  };
+
+  const sumExternalShares = isSplit
+    ? participants.reduce((acc, p) => acc + getParticipantComputedShare(p), 0)
+    : 0;
+
+  const sumExternalPercentages = isSplit
+    ? participants.reduce((acc, p) => {
+        const defaultPct = totalSharesCount > 0 ? Number((100 / totalSharesCount).toFixed(2)) : 0;
+        const pct = p.percentage !== undefined && p.percentage !== null && p.percentage !== ""
+          ? Math.max(0, Number(p.percentage) || 0)
+          : defaultPct;
+        return acc + pct;
+      }, 0)
+    : 0;
+  const userPercentageRemaining = userIncluded ? Math.max(0, Number((100 - sumExternalPercentages).toFixed(2))) : 0;
+
+  const sharePerPerson = equalSharePerPerson;
+  const userShareCalculated = isSplit
+    ? (userIncluded ? Math.max(0, totalNum - sumExternalShares) : 0)
+    : 0;
+  const finalReceivable = isSplit
+    ? (userIncluded ? Math.max(0, sumExternalShares) : Math.max(0, sumExternalShares > 0 ? sumExternalShares : totalNum))
+    : (Number(loanAmount) || totalNum);
+  const unassignedDiff = isSplit && !userIncluded ? totalNum - sumExternalShares : 0;
 
   const userPersonalCost = isLoan && isSplit
     ? userShareCalculated
@@ -372,17 +454,31 @@ export default function ExpenseTransactionModal({
         loanDueDate: isLoan && loanDueDate ? loanDueDate : null,
         loanStatus: isLoan ? editTransaction?.loanStatus || "pending" : null,
         isSplit: Boolean(isLoan && isSplit),
+        splitMode: isLoan && isSplit ? splitMode : null,
         userIncluded: Boolean(isLoan && isSplit && userIncluded),
+        userUnits: isLoan && isSplit ? (Number(userUnits) > 0 ? Number(userUnits) : 1) : 1,
+        userBaseAmount: isLoan && isSplit ? (Number(userBaseAmount) || 0) : 0,
         userShare: isLoan && isSplit ? userShareCalculated : 0,
         participants: isLoan && isSplit
-          ? participants.map((p) => ({
-              ...p,
-              share: sharePerPerson,
-              paid: Boolean(p.paid),
-            }))
+          ? participants.map((p) => {
+              const pShare = getParticipantComputedShare(p);
+              return {
+                ...p,
+                share: pShare,
+                customShare: splitMode === "equal" ? null : pShare,
+                paid: Boolean(p.paid),
+              };
+            })
           : (editTransaction?.participants || []),
         remainingLoan: isLoan && isSplit
-          ? (editTransaction?.remainingLoan !== undefined ? editTransaction.remainingLoan : finalReceivable)
+          ? Math.max(
+              0,
+              finalReceivable -
+                participants.reduce((acc, p) => {
+                  const pShare = getParticipantComputedShare(p);
+                  return acc + (Number(p.paidAmount) || (p.paid ? pShare : 0));
+                }, 0)
+            )
           : (editTransaction?.remainingLoan !== undefined ? editTransaction.remainingLoan : (Number(loanAmount) || Number(amount))),
         createdAt: editTransaction?.createdAt || new Date().toISOString(),
       };
@@ -781,7 +877,7 @@ export default function ExpenseTransactionModal({
 
               {isLoan && (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(245, 158, 11, 0.25)" }}>
-                  {/* Switch: Dividir en partes iguales (Gasto compartido / Vaca) */}
+                  {/* Switch: Dividir gasto compartido / Vaca (Múltiples modos) */}
                   <div
                     style={{
                       display: "flex",
@@ -802,10 +898,10 @@ export default function ExpenseTransactionModal({
                   >
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: "0.82rem", color: isSplit ? (isLight ? "#1d4ed8" : "#93c5fd") : "var(--text-primary)" }}>
-                        <span>👥</span> Dividir en partes iguales (Gasto compartido / Vaca)
+                        <span>👥</span> Dividir gasto compartido / Vaca (Múltiples métodos)
                       </div>
                       <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 2 }}>
-                        Divide el monto en cuotas iguales entre todos los participantes
+                        Divide en partes iguales, valor fijo ($), porcentaje (%), por partes/unidades o consumo + propina
                       </div>
                     </div>
                     <input
@@ -820,6 +916,107 @@ export default function ExpenseTransactionModal({
                   {isSplit ? (
                     /* ── Group split UI ── */
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {/* ── 5-Mode Split Method Selector ── */}
+                      <div>
+                        <label style={{ display: "block", fontSize: "0.71rem", fontWeight: 700, color: "var(--text-secondary)", marginBottom: 5 }}>
+                          Método de división:
+                        </label>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
+                            gap: 5,
+                          }}
+                        >
+                          {[
+                            { id: "equal", icon: "⚖️", label: "Partes Iguales", hint: "50/50 o 1/N" },
+                            { id: "exact", icon: "💵", label: "Valor Fijo ($)", hint: "Monto exacto" },
+                            { id: "percentage", icon: "📊", label: "Porcentaje (%)", hint: "60/40, 70/30..." },
+                            { id: "shares", icon: "🍕", label: "Por Partes (1x, 2x)", hint: "Unidades / cupos" },
+                            { id: "itemized", icon: "🧾", label: "Consumo + Propina", hint: "Plato + extra prop." },
+                          ].map((m) => {
+                            const active = splitMode === m.id;
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => {
+                                  setSplitMode(m.id);
+                                  if (m.id === "exact") {
+                                    setParticipants((prev) =>
+                                      prev.map((p) => ({
+                                        ...p,
+                                        customShare:
+                                          p.customShare !== undefined && p.customShare !== null && p.customShare !== ""
+                                            ? p.customShare
+                                            : getParticipantComputedShare(p),
+                                      }))
+                                    );
+                                  } else if (m.id === "percentage") {
+                                    const eqPct = totalSharesCount > 0 ? Number((100 / totalSharesCount).toFixed(1)) : 50;
+                                    setParticipants((prev) =>
+                                      prev.map((p) => ({
+                                        ...p,
+                                        percentage:
+                                          p.percentage !== undefined && p.percentage !== null && p.percentage !== ""
+                                            ? p.percentage
+                                            : totalNum > 0 && p.customShare
+                                            ? Number(((Number(p.customShare) / totalNum) * 100).toFixed(1))
+                                            : eqPct,
+                                      }))
+                                    );
+                                  } else if (m.id === "shares") {
+                                    setParticipants((prev) =>
+                                      prev.map((p) => ({
+                                        ...p,
+                                        units: Number(p.units) > 0 ? Number(p.units) : 1,
+                                      }))
+                                    );
+                                  } else if (m.id === "itemized") {
+                                    setParticipants((prev) =>
+                                      prev.map((p) => ({
+                                        ...p,
+                                        baseAmount:
+                                          p.baseAmount !== undefined && p.baseAmount !== null && p.baseAmount !== ""
+                                            ? p.baseAmount
+                                            : getParticipantComputedShare(p),
+                                      }))
+                                    );
+                                    if (!userBaseAmount && userIncluded) {
+                                      setUserBaseAmount(userShareCalculated);
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  padding: "6px 8px",
+                                  borderRadius: 7,
+                                  border: active
+                                    ? `1.5px solid ${isLight ? "#2563eb" : "#60a5fa"}`
+                                    : `1px solid ${isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.1)"}`,
+                                  background: active
+                                    ? (isLight ? "rgba(37, 99, 235, 0.12)" : "rgba(59, 130, 246, 0.22)")
+                                    : (isLight ? "#ffffff" : "rgba(13, 18, 38, 0.55)"),
+                                  color: active
+                                    ? (isLight ? "#1d4ed8" : "#93c5fd")
+                                    : "var(--text-primary)",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 1,
+                                }}
+                              >
+                                <span style={{ fontSize: "0.73rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+                                  <span>{m.icon}</span>
+                                  <span>{m.label}</span>
+                                </span>
+                                <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{m.hint}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       {/* Switch: Yo participé en este gasto */}
                       <div
                         style={{
@@ -852,7 +1049,56 @@ export default function ExpenseTransactionModal({
                         />
                       </div>
 
-                      {/* Participant input & quick presets */}
+                      {/* Quick percentage presets when splitMode === "percentage" */}
+                      {splitMode === "percentage" && participants.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 600 }}>
+                            ⚡ Presets % (Ellos / Tú):
+                          </span>
+                          {[
+                            { label: "50% / 50%", otherPct: 50 },
+                            { label: "60% / 40%", otherPct: 60 },
+                            { label: "70% / 30%", otherPct: 70 },
+                            { label: "80% / 20%", otherPct: 80 },
+                            { label: "40% / 60%", otherPct: 40 },
+                            { label: "30% / 70%", otherPct: 30 },
+                            { label: "Equitativo", otherPct: null },
+                          ].map((preset) => (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              onClick={() => {
+                                const count = participants.length;
+                                if (count === 0) return;
+                                const perPart =
+                                  preset.otherPct === null
+                                    ? Number((100 / (count + (userIncluded ? 1 : 0))).toFixed(2))
+                                    : Number((preset.otherPct / count).toFixed(2));
+                                setParticipants((prev) =>
+                                  prev.map((p) => ({
+                                    ...p,
+                                    percentage: perPart,
+                                  }))
+                                );
+                              }}
+                              style={{
+                                padding: "2px 8px",
+                                fontSize: "0.67rem",
+                                fontWeight: 600,
+                                borderRadius: 5,
+                                border: `1px solid ${isLight ? "rgba(37,99,235,0.25)" : "rgba(96,165,250,0.3)"}`,
+                                background: isLight ? "rgba(37,99,235,0.06)" : "rgba(59,130,246,0.14)",
+                                color: isLight ? "#1d4ed8" : "#93c5fd",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Participant input & quick count presets */}
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
                           <label style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--text-primary)" }}>
@@ -860,14 +1106,25 @@ export default function ExpenseTransactionModal({
                           </label>
                           <div style={{ display: "flex", gap: 4 }}>
                             <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", alignSelf: "center" }}>Rápido:</span>
-                            {[2, 3, 4, 5].map((cnt) => (
+                            {[1, 2, 3, 4, 5].map((cnt) => (
                               <button
                                 key={cnt}
                                 type="button"
                                 onClick={() => {
+                                  const nextTotalCount = cnt + (userIncluded ? 1 : 0);
+                                  const eqShare = nextTotalCount > 0 ? Math.round(totalNum / nextTotalCount) : 0;
+                                  const eqPct = nextTotalCount > 0 ? Number((100 / nextTotalCount).toFixed(1)) : 50;
                                   const list = [];
                                   for (let i = 1; i <= cnt; i++) {
-                                    list.push({ id: `part_${Date.now()}_${i}`, name: `Invitado ${i}`, paid: false });
+                                    list.push({
+                                      id: `part_${Date.now()}_${i}`,
+                                      name: participants[i - 1]?.name || `Invitado ${i}`,
+                                      paid: false,
+                                      customShare: eqShare,
+                                      percentage: eqPct,
+                                      units: 1,
+                                      baseAmount: eqShare,
+                                    });
                                   }
                                   setParticipants(list);
                                 }}
@@ -890,14 +1147,28 @@ export default function ExpenseTransactionModal({
                         <div style={{ display: "flex", gap: 6 }}>
                           <input
                             type="text"
-                            placeholder="Nombre del participante (ej. Andrés, Camilo, Diana...)"
+                            placeholder="Nombre del participante (ej. Nico Barrera, Andrés, Camilo...)"
                             value={newParticipantInput}
                             onChange={(e) => setNewParticipantInput(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 if (newParticipantInput.trim()) {
-                                  setParticipants([...participants, { id: `part_${Date.now()}`, name: newParticipantInput.trim(), paid: false }]);
+                                  const nextCount = participants.length + 1 + (userIncluded ? 1 : 0);
+                                  const defShare = nextCount > 0 ? Math.round(totalNum / nextCount) : 0;
+                                  const defPct = nextCount > 0 ? Number((100 / nextCount).toFixed(1)) : 50;
+                                  setParticipants([
+                                    ...participants,
+                                    {
+                                      id: `part_${Date.now()}`,
+                                      name: newParticipantInput.trim(),
+                                      paid: false,
+                                      customShare: defShare,
+                                      percentage: defPct,
+                                      units: 1,
+                                      baseAmount: defShare,
+                                    },
+                                  ]);
                                   setNewParticipantInput("");
                                 }
                               }
@@ -916,7 +1187,21 @@ export default function ExpenseTransactionModal({
                             type="button"
                             onClick={() => {
                               if (newParticipantInput.trim()) {
-                                setParticipants([...participants, { id: `part_${Date.now()}`, name: newParticipantInput.trim(), paid: false }]);
+                                const nextCount = participants.length + 1 + (userIncluded ? 1 : 0);
+                                const defShare = nextCount > 0 ? Math.round(totalNum / nextCount) : 0;
+                                const defPct = nextCount > 0 ? Number((100 / nextCount).toFixed(1)) : 50;
+                                setParticipants([
+                                  ...participants,
+                                  {
+                                    id: `part_${Date.now()}`,
+                                    name: newParticipantInput.trim(),
+                                    paid: false,
+                                    customShare: defShare,
+                                    percentage: defPct,
+                                    units: 1,
+                                    baseAmount: defShare,
+                                  },
+                                ]);
                                 setNewParticipantInput("");
                               }
                             }}
@@ -935,34 +1220,369 @@ export default function ExpenseTransactionModal({
                           </button>
                         </div>
 
-                        {/* Chips of added participants */}
+                        {/* Interactive Participant Rows by Split Mode */}
                         {participants.length > 0 && (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, maxHeight: "150px", overflowY: "auto", padding: "2px" }}>
-                            {participants.map((p, idx) => (
-                              <span
-                                key={p.id || idx}
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                              marginTop: 8,
+                              maxHeight: "230px",
+                              overflowY: "auto",
+                              padding: "2px",
+                            }}
+                          >
+                            {participants.map((p, idx) => {
+                              const resolvedShare = getParticipantComputedShare(p);
+                              const resolvedPct = totalNum > 0 ? ((resolvedShare / totalNum) * 100).toFixed(1) : "0.0";
+
+                              return (
+                                <div
+                                  key={p.id || idx}
+                                  style={{
+                                    background: isLight ? "#ffffff" : "var(--bg-surface)",
+                                    border: `1px solid ${isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)"}`,
+                                    borderRadius: 8,
+                                    padding: "6px 10px",
+                                    fontSize: "0.75rem",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: 8,
+                                    color: "var(--text-primary)",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 110 }}>
+                                    <span style={{ fontWeight: 700 }}>{p.name}</span>
+                                    <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>
+                                      ({resolvedPct}%)
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                    {/* Mode 1: Equal */}
+                                    {splitMode === "equal" && (
+                                      <span style={{ fontWeight: 700, color: isLight ? "#b45309" : "#fcd34d", fontFamily: "JetBrains Mono, monospace" }}>
+                                        {formatMoney(resolvedShare, currency)}
+                                      </span>
+                                    )}
+
+                                    {/* Mode 2: Exact Fixed Value ($) */}
+                                    {splitMode === "exact" && (
+                                      <>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>$</span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="100"
+                                            value={p.customShare !== undefined && p.customShare !== null ? p.customShare : resolvedShare}
+                                            onChange={(e) => {
+                                              const val = e.target.value === "" ? "" : Math.max(0, Number(e.target.value));
+                                              setParticipants((prev) =>
+                                                prev.map((item, i) => (i === idx ? { ...item, customShare: val } : item))
+                                              );
+                                            }}
+                                            style={{
+                                              width: 96,
+                                              padding: "4px 7px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${isLight ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                                              background: isLight ? "#f8fafc" : "rgba(13, 18, 38, 0.9)",
+                                              color: "var(--text-primary)",
+                                              fontSize: "0.76rem",
+                                              fontWeight: 700,
+                                              fontFamily: "JetBrains Mono, monospace",
+                                            }}
+                                          />
+                                          {participants.length > 1 && (
+                                            <button
+                                              type="button"
+                                              title="Asignar el saldo restante a esta persona"
+                                              onClick={() => {
+                                                const othersSum = participants.reduce(
+                                                  (s, item, i) => (i === idx ? s : s + getParticipantComputedShare(item)),
+                                                  0
+                                                );
+                                                const rest = Math.max(0, totalNum - othersSum);
+                                                setParticipants((prev) =>
+                                                  prev.map((item, i) => (i === idx ? { ...item, customShare: rest } : item))
+                                                );
+                                              }}
+                                              style={{
+                                                padding: "3px 6px",
+                                                fontSize: "0.64rem",
+                                                borderRadius: 4,
+                                                border: `1px solid ${isLight ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)"}`,
+                                                background: "transparent",
+                                                color: "var(--text-secondary)",
+                                                cursor: "pointer",
+                                              }}
+                                            >
+                                              Resto
+                                            </button>
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* Mode 3: Percentage (%) */}
+                                    {splitMode === "percentage" && (
+                                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.5"
+                                            value={
+                                              p.percentage !== undefined && p.percentage !== null
+                                                ? p.percentage
+                                                : totalSharesCount > 0
+                                                ? Number((100 / totalSharesCount).toFixed(1))
+                                                : 50
+                                            }
+                                            onChange={(e) => {
+                                              const val = e.target.value === "" ? "" : Math.min(100, Math.max(0, Number(e.target.value)));
+                                              setParticipants((prev) =>
+                                                prev.map((item, i) => (i === idx ? { ...item, percentage: val } : item))
+                                              );
+                                            }}
+                                            style={{
+                                              width: 64,
+                                              padding: "4px 6px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${isLight ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                                              background: isLight ? "#f8fafc" : "rgba(13, 18, 38, 0.9)",
+                                              color: "var(--text-primary)",
+                                              fontSize: "0.76rem",
+                                              fontWeight: 700,
+                                              textAlign: "right",
+                                              fontFamily: "JetBrains Mono, monospace",
+                                            }}
+                                          />
+                                          <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-secondary)" }}>%</span>
+                                        </div>
+                                        <span style={{ fontWeight: 700, color: isLight ? "#b45309" : "#fcd34d", fontFamily: "JetBrains Mono, monospace" }}>
+                                          = {formatMoney(resolvedShare, currency)}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {/* Mode 4: Shares / Units (1x, 2x, 3x...) */}
+                                    {splitMode === "shares" && (
+                                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 6, border: `1px solid ${isLight ? "#cbd5e1" : "rgba(255,255,255,0.18)"}`, overflow: "hidden" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const cur = Number(p.units) > 0 ? Number(p.units) : 1;
+                                              const next = Math.max(0.5, Number((cur - (cur <= 1 ? 0.5 : 1)).toFixed(1)));
+                                              setParticipants((prev) =>
+                                                prev.map((item, i) => (i === idx ? { ...item, units: next } : item))
+                                              );
+                                            }}
+                                            style={{ padding: "2px 7px", border: "none", background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.08)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 700 }}
+                                          >
+                                            −
+                                          </button>
+                                          <input
+                                            type="number"
+                                            min="0.5"
+                                            step="0.5"
+                                            value={Number(p.units) > 0 ? p.units : 1}
+                                            onChange={(e) => {
+                                              const val = Math.max(0.1, Number(e.target.value) || 1);
+                                              setParticipants((prev) =>
+                                                prev.map((item, i) => (i === idx ? { ...item, units: val } : item))
+                                              );
+                                            }}
+                                            style={{
+                                              width: 44,
+                                              border: "none",
+                                              textAlign: "center",
+                                              background: "transparent",
+                                              color: "var(--text-primary)",
+                                              fontSize: "0.74rem",
+                                              fontWeight: 700,
+                                            }}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const cur = Number(p.units) > 0 ? Number(p.units) : 1;
+                                              setParticipants((prev) =>
+                                                prev.map((item, i) => (i === idx ? { ...item, units: Number((cur + 1).toFixed(1)) } : item))
+                                              );
+                                            }}
+                                            style={{ padding: "2px 7px", border: "none", background: isLight ? "#f1f5f9" : "rgba(255,255,255,0.08)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 700 }}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                        <span style={{ fontSize: "0.67rem", color: "var(--text-muted)" }}>partes</span>
+                                        <span style={{ fontWeight: 700, color: isLight ? "#b45309" : "#fcd34d", fontFamily: "JetBrains Mono, monospace" }}>
+                                          = {formatMoney(resolvedShare, currency)}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {/* Mode 5: Itemized Base Consumption + Proportional Tip/Delivery */}
+                                    {splitMode === "itemized" && (
+                                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <span style={{ fontSize: "0.67rem", color: "var(--text-muted)" }}>Plato/Base $</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="100"
+                                          value={p.baseAmount !== undefined && p.baseAmount !== null ? p.baseAmount : ""}
+                                          placeholder="0"
+                                          onChange={(e) => {
+                                            const val = e.target.value === "" ? "" : Math.max(0, Number(e.target.value));
+                                            setParticipants((prev) =>
+                                              prev.map((item, i) => (i === idx ? { ...item, baseAmount: val } : item))
+                                            );
+                                          }}
+                                          style={{
+                                            width: 86,
+                                            padding: "4px 6px",
+                                            borderRadius: 6,
+                                            border: `1px solid ${isLight ? "#cbd5e1" : "rgba(255,255,255,0.2)"}`,
+                                            background: isLight ? "#f8fafc" : "rgba(13, 18, 38, 0.9)",
+                                            color: "var(--text-primary)",
+                                            fontSize: "0.75rem",
+                                            fontWeight: 700,
+                                            fontFamily: "JetBrains Mono, monospace",
+                                          }}
+                                        />
+                                        <span style={{ fontWeight: 700, color: isLight ? "#b45309" : "#fcd34d", fontFamily: "JetBrains Mono, monospace", fontSize: "0.73rem" }}>
+                                          ➔ {formatMoney(resolvedShare, currency)}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => setParticipants(participants.filter((x, i) => i !== idx))}
+                                      style={{
+                                        background: "transparent",
+                                        border: "none",
+                                        color: "var(--text-muted)",
+                                        cursor: "pointer",
+                                        fontSize: "0.75rem",
+                                        padding: "0 3px",
+                                      }}
+                                      title="Quitar participante"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* User's own control row when in 'shares' or 'itemized' mode and userIncluded is true */}
+                            {userIncluded && (splitMode === "shares" || splitMode === "itemized") && (
+                              <div
                                 style={{
-                                  background: isLight ? "#ffffff" : "var(--bg-surface)",
-                                  border: `1px solid ${isLight ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.12)"}`,
-                                  borderRadius: 6,
-                                  padding: "3px 8px",
-                                  fontSize: "0.72rem",
-                                  display: "inline-flex",
+                                  background: isLight ? "rgba(37, 99, 235, 0.06)" : "rgba(59, 130, 246, 0.14)",
+                                  border: `1px dashed ${isLight ? "#3b82f6" : "#60a5fa"}`,
+                                  borderRadius: 8,
+                                  padding: "6px 10px",
+                                  fontSize: "0.74rem",
+                                  display: "flex",
                                   alignItems: "center",
-                                  gap: 6,
-                                  color: "var(--text-primary)",
+                                  justifyContent: "space-between",
+                                  flexWrap: "wrap",
+                                  gap: 8,
                                 }}
                               >
-                                <strong>{p.name}</strong> ({formatMoney(sharePerPerson, currency)})
-                                <button
-                                  type="button"
-                                  onClick={() => setParticipants(participants.filter((x, i) => i !== idx))}
-                                  style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.7rem", padding: 0 }}
-                                >
-                                  ✕
-                                </button>
-                              </span>
-                            ))}
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <strong style={{ color: isLight ? "#1d4ed8" : "#93c5fd" }}>🙋‍♂️ Tú (Tu consumo)</strong>
+                                  <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>
+                                    ({totalNum > 0 ? ((userShareCalculated / totalNum) * 100).toFixed(1) : "0.0"}%)
+                                  </span>
+                                </div>
+
+                                {splitMode === "shares" && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <div style={{ display: "inline-flex", alignItems: "center", borderRadius: 6, border: `1px solid ${isLight ? "#93c5fd" : "rgba(96,165,250,0.4)"}`, overflow: "hidden" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setUserUnits((u) => Math.max(0.5, Number(((Number(u) || 1) - ((Number(u) || 1) <= 1 ? 0.5 : 1)).toFixed(1))))}
+                                        style={{ padding: "2px 7px", border: "none", background: isLight ? "#dbeafe" : "rgba(59,130,246,0.25)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 700 }}
+                                      >
+                                        −
+                                      </button>
+                                      <input
+                                        type="number"
+                                        min="0.5"
+                                        step="0.5"
+                                        value={userUnits}
+                                        onChange={(e) => setUserUnits(Math.max(0.1, Number(e.target.value) || 1))}
+                                        style={{ width: 44, border: "none", textAlign: "center", background: "transparent", color: "var(--text-primary)", fontSize: "0.74rem", fontWeight: 700 }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setUserUnits((u) => Number(((Number(u) || 1) + 1).toFixed(1)))}
+                                        style={{ padding: "2px 7px", border: "none", background: isLight ? "#dbeafe" : "rgba(59,130,246,0.25)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 700 }}
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    <span style={{ fontSize: "0.67rem", color: "var(--text-muted)" }}>partes</span>
+                                    <strong style={{ color: isLight ? "#1d4ed8" : "#93c5fd", fontFamily: "JetBrains Mono, monospace" }}>
+                                      = {formatMoney(userShareCalculated, currency)}
+                                    </strong>
+                                  </div>
+                                )}
+
+                                {splitMode === "itemized" && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: "0.67rem", color: "var(--text-muted)" }}>Tu Plato/Base $</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="100"
+                                      value={userBaseAmount || ""}
+                                      placeholder="0"
+                                      onChange={(e) => setUserBaseAmount(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))}
+                                      style={{
+                                        width: 86,
+                                        padding: "4px 6px",
+                                        borderRadius: 6,
+                                        border: `1px solid ${isLight ? "#93c5fd" : "rgba(96,165,250,0.4)"}`,
+                                        background: isLight ? "#ffffff" : "rgba(13, 18, 38, 0.9)",
+                                        color: "var(--text-primary)",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        fontFamily: "JetBrains Mono, monospace",
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setUserBaseAmount(Math.max(0, totalNum - extBaseSum))}
+                                      style={{
+                                        padding: "2px 6px",
+                                        fontSize: "0.63rem",
+                                        borderRadius: 4,
+                                        border: `1px solid ${isLight ? "#3b82f6" : "#60a5fa"}`,
+                                        background: "transparent",
+                                        color: isLight ? "#1d4ed8" : "#93c5fd",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      Resto
+                                    </button>
+                                    <strong style={{ color: isLight ? "#1d4ed8" : "#93c5fd", fontFamily: "JetBrains Mono, monospace", fontSize: "0.73rem" }}>
+                                      ➔ {formatMoney(userShareCalculated, currency)}
+                                    </strong>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -979,13 +1599,48 @@ export default function ExpenseTransactionModal({
                           alignItems: "center",
                           fontSize: "0.74rem",
                           flexWrap: "wrap",
-                          gap: 6,
+                          gap: 8,
                         }}
                       >
                         <div>
-                          <span style={{ color: "var(--text-muted)" }}>Cuota por persona: </span>
-                          <strong style={{ color: "var(--text-primary)" }}>{formatMoney(sharePerPerson, currency)}</strong>
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}> ({totalSharesCount} personas)</span>
+                          {splitMode === "equal" && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }}>Cuota por persona: </span>
+                              <strong style={{ color: "var(--text-primary)" }}>{formatMoney(sharePerPerson, currency)}</strong>
+                              <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}> ({totalSharesCount} personas)</span>
+                            </>
+                          )}
+                          {splitMode === "exact" && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }}>Modo: </span>
+                              <strong style={{ color: "var(--text-primary)" }}>💵 Valor Fijo Exacto</strong>
+                            </>
+                          )}
+                          {splitMode === "percentage" && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }}>Asignado a otros: </span>
+                              <strong style={{ color: "var(--text-primary)" }}>{sumExternalPercentages.toFixed(1)}%</strong>
+                              {userIncluded && (
+                                <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}> (Tú: {userPercentageRemaining}%)</span>
+                              )}
+                            </>
+                          )}
+                          {splitMode === "shares" && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }}>Total partes: </span>
+                              <strong style={{ color: "var(--text-primary)" }}>{totalUnitsPool}u</strong>
+                              <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}> ({formatMoney(valuePerUnit, currency)}/parte)</span>
+                            </>
+                          )}
+                          {splitMode === "itemized" && (
+                            <>
+                              <span style={{ color: "var(--text-muted)" }}>Base: </span>
+                              <strong style={{ color: "var(--text-primary)" }}>{formatMoney(totalBaseConsumption, currency)}</strong>
+                              <span style={{ color: itemizedExtraOrTip >= 0 ? "#10b981" : "#f59e0b", fontSize: "0.68rem", marginLeft: 4 }}>
+                                ({itemizedExtraOrTip >= 0 ? `+${formatMoney(itemizedExtraOrTip, currency)} propina/extra` : `${formatMoney(itemizedExtraOrTip, currency)} desc.`})
+                              </span>
+                            </>
+                          )}
                         </div>
                         {userIncluded && (
                           <div>
@@ -997,6 +1652,11 @@ export default function ExpenseTransactionModal({
                           <span style={{ color: isLight ? "#b45309" : "#fcd34d" }}>Por cobrar: </span>
                           <strong style={{ color: isLight ? "#b45309" : "#fcd34d" }}>{formatMoney(finalReceivable, currency)}</strong>
                         </div>
+                        {!userIncluded && Math.abs(unassignedDiff) >= 1 && (
+                          <div style={{ width: "100%", fontSize: "0.69rem", color: "#ef4444", fontWeight: 600 }}>
+                            ⚠️ Diferencia sin asignar respecto al total: {formatMoney(unassignedDiff, currency)}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (

@@ -166,16 +166,22 @@ function buildPurchasesSection(portfolioState, liveQuotesMap) {
   return { lines, totalPurchasesUSD, totalRealizedUSD, positionIndex };
 }
 
-function buildStrategiesSection(portfolioState) {
+function buildStrategiesSection(portfolioState, liveQuotesMap = {}) {
   const strats = portfolioState?.customStrategies || [];
   const rebalMap = portfolioState?.strategyRebalances || {};
   const navSummaries = portfolioState?.lastStrategySummaries || {};
+  const cachedQuotes = portfolioState?.lastKnownQuotes || {};
   const lines = [];
   let realStratsMarketUSD = 0;
 
   if (strats.length === 0) {
     return { lines, realStratsMarketUSD };
   }
+
+  const getQuote = (ticker) => {
+    const t = String(ticker || "").toUpperCase();
+    return liveQuotesMap?.[t] || cachedQuotes?.[t] || null;
+  };
 
   lines.push("### 2. ESTRATEGIAS CUANTITATIVAS (PROPICKS / TITANES):");
   for (const s of strats) {
@@ -202,11 +208,21 @@ function buildStrategiesSection(portfolioState) {
       realStratsMarketUSD += navVal > 0 ? navVal : capital;
     }
 
+    const enrichedTickers = activeTickers.map((rawT) => {
+      const effectiveT = subs[rawT] || rawT;
+      const q = getQuote(effectiveT) || getQuote(rawT);
+      if (q && toNum(q.price) > 0) {
+        const chg = toNum(q.change_pct ?? q.changePct, 0);
+        return `${effectiveT} ($${toNum(q.price).toFixed(2)}, Hoy: ${fmtPct(chg)})`;
+      }
+      return effectiveT;
+    });
+
     lines.push(
       `- ${s.name}: Capital $${capital.toFixed(2)} (${s.numSlots || 20} slots${navVal > 0 ? `, Valor Actual $${navVal.toFixed(2)}${navRet}` : ""}) | Benchmark: ${s.benchmark || "N/A"} | Real: ${s.isRealMoney ? "Sí" : "Simulado"}`,
     );
     lines.push(
-      `  * Último Rebalanceo: ${latestReb?.rebalance_date || latestReb?.date || "N/A"} | Tickers (${activeTickers.length}): [${activeTickers.join(", ") || "N/A"}]${subsText}`,
+      `  * Último Rebalanceo: ${latestReb?.rebalance_date || latestReb?.date || "N/A"} | Tickers (${activeTickers.length}): [${enrichedTickers.join(", ") || "N/A"}]${subsText}`,
     );
   }
   lines.push("");
@@ -444,7 +460,7 @@ export function buildEconomicContextFromState({
   const isOwner = isMainOwnerUser(email);
 
   const purchases = buildPurchasesSection(portfolioState, liveQuotesMap);
-  const strategies = buildStrategiesSection(portfolioState);
+  const strategies = buildStrategiesSection(portfolioState, liveQuotesMap);
   const fixedIncome = buildFixedIncomeSection(fixedIncomeState, safeFx);
   const cashFlow = buildCashFlowSection(cashFlowState);
 
