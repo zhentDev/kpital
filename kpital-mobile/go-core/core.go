@@ -632,6 +632,30 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		paymentSource["targetName"] = matchedAcc.Name
 	}
 
+	isLoanTx := budgetItemId == "loan_receivable" || budgetItemType == "receivable" || budgetItemType == "loan"
+	effectiveBudgetId := budgetItemId
+	effectiveBudgetName := budgetItemName
+	effectiveBudgetType := budgetItemType
+	if isLoanTx {
+		effectiveBudgetId = "loan_receivable"
+		effectiveBudgetName = "🤝 Préstamos (Por Cobrar)"
+		effectiveBudgetType = "receivable"
+	}
+
+	extraMap := map[string]interface{}{
+		"source":      "kpital_mobile_direct",
+		"rawText":     rawText,
+		"bank":        bank,
+		"account":     account,
+		"timestampMs": timestampMs,
+	}
+	if isLoanTx {
+		extraMap["isLoan"] = true
+		extraMap["loanAmount"] = amount
+		extraMap["loanRecipient"] = description
+		extraMap["loanStatus"] = "pending"
+	}
+
 	payload := map[string]interface{}{
 		"id":                  txId,
 		"user_id":             DefaultOwnerId,
@@ -642,17 +666,12 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		"amount":              amount,
 		"currency":            "COP",
 		"description":         description,
-		"budget_item_id":      budgetItemId,
-		"budget_item_name":    budgetItemName,
-		"budget_item_type":    budgetItemType,
+		"budget_item_id":      effectiveBudgetId,
+		"budget_item_name":    effectiveBudgetName,
+		"budget_item_type":    effectiveBudgetType,
+		"is_loan":             isLoanTx,
 		"payment_source_json": paymentSource,
-		"extra_json": map[string]interface{}{
-			"source":      "kpital_mobile_direct",
-			"rawText":     rawText,
-			"bank":        bank,
-			"account":     account,
-			"timestampMs": timestampMs,
-		},
+		"extra_json":          extraMap,
 	}
 
 	if _, err := supabaseDo("POST", "/cf_movements", payload, "return=minimal"); err != nil {

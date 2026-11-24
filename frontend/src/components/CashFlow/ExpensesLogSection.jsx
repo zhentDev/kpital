@@ -235,11 +235,36 @@ export default function ExpensesLogSection({
       if (filterCategory !== "all") {
         if (filterCategory === "unassigned") {
           // Un movimiento ya no está "sin asignar" si tiene rubro presupuestal, es préstamo, es cobro de deuda/préstamo o es pago a tarjeta
-          if (item.budgetItemId || item.isLoan || item.isDebtCollection || item.isDebtPayment || item.itemType === "card_payment") return false;
+          if (
+            item.budgetItemId ||
+            item.isLoan ||
+            item.budgetItemType === "receivable" ||
+            item.isDebtCollection ||
+            item.isDebtPayment ||
+            item.itemType === "card_payment"
+          ) {
+            return false;
+          }
         } else if (filterCategory === "loans") {
-          if (!item.isLoan && !item.isDebtPayment && !item.isDebtCollection) return false;
+          if (
+            !item.isLoan &&
+            item.budgetItemId !== "loan_receivable" &&
+            item.budgetItemType !== "receivable" &&
+            !item.isDebtPayment &&
+            !item.isDebtCollection
+          ) {
+            return false;
+          }
+        } else if (filterCategory === "want_gastos_hormiga") {
+          const isHormiga =
+            item.budgetItemId === "want_gastos_hormiga" ||
+            (item.budgetItemName || "").toLowerCase().includes("hormiga");
+          if (!isHormiga) return false;
         } else {
-          const matchesEnv = item.budgetItemId === filterCategory || (Array.isArray(item.budgetDeductions) && item.budgetDeductions.some((d) => d.budgetItemId === filterCategory));
+          const matchesEnv =
+            item.budgetItemId === filterCategory ||
+            (Array.isArray(item.budgetDeductions) &&
+              item.budgetDeductions.some((d) => d.budgetItemId === filterCategory));
           if (!matchesEnv) return false;
         }
       }
@@ -367,9 +392,17 @@ export default function ExpensesLogSection({
     );
   }, [fixedIncomeAccounts, payrollAccount]);
 
+  // Total Gastado Real excluye préstamos por cobrar (100% retornables) y solo suma la porción propia no retornable en gastos divididos
   const totalSpentInPeriod = standaloneExpenses
     .filter((tx) => tx.itemType === "expense")
-    .reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0);
+    .reduce((acc, tx) => {
+      const gross = Number(tx.amount) || 0;
+      const isLoanTx = Boolean(tx.isLoan || tx.budgetItemId === "loan_receivable" || tx.budgetItemType === "receivable");
+      if (!isLoanTx) return acc + gross;
+      const loaned = Number(tx.loanAmount) > 0 ? Number(tx.loanAmount) : gross;
+      const personalShare = Math.max(0, gross - loaned);
+      return acc + personalShare;
+    }, 0);
 
   const totalSpentFromPayroll = standaloneExpenses
     .filter((tx) => tx.itemType === "expense" && isPayrollOutflow(tx))
@@ -844,12 +877,15 @@ export default function ExpensesLogSection({
           >
             <option value="all">📂 Todos los Rubros</option>
             <option value="unassigned">⚠️ Sin Asignar (Pendientes)</option>
-            <option value="loans">👥 Préstamos / Vacas</option>
-            {(budgetItems || []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.icon || "🏷️"} {b.name}
-              </option>
-            ))}
+            <option value="loans">🤝 Préstamos (Por Cobrar)</option>
+            <option value="want_gastos_hormiga">🐜 Gastos Hormiga</option>
+            {(budgetItems || [])
+              .filter((b) => b.id !== "want_gastos_hormiga" && b.id !== "loan_receivable")
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.icon || "🏷️"} {b.name}
+                </option>
+              ))}
           </select>
         </div>
 
@@ -1767,43 +1803,151 @@ export default function ExpensesLogSection({
                     </>
                   ) : (
                     <>
-                      {(item.budgetItemName || isLoan) && (
-                        <span
-                          style={{
-                            background: isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(128, 128, 128, 0.1)",
-                            border: isLight ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid rgba(255, 255, 255, 0.06)",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            color: isLight ? "#475569" : "var(--text-muted)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {item.budgetItemName || (item.isSplit ? "👥 Gasto Compartido" : "🤝 Préstamo Personal")}
-                        </span>
-                      )}
-                      {!isLoan && (
-                        <span
-                          style={{
-                            background: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                              ? "rgba(14, 165, 233, 0.12)"
-                              : "rgba(239, 68, 68, 0.12)",
-                            border: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                              ? "1px solid rgba(14, 165, 233, 0.3)"
-                              : "1px solid rgba(239, 68, 68, 0.25)",
-                            padding: "2px 6px",
-                            borderRadius: "6px",
-                            fontSize: "0.68rem",
-                            color: item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                              ? "#38bdf8"
-                              : "#f87171",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {item.isCreditCardPayoff || Boolean(item.creditCardPaymentId) || item.description?.toLowerCase().includes("descontado de")
-                            ? "💳 Salida (Imputado a Tarjeta)"
-                            : "📤 Salida"}
-                        </span>
+                      {isLoan ? (
+                        (() => {
+                          const personalShareAmt = Math.max(0, (Number(item.amount) || 0) - loanTotal);
+                          const isPureLoan = !item.isSplit || personalShareAmt < 1;
+                          if (isPureLoan) {
+                            return (
+                              <>
+                                <span
+                                  style={{
+                                    background: isLight ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.2)",
+                                    border: isLight ? "1px solid rgba(217, 119, 6, 0.4)" : "1px solid #f59e0b",
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    fontSize: "0.72rem",
+                                    color: isLight ? "#92400e" : "#fcd34d",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  🤝 Préstamos (Por Cobrar)
+                                </span>
+                                <span
+                                  style={{
+                                    background: isLight ? "rgba(245, 158, 11, 0.08)" : "rgba(245, 158, 11, 0.12)",
+                                    border: "1px solid rgba(245, 158, 11, 0.25)",
+                                    padding: "2px 6px",
+                                    borderRadius: "6px",
+                                    fontSize: "0.68rem",
+                                    color: isLight ? "#b45309" : "#fbbf24",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  🔄 Préstamo Retornable (No es gasto)
+                                </span>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <span
+                                style={{
+                                  background: isLight ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.2)",
+                                  border: isLight ? "1px solid rgba(217, 119, 6, 0.4)" : "1px solid #f59e0b",
+                                  padding: "2px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "0.71rem",
+                                  color: isLight ? "#92400e" : "#fcd34d",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                🤝 Préstamo: {formatMoney(loanTotal, currency)}
+                              </span>
+                              <span
+                                style={{
+                                  background: isLight ? "rgba(59, 130, 246, 0.1)" : "rgba(59, 130, 246, 0.18)",
+                                  border: "1px solid rgba(59, 130, 246, 0.35)",
+                                  padding: "2px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "0.70rem",
+                                  color: isLight ? "#1d4ed8" : "#93c5fd",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                👥 Tu parte ({formatMoney(personalShareAmt, currency)}):{" "}
+                                {item.budgetItemId && item.budgetItemId !== "loan_receivable"
+                                  ? item.budgetItemName
+                                  : "Sin rubro"}
+                              </span>
+                            </>
+                          );
+                        })()
+                      ) : (
+                        <>
+                          {item.budgetItemName && (
+                            <span
+                              style={{
+                                background:
+                                  item.budgetItemId === "want_gastos_hormiga" ||
+                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
+                                    ? isLight
+                                      ? "rgba(192, 132, 252, 0.15)"
+                                      : "rgba(192, 132, 252, 0.2)"
+                                    : isLight
+                                    ? "rgba(0, 0, 0, 0.05)"
+                                    : "rgba(128, 128, 128, 0.1)",
+                                border:
+                                  item.budgetItemId === "want_gastos_hormiga" ||
+                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
+                                    ? "1px solid rgba(192, 132, 252, 0.45)"
+                                    : isLight
+                                    ? "1px solid rgba(0, 0, 0, 0.08)"
+                                    : "1px solid rgba(255, 255, 255, 0.06)",
+                                padding: "2px 8px",
+                                borderRadius: "6px",
+                                fontSize: "0.72rem",
+                                color:
+                                  item.budgetItemId === "want_gastos_hormiga" ||
+                                  (item.budgetItemName || "").toLowerCase().includes("hormiga")
+                                    ? isLight
+                                      ? "#7e22ce"
+                                      : "#d8b4fe"
+                                    : isLight
+                                    ? "#475569"
+                                    : "var(--text-muted)",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {item.budgetItemId === "want_gastos_hormiga" ||
+                              (item.budgetItemName || "").toLowerCase().includes("hormiga")
+                                ? "🐜 Gastos Hormiga"
+                                : item.budgetItemName}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              background:
+                                item.isCreditCardPayoff ||
+                                Boolean(item.creditCardPaymentId) ||
+                                item.description?.toLowerCase().includes("descontado de")
+                                  ? "rgba(14, 165, 233, 0.12)"
+                                  : "rgba(239, 68, 68, 0.12)",
+                              border:
+                                item.isCreditCardPayoff ||
+                                Boolean(item.creditCardPaymentId) ||
+                                item.description?.toLowerCase().includes("descontado de")
+                                  ? "1px solid rgba(14, 165, 233, 0.3)"
+                                  : "1px solid rgba(239, 68, 68, 0.25)",
+                              padding: "2px 6px",
+                              borderRadius: "6px",
+                              fontSize: "0.68rem",
+                              color:
+                                item.isCreditCardPayoff ||
+                                Boolean(item.creditCardPaymentId) ||
+                                item.description?.toLowerCase().includes("descontado de")
+                                  ? "#38bdf8"
+                                  : "#f87171",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {item.isCreditCardPayoff ||
+                            Boolean(item.creditCardPaymentId) ||
+                            item.description?.toLowerCase().includes("descontado de")
+                              ? "💳 Salida (Imputado a Tarjeta)"
+                              : "📤 Salida"}
+                          </span>
+                        </>
                       )}
                     </>
                   )}
@@ -1836,6 +1980,23 @@ export default function ExpensesLogSection({
                       <span>🤝</span> Gestionar Cobros
                     </button>
                   )}
+
+                  {isLoan &&
+                    item.isSplit &&
+                    Math.max(0, (Number(item.amount) || 0) - loanTotal) >= 1 &&
+                    onReclassifyMovement && (
+                      <button
+                        type="button"
+                        onClick={() => setAssignModalItem(item)}
+                        className="expense-action-pill"
+                        title="Asignar únicamente tu parte de consumo propio a un rubro presupuestal"
+                      >
+                        <span>🏷️</span>{" "}
+                        {item.budgetItemId && item.budgetItemId !== "loan_receivable"
+                          ? "Cambiar Rubro (Mi Parte)"
+                          : "Asignar Mi Parte"}
+                      </button>
+                    )}
 
                   {!isLoan && !item.isDebtCollection && (onReclassifyMovement || onConvertExpenseToCardPayment) && (
                     <>
@@ -1878,6 +2039,36 @@ export default function ExpensesLogSection({
                       >
                         <span>🏷️</span> Asignar Movimiento
                       </button>
+                      {!item.isIncome && item.itemType !== "income" && item.budgetItemId !== "want_gastos_hormiga" && onReclassifyMovement && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onReclassifyMovement({
+                              movementId: item.id,
+                              destinationType: "budget_envelope",
+                              targetId: "want_gastos_hormiga",
+                              targetItem: {
+                                id: "want_gastos_hormiga",
+                                name: "🐜 Gastos Hormiga",
+                                pillarType: "wants",
+                              },
+                              subItem: null,
+                              destinationAccount: null,
+                              paymentSource: item.paymentSource,
+                            });
+                          }}
+                          className="expense-action-pill"
+                          style={{
+                            background: isLight ? "rgba(192, 132, 252, 0.1)" : "rgba(192, 132, 252, 0.14)",
+                            color: isLight ? "#7e22ce" : "#d8b4fe",
+                            border: isLight ? "1px solid rgba(192, 132, 252, 0.35)" : "1px solid rgba(192, 132, 252, 0.3)",
+                            fontWeight: 700,
+                          }}
+                          title="Clasificar en 1 clic como Gasto Hormiga (sin rubro específico)"
+                        >
+                          <span>🐜</span> Gasto Hormiga
+                        </button>
+                      )}
                     </>
                   )}
 

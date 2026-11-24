@@ -112,6 +112,8 @@ export function calculateEffectiveExpense(tx, debts = []) {
 
   const isLoan = Boolean(
     tx.isLoan ||
+    tx.budgetItemId === "loan_receivable" ||
+    tx.budgetItemType === "receivable" ||
     Number(tx.loanAmount) > 0 ||
     (Array.isArray(tx.participants) && tx.participants.length > 0) ||
     (Array.isArray(tx.settlements) && tx.settlements.length > 0)
@@ -149,16 +151,17 @@ export function calculateEffectiveExpense(tx, debts = []) {
   // Best knowledge of total repaid to date
   const repaidAmount = Math.max(settlementsRepaid, debtRepaid);
 
-  // Effective expense currently tied up in the envelope = gross - repaid
-  const effectiveSpent = Math.max(0, grossAmount - repaidAmount);
-
-  // Total amount loaned out
+  // Total amount loaned out (recoverable from third parties)
   const totalLoaned = Number(tx.loanAmount) > 0
     ? Number(tx.loanAmount)
     : (linkedDebt ? Number(linkedDebt.totalAmount) || grossAmount : grossAmount);
 
   const pendingLoan = Math.max(0, totalLoaned - repaidAmount);
   const purePersonalSpent = Math.max(0, grossAmount - totalLoaned);
+
+  // A recoverable loan is NOT a personal living expense: only the user's non-recoverable share
+  // (purePersonalSpent, e.g. in a shared split expense where the user participated) consumes the budget envelope!
+  const effectiveSpent = purePersonalSpent;
 
   return {
     grossAmount,

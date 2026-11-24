@@ -774,8 +774,39 @@ export const useCashFlowStore = create(
           }
         }
 
+        // Normalize 100% pure loans into their own separate rubro ("loan_receivable" / "🤝 Préstamos (Por Cobrar)")
+        // so they never mix with living expense envelopes (needs/wants) or show as unassigned expenses.
+        const normalizedReconciledExpenses = reconciledExpenses.map((tx) => {
+          if (!tx) return tx;
+          if (tx.budgetItemId === "want_gastos_hormiga" || (tx.budgetItemName || "").toLowerCase().includes("hormiga")) {
+            return {
+              ...tx,
+              budgetItemId: "want_gastos_hormiga",
+              budgetItemName: "🐜 Gastos Hormiga",
+              budgetItemType: "wants",
+            };
+          }
+          const isLoanTx = Boolean(tx.isLoan || tx.budgetItemId === "loan_receivable" || tx.budgetItemType === "receivable");
+          if (!isLoanTx) return tx;
+          const gross = Number(tx.amount) || 0;
+          const loaned = Number(tx.loanAmount) > 0 ? Number(tx.loanAmount) : gross;
+          const personalShare = Math.max(0, gross - loaned);
+          const isPureLoan = !tx.isSplit || personalShare < 1;
+          if (isPureLoan) {
+            return {
+              ...tx,
+              isLoan: true,
+              loanAmount: loaned,
+              budgetItemId: "loan_receivable",
+              budgetItemName: "🤝 Préstamos (Por Cobrar)",
+              budgetItemType: "receivable",
+            };
+          }
+          return tx;
+        });
+
         // Always sort expenses strictly by date and time from most recent to oldest
-        sanitizedExpensesLog = sortMovementsByDateTimeDesc(reconciledExpenses);
+        sanitizedExpensesLog = sortMovementsByDateTimeDesc(normalizedReconciledExpenses);
 
         const KNOWN_PHANTOM_DEBT_IDS = [
           "debt_mike_nu_2026",
@@ -2210,9 +2241,49 @@ export const useCashFlowStore = create(
           return;
         }
 
-        // 3. Destination: Budget Envelope (Needs, Wants, Wealth)
+        // 2b. Destination: Originated Personal Loan (Préstamo Otorgado por Cobrar — Rubro independiente)
+        if (
+          destinationType === "loan_receivable" ||
+          targetId === "loan_receivable" ||
+          targetItem?.id === "loan_receivable"
+        ) {
+          const recipient = (
+            newDebtData?.debtor ||
+            participantName ||
+            expense.loanRecipient ||
+            expense.description ||
+            "Amigo / Familiar"
+          ).trim();
+          const updatedExpenses = (state.expensesLog || []).map((e) => {
+            if (e.id !== movementId) return e;
+            return {
+              ...e,
+              isLoan: true,
+              isSplit: false,
+              loanRecipient: recipient,
+              loanAmount: amount,
+              loanStatus: e.loanStatus || "pending",
+              budgetItemId: "loan_receivable",
+              budgetItemName: "🤝 Préstamos (Por Cobrar)",
+              budgetItemType: "receivable",
+              paymentSource: paymentSource || e.paymentSource,
+            };
+          });
+          const updatedDebts = syncExpenseLoansToDebts(updatedExpenses, state.debts || []);
+          set({ expensesLog: updatedExpenses, debts: updatedDebts });
+          get().syncStateWithBackend();
+          toast.success(`Movimiento asignado al rubro independiente "🤝 Préstamos (Por Cobrar)" (${recipient})`, {
+            icon: "🤝",
+          });
+          return;
+        }
+
+        // 3. Destination: Budget Envelope (Needs, Wants, Wealth, or Gastos Hormiga)
         if (destinationType === "budget_envelope") {
-          const envelope = targetItem;
+          const envelope =
+            targetId === "want_gastos_hormiga" && !targetItem
+              ? { id: "want_gastos_hormiga", name: "🐜 Gastos Hormiga", pillarType: "wants" }
+              : targetItem;
           if (!envelope) return;
 
           // Auto-match subItem if not explicitly passed but amount or description matches a subItem
@@ -2908,17 +2979,36 @@ export const useCashFlowStore = create(
         set((state) => {
           const updatedExpensesLog = (state.expensesLog || []).map((tx) => {
             if (tx.id === txId) {
-              const wasWealth = tx.budgetItemType === "wealth" || tx.budgetItemId?.startsWith("wealth_");
+              const gross = Number(tx.amount) || 0;
+              const effectiveLoanAmt = isLoan
+                ? Number(loanAmount) > 0
+                  ? Number(loanAmount)
+                  : gross
+                : 0;
+              const personalShare = Math.max(0, gross - effectiveLoanAmt);
+              const isPureLoan = isLoan && (!tx.isSplit || personalShare < 1);
               return {
                 ...tx,
                 isLoan,
                 loanRecipient: isLoan ? loanRecipient || "Amigo / Familiar" : null,
-                loanAmount: isLoan ? (Number(loanAmount) > 0 ? Number(loanAmount) : Number(tx.amount)) : null,
+                loanAmount: isLoan ? effectiveLoanAmt : null,
                 loanStatus: isLoan ? (tx.loanStatus || "pending") : null,
-                // Si estaba en una cajita de ahorro/inversión (wealth), reasignar a needs_loans para no descontarlo de la meta de ahorro
-                budgetItemType: isLoan && wasWealth ? "needs" : tx.budgetItemType,
-                budgetItemId: isLoan && wasWealth ? "needs_loans" : tx.budgetItemId,
-                budgetItemName: isLoan && wasWealth ? "Préstamos / Deudas por Cobrar" : tx.budgetItemName,
+                // Si es un préstamo 100% retornable, va a su rubro independiente "🤝 Préstamos (Por Cobrar)"
+                budgetItemType: isPureLoan
+                  ? "receivable"
+                  : !isLoan && tx.budgetItemType === "receivable"
+                  ? null
+                  : tx.budgetItemType,
+                budgetItemId: isPureLoan
+                  ? "loan_receivable"
+                  : !isLoan && tx.budgetItemId === "loan_receivable"
+                  ? null
+                  : tx.budgetItemId,
+                budgetItemName: isPureLoan
+                  ? "🤝 Préstamos (Por Cobrar)"
+                  : !isLoan && tx.budgetItemId === "loan_receivable"
+                  ? tx.description || "Sin Asignar"
+                  : tx.budgetItemName,
               };
             }
             return tx;
@@ -2927,7 +3017,12 @@ export const useCashFlowStore = create(
           return { expensesLog: updatedExpensesLog, debts: updatedDebts };
         });
         get().syncStateWithBackend();
-        toast.success(isLoan ? "Gasto marcado como Préstamo y sincronizado a Deudas" : "Gasto desmarcado de préstamo", { icon: "🤝" });
+        toast.success(
+          isLoan
+            ? "Asignado a 🤝 Préstamos (Por Cobrar) y sincronizado a Deudas"
+            : "Movimiento desmarcado de préstamo",
+          { icon: "🤝" }
+        );
       },
 
       toggleMovementAsBudgetInflow: (txId) => {

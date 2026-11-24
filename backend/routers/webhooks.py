@@ -525,6 +525,28 @@ def get_mobile_budget_items(
     needs_items = cf.get("needs", [])
     wants_items = cf.get("wants", [])
 
+    wants_out = [
+        {
+            "id": str(w.get("id")),
+            "name": str(w.get("name")),
+            "icon": w.get("icon") or "🍷",
+            "pillar": "wants",
+            "monthly": float(w.get("amount", 0.0) or 0.0),
+        }
+        for w in wants_items
+    ]
+    if not any(w["id"] == "want_gastos_hormiga" or "hormiga" in w["name"].lower() for w in wants_out):
+        wants_out.insert(
+            0,
+            {
+                "id": "want_gastos_hormiga",
+                "name": "Gastos Hormiga",
+                "icon": "🐜",
+                "pillar": "wants",
+                "monthly": 0.0,
+            },
+        )
+
     return {
         "success": True,
         "wealth": [
@@ -547,16 +569,7 @@ def get_mobile_budget_items(
             }
             for n in needs_items
         ],
-        "wants": [
-            {
-                "id": str(w.get("id")),
-                "name": str(w.get("name")),
-                "icon": w.get("icon") or "🍷",
-                "pillar": "wants",
-                "monthly": float(w.get("amount", 0.0) or 0.0),
-            }
-            for w in wants_items
-        ],
+        "wants": wants_out,
     }
 
 
@@ -1285,12 +1298,26 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
-            assigned_budget_id = payload.budget_item_id or None
-            assigned_budget_name = payload.budget_item_name or clean_desc
-            assigned_budget_type = payload.budget_item_type or "wants"
+            is_loan_tx = (
+                payload.budget_item_id == "loan_receivable"
+                or payload.budget_item_type in ("receivable", "loan")
+            )
+            assigned_budget_id = "loan_receivable" if is_loan_tx else (payload.budget_item_id or None)
+            assigned_budget_name = (
+                "🤝 Préstamos (Por Cobrar)"
+                if is_loan_tx
+                else (payload.budget_item_name or clean_desc)
+            )
+            assigned_budget_type = "receivable" if is_loan_tx else (payload.budget_item_type or "wants")
 
-            # Auto-registrar nuevo rubro en el pilar si no existía
-            if payload.budget_item_id and payload.budget_item_name and payload.budget_item_type in ["wealth", "needs", "wants"]:
+            # Auto-registrar nuevo rubro en el pilar si no existía (excepto rubros especiales sin cupo fijo)
+            if (
+                not is_loan_tx
+                and payload.budget_item_id
+                and payload.budget_item_id != "want_gastos_hormiga"
+                and payload.budget_item_name
+                and payload.budget_item_type in ["wealth", "needs", "wants"]
+            ):
                 target_pillar = payload.budget_item_type
                 existing_items = cf.get(target_pillar, [])
                 if not any(str(it.get("id")) == str(payload.budget_item_id) or it.get("name", "").lower() == payload.budget_item_name.lower() for it in existing_items):
@@ -1317,6 +1344,10 @@ def register_mobile_transaction(
                 "date": tx_date,
                 "time": tx_time,
                 "type": "debit",
+                "isLoan": is_loan_tx,
+                "loanAmount": amount_val if is_loan_tx else None,
+                "loanRecipient": clean_desc if is_loan_tx else None,
+                "loanStatus": "pending" if is_loan_tx else None,
                 "paymentSource": {
                     "type": "credit_card",
                     "targetId": matched_cc["id"],
@@ -1348,12 +1379,30 @@ def register_mobile_transaction(
             if "expensesLog" not in cf or not isinstance(cf["expensesLog"], list):
                 cf["expensesLog"] = []
 
-            assigned_budget_id = payload.budget_item_id or None
-            assigned_budget_name = payload.budget_item_name or clean_desc
-            assigned_budget_type = payload.budget_item_type or ("needs" if tx_type == "debit" else "income")
+            is_loan_tx = (
+                payload.budget_item_id == "loan_receivable"
+                or payload.budget_item_type in ("receivable", "loan")
+            )
+            assigned_budget_id = "loan_receivable" if is_loan_tx else (payload.budget_item_id or None)
+            assigned_budget_name = (
+                "🤝 Préstamos (Por Cobrar)"
+                if is_loan_tx
+                else (payload.budget_item_name or clean_desc)
+            )
+            assigned_budget_type = (
+                "receivable"
+                if is_loan_tx
+                else (payload.budget_item_type or ("needs" if tx_type == "debit" else "income"))
+            )
 
-            # Auto-registrar nuevo rubro en el pilar si no existía
-            if payload.budget_item_id and payload.budget_item_name and payload.budget_item_type in ["wealth", "needs", "wants"]:
+            # Auto-registrar nuevo rubro en el pilar si no existía (excepto rubros especiales sin cupo fijo)
+            if (
+                not is_loan_tx
+                and payload.budget_item_id
+                and payload.budget_item_id != "want_gastos_hormiga"
+                and payload.budget_item_name
+                and payload.budget_item_type in ["wealth", "needs", "wants"]
+            ):
                 target_pillar = payload.budget_item_type
                 existing_items = cf.get(target_pillar, [])
                 if not any(str(it.get("id")) == str(payload.budget_item_id) or it.get("name", "").lower() == payload.budget_item_name.lower() for it in existing_items):
@@ -1380,6 +1429,10 @@ def register_mobile_transaction(
                 "date": tx_date,
                 "time": tx_time,
                 "type": tx_type,
+                "isLoan": is_loan_tx,
+                "loanAmount": amount_val if is_loan_tx else None,
+                "loanRecipient": clean_desc if is_loan_tx else None,
+                "loanStatus": "pending" if is_loan_tx else None,
                 "cascaded": cascaded,
                 "shortfall": shortfall if cascaded else 0.0,
                 "fallbackAccountName": principal_acc["name"] if cascaded and principal_acc else None,

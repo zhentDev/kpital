@@ -55,8 +55,19 @@ export default function CascadingCategorySelector({
     return groups;
   }, [budgetItems]);
 
-  // Current selected item
-  const selectedItem = value ? budgetItems.find((b) => b.id === value) || null : null;
+  // Current selected item (including built-in Gastos Hormiga & Préstamos por Cobrar)
+  const selectedItem = useMemo(() => {
+    if (!value) return null;
+    const found = budgetItems.find((b) => b.id === value);
+    if (found) return found;
+    if (value === "want_gastos_hormiga") {
+      return { id: "want_gastos_hormiga", name: "Gastos Hormiga", icon: "🐜", pillarType: "wants", amount: 0 };
+    }
+    if (value === "loan_receivable") {
+      return { id: "loan_receivable", name: "Préstamos (Por Cobrar)", icon: "🤝", pillarType: "receivable", amount: 0 };
+    }
+    return null;
+  }, [value, budgetItems]);
 
   // Set initial hovered pillar based on selected item
   useEffect(() => {
@@ -217,6 +228,79 @@ export default function CascadingCategorySelector({
               }}
               autoFocus
             />
+          </div>
+
+          {/* Quick Options: Gastos Hormiga, Préstamo por Cobrar & Sin Asignar */}
+          <div
+            onClick={() => {
+              onChange("want_gastos_hormiga");
+              setIsOpen(false);
+              setSearchQuery("");
+            }}
+            style={{
+              padding: "8px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              background:
+                value === "want_gastos_hormiga"
+                  ? isLight
+                    ? "rgba(192, 132, 252, 0.14)"
+                    : "rgba(192, 132, 252, 0.25)"
+                  : "transparent",
+              borderBottom: isLight ? "1px solid rgba(0, 0, 0, 0.06)" : "1px solid rgba(255, 255, 255, 0.06)",
+              transition: "background 0.15s ease",
+            }}
+          >
+            <span style={{ fontSize: "1rem" }}>🐜</span>
+            <div>
+              <strong style={{ fontSize: "0.82rem", color: isLight ? "#7e22ce" : "#d8b4fe", display: "block" }}>
+                Gastos Hormiga (Sin rubro fijo / Imprevisto menor)
+              </strong>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Gastos pequeños del día a día sin sobre presupuestal específico
+              </span>
+            </div>
+            {value === "want_gastos_hormiga" && (
+              <span style={{ marginLeft: "auto", color: "#a855f7", fontWeight: 700 }}>✓</span>
+            )}
+          </div>
+
+          <div
+            onClick={() => {
+              onChange("loan_receivable");
+              setIsOpen(false);
+              setSearchQuery("");
+            }}
+            style={{
+              padding: "8px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              background:
+                value === "loan_receivable"
+                  ? isLight
+                    ? "rgba(245, 158, 11, 0.14)"
+                    : "rgba(245, 158, 11, 0.22)"
+                  : "transparent",
+              borderBottom: isLight ? "1px solid rgba(0, 0, 0, 0.06)" : "1px solid rgba(255, 255, 255, 0.06)",
+              transition: "background 0.15s ease",
+            }}
+          >
+            <span style={{ fontSize: "1rem" }}>🤝</span>
+            <div>
+              <strong style={{ fontSize: "0.82rem", color: isLight ? "#b45309" : "#fcd34d", display: "block" }}>
+                Préstamos (Por Cobrar — Rubro independiente)
+              </strong>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Dinero prestado que recibirás de vuelta (no se mezcla con tus gastos reales)
+              </span>
+            </div>
+            {value === "loan_receivable" && (
+              <span style={{ marginLeft: "auto", color: "#f59e0b", fontWeight: 700 }}>✓</span>
+            )}
           </div>
 
           {/* Quick Option: Sin Asignar */}

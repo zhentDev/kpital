@@ -229,6 +229,46 @@ object PocketOverlayManager {
                 }
                 footerLayout.addView(backBtn)
 
+                val snoozeBtn = Button(appContext).apply {
+                    text = "⏳ Aplazar"
+                    textSize = 12f
+                    isAllCaps = false
+                    setTextColor(Color.parseColor("#fcd34d"))
+                    background = GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(Color.parseColor("#271a05"))
+                        setStroke(1, Color.parseColor("#f59e0b"))
+                    }
+                    setPadding(18, 10, 18, 10)
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 10, 0)
+                    }
+                    layoutParams = p
+                    setOnClickListener {
+                        val entered = amountInput.text.toString().trim()
+                        val parsed = MovementHistoryManager.parseAmount(entered)
+                        val finalAmount = if (parsed > 0) parsed else sanitizedInitial
+                        if (movementId != null) {
+                            MovementHistoryManager.updateMovementStatus(
+                                context = appContext,
+                                id = movementId,
+                                newStatus = MovementHistoryManager.STATUS_PENDING,
+                                newAmount = if (finalAmount > 0) finalAmount else null
+                            )
+                        }
+                        Toast.makeText(
+                            appContext,
+                            "⏳ Movimiento aplazado en Pendientes (conserva su hora original)",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        dismiss()
+                    }
+                }
+                footerLayout.addView(snoozeBtn)
+
                 val dismissBtn = Button(appContext).apply {
                     text = "✕ Descartar"
                     textSize = 12f
@@ -488,11 +528,14 @@ object PocketOverlayManager {
                     Triple("need_debts", "Pago Tarjeta / Deuda", "💳")
                 )
                 wantsList = mutableListOf(
+                    Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"),
                     Triple("want_restaurants", "Restaurantes, Salidas & Domicilios", "🍷"),
                     Triple("want_shopping", "Compras & Ropa", "🛍️"),
                     Triple("want_leisure", "Ocio & Entretenimiento", "🎮"),
                     Triple("want_transport", "Transporte & Gasolina", "🚗")
                 )
+            } else if (wantsList.none { it.first == "want_gastos_hormiga" || it.second.contains("Hormiga", ignoreCase = true) }) {
+                wantsList.add(0, Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"))
             }
 
             mainHandler.post {
@@ -532,6 +575,15 @@ object PocketOverlayManager {
         wantsList: List<Triple<String, String, String>>,
         onRubroSelected: (String, String, String) -> Unit
     ) {
+        // ── 0. ACCIONES RÁPIDAS (1 TOQUE: GASTOS HORMIGA & PRÉSTAMOS POR COBRAR) ──
+        addOverlayPillarTag(appContext, layout, "⚡ Clasificación Rápida (1 Toque)", "#f59e0b", "#271a05")
+        addOverlayRubroButton(appContext, layout, "Gastos Hormiga (Sin rubro fijo)", "🐜", "#f59e0b") {
+            onRubroSelected("want_gastos_hormiga", "Gastos Hormiga", "wants")
+        }
+        addOverlayRubroButton(appContext, layout, "Préstamo (Por Cobrar / Retornable)", "🤝", "#f59e0b") {
+            onRubroSelected("loan_receivable", "Préstamos (Por Cobrar)", "receivable")
+        }
+
         // ── 1. PATRIMONIO (VERDES) ──
         if (wealthList.isNotEmpty()) {
             addOverlayPillarTag(appContext, layout, "🟢 Patrimonio & Ahorro", "#10b981", "#052e16")

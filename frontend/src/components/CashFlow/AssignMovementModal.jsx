@@ -1720,9 +1720,115 @@ export default function AssignMovementModal({
               </div>
             )}
 
-            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.4 }}>
-              Asigna este movimiento a un rubro del presupuesto. El valor consumirá el cupo disponible del rubro correspondiente en este mes.
+            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.4 }}>
+              Asigna este movimiento a un rubro del presupuesto, o usa las opciones rápidas si es un <strong>Gasto Hormiga</strong> o un <strong>Préstamo por Cobrar</strong> (que no es un gasto real).
             </p>
+
+            {/* Quick 1-Click Classification Cards: Gastos Hormiga & Préstamos por Cobrar */}
+            {!isIncoming && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: 10,
+                  marginBottom: 14,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    const chosenSource =
+                      allPaymentSources.find((s) => s.key === selectedSourceAccountKey) || allPaymentSources[0];
+                    onReclassify({
+                      movementId: movement.id,
+                      destinationType: "budget_envelope",
+                      targetId: "want_gastos_hormiga",
+                      targetItem: {
+                        id: "want_gastos_hormiga",
+                        name: "🐜 Gastos Hormiga",
+                        pillarType: "wants",
+                      },
+                      subItem: null,
+                      destinationAccount: null,
+                      paymentSource: {
+                        type: chosenSource.type,
+                        targetId: chosenSource.id,
+                        targetName: chosenSource.name,
+                      },
+                    });
+                    onClose();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    border: isLight
+                      ? "1.5px solid rgba(147, 51, 234, 0.35)"
+                      : "1.5px solid rgba(192, 132, 252, 0.4)",
+                    background: isLight ? "rgba(192, 132, 252, 0.08)" : "rgba(192, 132, 252, 0.12)",
+                    color: isLight ? "#6b21a8" : "#e9d5ff",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontSize: "1.3rem" }}>🐜</span>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: "0.8rem" }}>Gastos Hormiga (1 Clic)</div>
+                    <div style={{ fontSize: "0.68rem", opacity: 0.85 }}>
+                      Gasto menor sin rubro fijo específico
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const chosenSource =
+                      allPaymentSources.find((s) => s.key === selectedSourceAccountKey) || allPaymentSources[0];
+                    onReclassify({
+                      movementId: movement.id,
+                      destinationType: "loan_receivable",
+                      targetId: "loan_receivable",
+                      targetItem: {
+                        id: "loan_receivable",
+                        name: "🤝 Préstamos (Por Cobrar)",
+                        pillarType: "receivable",
+                      },
+                      paymentSource: {
+                        type: chosenSource.type,
+                        targetId: chosenSource.id,
+                        targetName: chosenSource.name,
+                      },
+                    });
+                    onClose();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    border: isLight
+                      ? "1.5px solid rgba(217, 119, 6, 0.4)"
+                      : "1.5px solid rgba(245, 158, 11, 0.45)",
+                    background: isLight ? "rgba(245, 158, 11, 0.08)" : "rgba(245, 158, 11, 0.14)",
+                    color: isLight ? "#92400e" : "#fde68a",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontSize: "1.3rem" }}>🤝</span>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: "0.8rem" }}>Préstamo (Por Cobrar)</div>
+                    <div style={{ fontSize: "0.68rem", opacity: 0.85 }}>
+                      Rubro aparte: es un préstamo retornable, no un gasto
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
 
             {/* Filter pills & search */}
             <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>

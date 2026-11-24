@@ -267,6 +267,46 @@ class PocketSelectorActivity : Activity() {
             container.addView(btn)
         }
 
+        // Botón rápido para Aplazar (Guardar en Pendientes cuando llevas afán)
+        val snoozeBtn = Button(this).apply {
+            text = "⏳ Aplazar para después (Guardar en Pendientes)"
+            textSize = 13f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#fcd34d"))
+            background = GradientDrawable().apply {
+                cornerRadius = 18f
+                setColor(Color.parseColor("#271a05"))
+                setStroke(2, Color.parseColor("#f59e0b"))
+            }
+            setPadding(30, 24, 30, 24)
+            setOnClickListener {
+                val finalAmount = getFinalAmount()
+                movementId?.let { id ->
+                    MovementHistoryManager.updateMovementStatus(
+                        context = this@PocketSelectorActivity,
+                        id = id,
+                        newStatus = MovementHistoryManager.STATUS_PENDING,
+                        newAmount = if (finalAmount > 0) finalAmount else null
+                    )
+                }
+                Toast.makeText(
+                    this@PocketSelectorActivity,
+                    "⏳ Movimiento aplazado en Pendientes (conserva su hora original)",
+                    Toast.LENGTH_SHORT
+                ).show()
+                finish()
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 14, 0, 8)
+            }
+            layoutParams = params
+        }
+        container.addView(snoozeBtn)
+
         // Botón fijo inferior de cerrar
         val closeBtn = Button(this).apply {
             text = "✕ Cerrar sin registrar"
@@ -425,11 +465,14 @@ class PocketSelectorActivity : Activity() {
                     Triple("need_debts", "Pago Tarjeta / Deuda", "💳")
                 )
                 wantsList = mutableListOf(
+                    Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"),
                     Triple("want_restaurants", "Restaurantes, Salidas & Domicilios", "🍷"),
                     Triple("want_shopping", "Compras & Ropa", "🛍️"),
                     Triple("want_leisure", "Ocio & Entretenimiento", "🎮"),
                     Triple("want_transport", "Transporte & Gasolina", "🚗")
                 )
+            } else if (wantsList.none { it.first == "want_gastos_hormiga" || it.second.contains("Hormiga", ignoreCase = true) }) {
+                wantsList.add(0, Triple("want_gastos_hormiga", "Gastos Hormiga", "🐜"))
             }
 
             runOnUiThread {
@@ -464,6 +507,15 @@ class PocketSelectorActivity : Activity() {
         wantsList: List<Triple<String, String, String>>,
         onRubroSelected: (String, String, String) -> Unit
     ) {
+        // ── 0. CLASIFICACIÓN RÁPIDA (1 TOQUE: GASTOS HORMIGA & PRÉSTAMOS) ──
+        addPillarHeader(rubrosLayout, "⚡ Clasificación Rápida (1 Toque)", "#f59e0b", "#271a05")
+        addRubroButton(rubrosLayout, "Gastos Hormiga (Sin rubro fijo)", "🐜", "#f59e0b", "#271a05") {
+            onRubroSelected("want_gastos_hormiga", "Gastos Hormiga", "wants")
+        }
+        addRubroButton(rubrosLayout, "Préstamo (Por Cobrar / Retornable)", "🤝", "#f59e0b", "#271a05") {
+            onRubroSelected("loan_receivable", "Préstamos (Por Cobrar)", "receivable")
+        }
+
         // ── 1. RAMA PATRIMONIO & AHORRO (VERDES / ESMERALDA) ──
         if (wealthList.isNotEmpty()) {
             addPillarHeader(rubrosLayout, "🟢 Patrimonio & Ahorro", "#10b981", "#052e16")
@@ -553,6 +605,37 @@ class PocketSelectorActivity : Activity() {
             }
         }
         rubrosLayout.addView(skipBtn)
+
+        // Botón ⏳ Aplazar Movimiento (Queda en Pendientes sin enviar todavía)
+        val snoozeStep2Btn = Button(this).apply {
+            text = "⏳ Aplazar para después (Guardar en Pendientes)"
+            textSize = 12f
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#fcd34d"))
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(Color.parseColor("#271a05"))
+                setStroke(1, Color.parseColor("#f59e0b"))
+            }
+            setPadding(24, 18, 24, 18)
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 4, 0, 12)
+            }
+            layoutParams = p
+            setOnClickListener {
+                Toast.makeText(
+                    this@PocketSelectorActivity,
+                    "⏳ Movimiento aplazado en Pendientes (conserva su hora original)",
+                    Toast.LENGTH_SHORT
+                ).show()
+                finish()
+            }
+        }
+        rubrosLayout.addView(snoozeStep2Btn)
     }
 
     private fun addPillarHeader(layout: LinearLayout, title: String, textColor: String, bgColor: String) {

@@ -78,6 +78,13 @@ export default function ExpenseTransactionModal({
   // Auto-populate default amount and source whenever envelope changes or modal opens
   const handleSelectBudgetItem = (itemId) => {
     setSelectedBudgetItemId(itemId);
+    if (itemId === "loan_receivable") {
+      setIsLoan(true);
+      if (!loanAmount || Number(loanAmount) <= 0) {
+        setLoanAmount(Number(amount) || 0);
+      }
+      return;
+    }
     const item = budgetItems.find((b) => b.id === itemId);
     if (item && !editTransaction) {
       // Solo auto-llenar con el presupuesto presupuestado si el usuario NO ha escrito un monto previo
@@ -313,14 +320,32 @@ export default function ExpenseTransactionModal({
         onSaveExpenseTransaction(incomePayload);
       }
     } else {
-      // 💸 OUTGOING EXPENSE (Gasto Real)
+      // 💸 OUTGOING EXPENSE (Gasto Real o Préstamo Por Cobrar)
+      const isPureLoanTx = Boolean(isLoan && (!isSplit || !userIncluded || userShareCalculated < 1));
+      const isHormigaTx = selectedBudgetItemId === "want_gastos_hormiga";
+      const resolvedBudgetId = isPureLoanTx
+        ? "loan_receivable"
+        : isHormigaTx
+        ? "want_gastos_hormiga"
+        : selectedBudgetItem?.id || null;
+      const resolvedBudgetName = isPureLoanTx
+        ? "🤝 Préstamos (Por Cobrar)"
+        : isHormigaTx
+        ? "🐜 Gastos Hormiga"
+        : selectedBudgetItem?.name || (description.trim() || "Sin Asignar");
+      const resolvedBudgetType = isPureLoanTx
+        ? "receivable"
+        : isHormigaTx
+        ? "wants"
+        : selectedBudgetItem?.pillarType || null;
+
       const txPayload = {
         ...(editTransaction || {}),
         id: editTransaction ? editTransaction.id : `tx_${Date.now()}`,
         period: editTransaction?.period || currentPeriod,
-        budgetItemId: selectedBudgetItem?.id || null,
-        budgetItemName: selectedBudgetItem?.name || (description.trim() || (isLoan ? `Préstamo (${loanRecipient || 'Deudor'})` : "Sin Asignar")),
-        budgetItemType: selectedBudgetItem?.pillarType || (isLoan ? "receivable" : null),
+        budgetItemId: resolvedBudgetId,
+        budgetItemName: resolvedBudgetName,
+        budgetItemType: resolvedBudgetType,
         itemType: isWealthItem ? "wealth_saving" : "expense",
         isExplicitBudgetIncome: false,
         isExplicitSankeyIncome: false,
