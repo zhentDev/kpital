@@ -1548,7 +1548,6 @@ export async function fetchCashFlowData(options = {}) {
   try {
     const directData = await directFetchCashFlow();
     if (directData && (Array.isArray(directData.expensesLog) || Array.isArray(directData.inflows))) {
-      reconcileRenderCashFlowInBackground(directData);
       return directData;
     }
   } catch (err) {

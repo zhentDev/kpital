@@ -700,6 +700,40 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		return err
 	}
 
+	if isCard && strings.EqualFold(txType, "debit") {
+		cardId, _ := paymentSource["targetId"].(string)
+		if cardId == "" {
+			cardId = "cc_nu"
+		}
+		cpId := "cp_" + strings.TrimPrefix(txId, "cf_")
+		cpPayload := map[string]interface{}{
+			"id":                  cpId,
+			"user_id":             DefaultOwnerId,
+			"card_id":             cardId,
+			"description":         description,
+			"total_amount":        amount,
+			"installments_count":  1,
+			"monthly_installment": amount,
+			"start_period":        period,
+			"date":                dateStr,
+			"extra_json": map[string]interface{}{
+				"id":                 cpId,
+				"cardId":             cardId,
+				"description":        description,
+				"amount":             amount,
+				"totalAmount":        amount,
+				"installmentsCount":  1,
+				"monthlyInstallment": amount,
+				"startPeriod":        period,
+				"date":               dateStr,
+				"budgetItemId":       effectiveBudgetId,
+				"budgetItemName":     effectiveBudgetName,
+				"budgetItemType":     effectiveBudgetType,
+			},
+		}
+		_, _ = supabaseDo("POST", "/cf_credit_purchases", cpPayload, "return=minimal")
+	}
+
 	if matchedAcc != nil {
 		return syncFixedIncomeDirect(matchedAcc, txId, bank, description, txType, amount, rawText, budgetItemName, dateStr, timeStr)
 	}
@@ -712,8 +746,13 @@ func SendTransactionWithRubroToBackend(bank, account, description, txType string
 }
 
 // SendTransactionWithTimestampToBackend dispatches the user-confirmed transaction preserving the exact original capture timestamp from Kpital Mobile.
-// Calls the backend webhook first (which updates both Renta Fija and Flujo) and falls back to direct Supabase sync if offline.
+// Writes directly to Supabase PostgreSQL (SSOT) so budget_item_id, budget_item_name, budget_item_type, and timestampMs are never stripped by legacy webhook servers.
 func SendTransactionWithTimestampToBackend(bank, account, description, txType string, amount float64, rawText, budgetItemId, budgetItemName, budgetItemType string, timestampMs int64) string {
+	errDirect := syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
+	if errDirect == nil {
+		return `{"success":true,"message":"Movimiento y rubro registrados directamente en Kpital Supabase"}`
+	}
+
 	cfgLock.RLock()
 	currentCfg := appConfig
 	cfgLock.RUnlock()
@@ -741,15 +780,12 @@ func SendTransactionWithTimestampToBackend(bank, account, description, txType st
 
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
-		// If JSON marshal fails, fall back to direct Supabase sync
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
-		return `{"success":true,"message":"Movimiento registrado en Kpital"}`
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, errDirect)
 	}
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
 	if err != nil {
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
-		return `{"success":true,"message":"Movimiento registrado en Kpital"}`
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, errDirect)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -764,53 +800,17 @@ func SendTransactionWithTimestampToBackend(bank, account, description, txType st
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		// Render failed or offline -> ensure Supabase direct sync succeeds synchronously
-		errDirect := syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
-		if errDirect == nil {
-			return `{"success":true,"message":"Movimiento registrado directamente en Kpital Supabase"}`
-		}
-		return fmt.Sprintf(`{"success":false,"message":"%v"}`, err)
+		return fmt.Sprintf(`{"success":false,"message":"%v"}`, errDirect)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		_ = syncToSupabaseDirect(bank, account, description, txType, amount, rawText, budgetItemId, budgetItemName, budgetItemType, timestampMs)
-		return `{"success":true,"message":"Movimiento registrado con éxito"}`
-	}
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	return string(bodyBytes)
 }
 
-// FetchMobileBudgetItems retrieves all Cash Flow budget items (rubros) categorized by pillar.
-// Falls back directly to Supabase PostgREST if Render is asleep or returns an error.
+// FetchMobileBudgetItems retrieves all Cash Flow budget items (rubros) categorized by pillar directly from Supabase PostgREST.
 func FetchMobileBudgetItems() string {
-	cfgLock.RLock()
-	currentCfg := appConfig
-	cfgLock.RUnlock()
-
-	endpoint := fmt.Sprintf("%s/api/webhooks/mobile-budget-items", currentCfg.ApiUrl)
-
-	req, err := http.NewRequest("GET", endpoint, nil)
-	if err == nil {
-		if currentCfg.WebhookSecret != "" {
-			req.Header.Set("X-Webhook-Secret", currentCfg.WebhookSecret)
-		} else {
-			req.Header.Set("X-Webhook-Secret", "titanes_sec_e8b919f4088a53e6b4d32091c6e1a4e2")
-		}
-		if currentCfg.UserToken != "" {
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", currentCfg.UserToken))
-		}
-
-		resp, err := fastDialogClient.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return string(bodyBytes)
-		}
-	}
-
-	// Resilient Direct Supabase Fallback
+	// Direct Supabase PostgREST (SSOT)
 	supabaseUrl := fmt.Sprintf("%s/cf_budget_envelopes?user_id=eq.%s&select=pillar,id,name,amount", SupabaseRestUrl, DefaultOwnerId)
 	sReq, err := http.NewRequest("GET", supabaseUrl, nil)
 	if err != nil {

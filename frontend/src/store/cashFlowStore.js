@@ -826,6 +826,14 @@ export const useCashFlowStore = create(
         // and map any Kpital Mobile fallback rubro IDs/names to their canonical web envelope IDs.
         const normalizedReconciledExpenses = reconciledExpenses.map((tx) => {
           if (!tx) return tx;
+          if (tx.id === "cf_tx_mb_1795616332299_e5f492") {
+            tx = {
+              ...tx,
+              budgetItemId: tx.budgetItemId || "need_groceries",
+              budgetItemName: tx.budgetItemId ? tx.budgetItemName : "Alimentación & Supermercado",
+              budgetItemType: tx.budgetItemId ? tx.budgetItemType : "needs",
+            };
+          }
           if (tx.id === "cf_tx_mb_1795194768013_aeea22" || (tx.description || "").toUpperCase().includes("GRUPO MONCANTE")) {
             tx = {
               ...tx,
