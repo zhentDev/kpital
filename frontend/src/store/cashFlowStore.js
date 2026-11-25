@@ -859,6 +859,30 @@ export const useCashFlowStore = create(
             };
           }
           if (
+            tx.id === "cf_tx_mb_1795626959721_f2a809" ||
+            tx.budgetItemId === "income_salary" ||
+            tx.budgetItemId === "in_salary" ||
+            (tx.type === "credit" &&
+              ((tx.rawText || "").toLowerCase().includes("citibank") ||
+                (tx.description || "").toLowerCase().includes("citibank") ||
+                (tx.budgetItemName || "").toLowerCase().includes("salario") ||
+                (tx.budgetItemName || "").toLowerCase().includes("nómina") ||
+                (Number(tx.amount) >= 2000000 && tx.paymentSource?.type === "payroll")))
+          ) {
+            return {
+              ...tx,
+              description:
+                !tx.description || tx.description === "Compra Nu" || tx.description === "Abono bancario"
+                  ? "Pago de Nómina (Banco Citibank)"
+                  : tx.description,
+              budgetItemId: "in_salary",
+              budgetItemName: "💼 Salario Neto (Nómina)",
+              budgetItemType: "income",
+              isDebtCollection: false,
+              isDebtPayment: false,
+            };
+          }
+          if (
             tx.type === "credit" &&
             (!tx.budgetItemId ||
               tx.budgetItemId === "debt_collection" ||
@@ -1198,6 +1222,31 @@ export const useCashFlowStore = create(
             allocationModel: priorSource?.allocationModel || source?.allocationModel || "custom",
           };
         }
+
+        // Auto-sync 'in_salary' envelope in each period from actual registered payroll movements (e.g. $3.818.548 in 2026-12)
+        Object.keys(cleanedPeriodsData).forEach((pKey) => {
+          const salaryMovsInPeriod = sanitizedExpensesLog.filter(
+            (tx) =>
+              tx &&
+              tx.period === pKey &&
+              tx.type === "credit" &&
+              (tx.budgetItemId === "in_salary" || tx.budgetItemId === "income_salary") &&
+              Number(tx.amount) > 0
+          );
+          if (salaryMovsInPeriod.length > 0 && Array.isArray(cleanedPeriodsData[pKey]?.inflows)) {
+            const periodSalaryTotal = salaryMovsInPeriod.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+            if (periodSalaryTotal >= 1000000) {
+              cleanedPeriodsData[pKey] = {
+                ...cleanedPeriodsData[pKey],
+                inflows: cleanedPeriodsData[pKey].inflows.map((inf) =>
+                  inf.id === "in_salary" || inf.category === "salary"
+                    ? { ...inf, amount: periodSalaryTotal }
+                    : inf
+                ),
+              };
+            }
+          }
+        });
 
         // Load exact envelopes and ratios for the period the user is currently viewing (activeP)
         const targetSnap = cleanedPeriodsData[activeP];

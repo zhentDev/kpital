@@ -631,6 +631,8 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		} else {
 			paymentSource["targetId"] = "cc_nu"
 		}
+	} else if sourceType == "payroll" {
+		paymentSource["targetId"] = "acc_nu_debito"
 	}
 	if matchedAcc != nil {
 		accNameLower := strings.ToLower(matchedAcc.Name)
@@ -643,8 +645,10 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		paymentSource["targetName"] = matchedAcc.Name
 	}
 
+	rawLower := strings.ToLower(rawText + " " + description)
+	isSalaryTx := strings.EqualFold(txType, "credit") && (budgetItemId == "income_salary" || budgetItemId == "in_salary" || strings.Contains(rawLower, "citibank") || strings.Contains(strings.ToLower(budgetItemName), "salario") || strings.Contains(strings.ToLower(budgetItemName), "nómina"))
 	isLoanTx := budgetItemId == "loan_receivable" || budgetItemType == "receivable" || budgetItemType == "loan"
-	isDebtCollectionTx := strings.EqualFold(txType, "credit") && (budgetItemId == "" || budgetItemId == "debt_collection")
+	isDebtCollectionTx := strings.EqualFold(txType, "credit") && !isSalaryTx && (budgetItemId == "" || budgetItemId == "debt_collection")
 	effectiveBudgetId := budgetItemId
 	effectiveBudgetName := budgetItemName
 	effectiveBudgetType := budgetItemType
@@ -652,6 +656,17 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		effectiveBudgetId = "loan_receivable"
 		effectiveBudgetName = "🤝 Préstamos (Por Cobrar)"
 		effectiveBudgetType = "receivable"
+	} else if isSalaryTx {
+		effectiveBudgetId = "in_salary"
+		effectiveBudgetName = "💼 Salario Neto (Nómina)"
+		effectiveBudgetType = "income"
+		if description == "" || strings.EqualFold(description, "Compra Nu") || strings.EqualFold(description, "Abono bancario") {
+			if strings.Contains(rawLower, "citibank") {
+				description = "Pago de Nómina (Banco Citibank)"
+			} else {
+				description = "Pago de Nómina"
+			}
+		}
 	} else if isDebtCollectionTx {
 		effectiveBudgetId = "debt_collection"
 		effectiveBudgetName = "💸 Deudas Pagadas (Cobro de Préstamo)"
