@@ -213,8 +213,12 @@ export const useCashFlowStore = create(
     deletedExpenseIds: [],
 
     // ── Initialization directly from Supabase Cloud Database (SSOT) ──
-    initFetchCashFlow: async () => {
+    initFetchCashFlow: async (options = {}) => {
       try {
+        // Do not let a silent background poll clobber in-flight user edits or period switches
+        if (options?.silent && (get().isSyncing || syncDebounceTimer !== null)) {
+          return;
+        }
         if (typeof window !== "undefined") {
           localStorage.removeItem("titanes_cash_flow_store_v2");
           localStorage.removeItem("titanes_cash_flow_store");
@@ -292,7 +296,15 @@ export const useCashFlowStore = create(
         // El sistema de ingresos está activo únicamente a partir del pago del 23 de Octubre de 2026 (ciclo 2026-11: 23 Oct - 24 Nov)
         const rawStartP = source?.startPeriod || cachedLocal?.startPeriod || INCOME_SYSTEM_START_PERIOD;
         const startP = rawStartP < INCOME_SYSTEM_START_PERIOD ? INCOME_SYSTEM_START_PERIOD : rawStartP;
-        const activeP = currentCalPeriod < startP ? startP : currentCalPeriod;
+        const calendarActiveP = currentCalPeriod < startP ? startP : currentCalPeriod;
+
+        // Si el store ya estaba inicializado (ej. el usuario navegó al mes anterior 2026-11 y corre el auto-polling o foco de ventana),
+        // respetar estrictamente el período que el usuario está viendo sin devolverlo automáticamente al mes actual.
+        const existingState = get();
+        const activeP =
+          existingState.isInitialized && existingState.activePeriod && existingState.activePeriod >= startP
+            ? existingState.activePeriod
+            : calendarActiveP;
 
         // Custom ratios: user's exact configuration from local or remote prevails 100%
         const userRatios = cachedLocal?.customRatios || source?.customRatios;
@@ -1116,40 +1128,54 @@ export const useCashFlowStore = create(
           };
         }
 
-        let activeInflows = mergedInflows;
-        let activeNeeds = mergedNeeds;
-        let activeWants = mergedWants;
-        let activeWealth = mergedWealth;
+        // Ensure current calendar period (e.g. 2026-12) also exists in cleanedPeriodsData by inheriting recurring items from closest prior period
+        if (!cleanedPeriodsData[calendarActiveP]) {
+          const priorPeriods = Object.keys(cleanedPeriodsData)
+            .filter((p) => p >= startP && p < calendarActiveP)
+            .sort();
+          const closestPriorKey = priorPeriods[priorPeriods.length - 1];
+          const priorSource = closestPriorKey ? cleanedPeriodsData[closestPriorKey] : null;
+          const baseInflowsForRollover = priorSource?.inflows?.length ? priorSource.inflows : mergedInflows;
+          const baseNeedsForRollover = priorSource?.needs?.length ? priorSource.needs : mergedNeeds;
+          const baseWantsForRollover = priorSource?.wants?.length ? priorSource.wants : mergedWants;
+          const baseWealthForRollover = priorSource?.wealth?.length ? priorSource.wealth : mergedWealth;
 
-        if (activeP > savedActiveP) {
-          if (cleanedPeriodsData[activeP]) {
-            const targetSnap = cleanedPeriodsData[activeP];
-            activeInflows = targetSnap.inflows?.length ? targetSnap.inflows : getRecurringItems(mergedInflows, activeP);
-            activeNeeds = targetSnap.needs?.length ? targetSnap.needs : getRecurringItems(mergedNeeds, activeP);
-            activeWants = targetSnap.wants?.length ? targetSnap.wants : getRecurringItems(mergedWants, activeP);
-            activeWealth = targetSnap.wealth?.length ? targetSnap.wealth : getRecurringItems(mergedWealth, activeP);
-          } else {
-            activeInflows = getRecurringItems(mergedInflows, activeP);
-            activeNeeds = getRecurringItems(mergedNeeds, activeP);
-            activeWants = getRecurringItems(mergedWants, activeP);
-            activeWealth = getRecurringItems(mergedWealth, activeP);
-            cleanedPeriodsData[activeP] = {
-              inflows: activeInflows,
-              needs: activeNeeds,
-              wants: activeWants,
-              wealth: activeWealth,
-              customRatios: resolvedRatios,
-              allocationModel: source?.allocationModel || cachedLocal?.allocationModel || "custom",
-            };
-          }
+          cleanedPeriodsData[calendarActiveP] = {
+            inflows: getRecurringItems(baseInflowsForRollover, calendarActiveP),
+            needs: getRecurringItems(baseNeedsForRollover, calendarActiveP),
+            wants: getRecurringItems(baseWantsForRollover, calendarActiveP),
+            wealth: getRecurringItems(baseWealthForRollover, calendarActiveP),
+            customRatios: priorSource?.customRatios || resolvedRatios,
+            allocationModel: priorSource?.allocationModel || source?.allocationModel || "custom",
+          };
+        }
+
+        // Load exact envelopes and ratios for the period the user is currently viewing (activeP)
+        const targetSnap = cleanedPeriodsData[activeP];
+        const activeInflows = targetSnap?.inflows?.length ? targetSnap.inflows : getRecurringItems(mergedInflows, activeP);
+        const activeNeeds = targetSnap?.needs?.length ? targetSnap.needs : getRecurringItems(mergedNeeds, activeP);
+        const activeWants = targetSnap?.wants?.length ? targetSnap.wants : getRecurringItems(mergedWants, activeP);
+        const activeWealth = targetSnap?.wealth?.length ? targetSnap.wealth : getRecurringItems(mergedWealth, activeP);
+        const activeCustomRatios = targetSnap?.customRatios || resolvedRatios;
+        const activeAllocationModel = targetSnap?.allocationModel || source?.allocationModel || cachedLocal?.allocationModel || "custom";
+
+        if (!cleanedPeriodsData[activeP]) {
+          cleanedPeriodsData[activeP] = {
+            inflows: activeInflows,
+            needs: activeNeeds,
+            wants: activeWants,
+            wealth: activeWealth,
+            customRatios: activeCustomRatios,
+            allocationModel: activeAllocationModel,
+          };
         }
 
         const resolvedState = {
           startPeriod: startP,
           activePeriod: activeP,
           currency: source?.currency || cachedLocal?.currency || "COP",
-          allocationModel: source?.allocationModel || cachedLocal?.allocationModel || "custom",
-          customRatios: resolvedRatios,
+          allocationModel: activeAllocationModel,
+          customRatios: activeCustomRatios,
           emergencyFundTargetMonths: source?.emergencyFundTargetMonths ?? cachedLocal?.emergencyFundTargetMonths ?? 6,
           defaultFundingAccountId: source?.defaultFundingAccountId || cachedLocal?.defaultFundingAccountId || "acc_plenti_principal",
           payrollAccount: {
@@ -3455,12 +3481,56 @@ export const useCashFlowStore = create(
       },
 
       setAllocationModel: (allocationModel) => {
-        set({ allocationModel });
+        set((state) => {
+          const nextPeriodsData = { ...state.periodsData };
+          nextPeriodsData[state.activePeriod] = {
+            ...(nextPeriodsData[state.activePeriod] || {
+              inflows: state.inflows,
+              needs: state.needs,
+              wants: state.wants,
+              wealth: state.wealth,
+              customRatios: state.customRatios,
+            }),
+            allocationModel,
+          };
+          // Forward-only propagation: update only future periods (pKey > state.activePeriod)
+          Object.keys(nextPeriodsData).forEach((pKey) => {
+            if (pKey > state.activePeriod && nextPeriodsData[pKey]) {
+              nextPeriodsData[pKey] = {
+                ...nextPeriodsData[pKey],
+                allocationModel,
+              };
+            }
+          });
+          return { allocationModel, periodsData: nextPeriodsData };
+        });
         get().syncStateWithBackend();
       },
 
       setCustomRatios: (customRatios) => {
-        set({ customRatios });
+        set((state) => {
+          const nextPeriodsData = { ...state.periodsData };
+          nextPeriodsData[state.activePeriod] = {
+            ...(nextPeriodsData[state.activePeriod] || {
+              inflows: state.inflows,
+              needs: state.needs,
+              wants: state.wants,
+              wealth: state.wealth,
+              allocationModel: state.allocationModel,
+            }),
+            customRatios: { ...customRatios },
+          };
+          // Forward-only propagation: update only future periods (pKey > state.activePeriod)
+          Object.keys(nextPeriodsData).forEach((pKey) => {
+            if (pKey > state.activePeriod && nextPeriodsData[pKey]) {
+              nextPeriodsData[pKey] = {
+                ...nextPeriodsData[pKey],
+                customRatios: { ...customRatios },
+              };
+            }
+          });
+          return { customRatios, periodsData: nextPeriodsData };
+        });
         get().syncStateWithBackend();
       },
 
@@ -3514,6 +3584,7 @@ export const useCashFlowStore = create(
           return { inflows: nextInflows, periodsData: nextPeriodsData };
         });
 
+        get().syncStateWithBackend();
         try {
           await createInflowApi(newItem);
         } catch (err) {
@@ -3578,6 +3649,7 @@ export const useCashFlowStore = create(
 
           return { inflows: nextInflows, periodsData: nextPeriodsData };
         });
+        get().syncStateWithBackend();
         try {
           await deleteInflowApi(id);
         } catch (err) {
@@ -3627,6 +3699,7 @@ export const useCashFlowStore = create(
           return { needs: nextNeeds, periodsData: nextPeriodsData };
         });
 
+        get().syncStateWithBackend();
         try {
           await createNeedExpenseApi(newItem);
         } catch (err) {
@@ -3691,6 +3764,7 @@ export const useCashFlowStore = create(
 
           return { needs: nextNeeds, periodsData: nextPeriodsData };
         });
+        get().syncStateWithBackend();
         try {
           await deleteNeedExpenseApi(id);
         } catch (err) {
@@ -3739,6 +3813,7 @@ export const useCashFlowStore = create(
           return { wants: nextWants, periodsData: nextPeriodsData };
         });
 
+        get().syncStateWithBackend();
         try {
           await createWantExpenseApi(newItem);
         } catch (err) {
@@ -3803,6 +3878,7 @@ export const useCashFlowStore = create(
 
           return { wants: nextWants, periodsData: nextPeriodsData };
         });
+        get().syncStateWithBackend();
         try {
           await deleteWantExpenseApi(id);
         } catch (err) {
@@ -3854,6 +3930,7 @@ export const useCashFlowStore = create(
           return { wealth: nextWealth, periodsData: nextPeriodsData };
         });
 
+        get().syncStateWithBackend();
         try {
           await createWealthItemApi(newItem);
         } catch (err) {
@@ -3918,6 +3995,7 @@ export const useCashFlowStore = create(
 
           return { wealth: nextWealth, periodsData: nextPeriodsData };
         });
+        get().syncStateWithBackend();
         try {
           await deleteWealthItemApi(id);
         } catch (err) {
@@ -3925,8 +4003,15 @@ export const useCashFlowStore = create(
         }
       },
 
-      // ── Live Cross-Store Synchronization ─────────────────
+      // ── Live Cross-Store Synchronization (Forward-Only: Never Mutate Closed Past Periods) ─────────────────
       syncFromFixedIncome: (accounts = [], cdts = [], fxRate = 4150) => {
+        const curState = get();
+        const payDay = Number(curState.payrollAccount?.payDay || DEFAULT_PAYROLL_ACCOUNT.payDay || 25);
+        const currentCalPeriod = getCurrentPeriod(payDay);
+        // Never overwrite historical snapshots when the user is inspecting a closed past period (e.g. 2026-11)
+        if (curState.activePeriod && curState.activePeriod < currentCalPeriod) {
+          return;
+        }
         let totalMonthlyYieldCOP = 0;
         let totalCashBalanceCOP = 0;
 
@@ -4050,7 +4135,16 @@ export const useCashFlowStore = create(
             return w;
           });
 
-          return { inflows: nextInflows, wealth: nextWealth };
+          const nextPeriodsData = { ...state.periodsData };
+          if (state.activePeriod) {
+            nextPeriodsData[state.activePeriod] = {
+              ...(nextPeriodsData[state.activePeriod] || {}),
+              inflows: nextInflows,
+              wealth: nextWealth,
+            };
+          }
+
+          return { inflows: nextInflows, wealth: nextWealth, periodsData: nextPeriodsData };
         });
 
         get().syncStateWithBackend();
@@ -4059,6 +4153,13 @@ export const useCashFlowStore = create(
 
       syncFromPortfolio: (currentEquityValue = 0, fxRate = 4150) => {
         if (!currentEquityValue || currentEquityValue <= 0) return;
+        const curState = get();
+        const payDay = Number(curState.payrollAccount?.payDay || DEFAULT_PAYROLL_ACCOUNT.payDay || 25);
+        const currentCalPeriod = getCurrentPeriod(payDay);
+        // Never overwrite historical snapshots when the user is inspecting a closed past period (e.g. 2026-11)
+        if (curState.activePeriod && curState.activePeriod < currentCalPeriod) {
+          return;
+        }
 
         const valInCOP = Math.round(currentEquityValue * fxRate);
         const monthlyDividendCOP = Math.round((valInCOP * 0.02) / 12);
@@ -4123,7 +4224,16 @@ export const useCashFlowStore = create(
             });
           }
 
-          return { inflows: nextInflows, wealth: nextWealth };
+          const nextPeriodsData = { ...state.periodsData };
+          if (state.activePeriod) {
+            nextPeriodsData[state.activePeriod] = {
+              ...(nextPeriodsData[state.activePeriod] || {}),
+              inflows: nextInflows,
+              wealth: nextWealth,
+            };
+          }
+
+          return { inflows: nextInflows, wealth: nextWealth, periodsData: nextPeriodsData };
         });
 
         get().syncStateWithBackend();

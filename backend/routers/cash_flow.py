@@ -166,12 +166,7 @@ def sync_cash_flow_state(payload: CashFlowSyncPayload, request: Request):
     if payload.customRatios is not None:
         ratios = dump_val(payload.customRatios)
         if isinstance(ratios, dict) and ratios.get("needs") is not None:
-            current_ratios = db.get("customRatios") or {}
-            # Safeguard: prevent accidental fallback 35/30/35 from downgrading 40/20/40
-            if ratios.get("needs") == 35 and current_ratios.get("needs") == 40:
-                pass
-            else:
-                db["customRatios"] = ratios
+            db["customRatios"] = ratios
     if payload.emergencyFundTargetMonths is not None:
         db["emergencyFundTargetMonths"] = payload.emergencyFundTargetMonths
     if payload.inflows is not None:
@@ -277,7 +272,13 @@ def sync_cash_flow_state(payload: CashFlowSyncPayload, request: Request):
     if payload.periodsData is not None:
         existing_periods = db.get("periodsData") or {}
         incoming_periods = dump_val(payload.periodsData) or {}
-        db["periodsData"] = {**existing_periods, **incoming_periods}
+        target_active = payload.activePeriod or db.get("activePeriod") or "2026-11"
+        merged_periods = dict(existing_periods)
+        for p_key, p_snap in incoming_periods.items():
+            # Forward-only protection: only update periods >= target_active, or initialize if missing
+            if p_key >= target_active or p_key not in merged_periods:
+                merged_periods[p_key] = p_snap
+        db["periodsData"] = merged_periods
 
     save_cash_flow_db(db, user_id)
     return {"status": "ok", "message": "Cash flow synchronized successfully", "data": db}

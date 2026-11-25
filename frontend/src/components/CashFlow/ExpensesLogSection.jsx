@@ -476,7 +476,11 @@ export default function ExpensesLogSection({
 
   const payrollAvailableBalance = useMemo(() => {
     const allTaggedMovements = (expensesLog || [])
-      .filter((tx) => !tx.period || tx.period >= "2026-11")
+      .filter((tx) => {
+        if (!tx.period || tx.period < "2026-11") return false;
+        if (periodFilter !== "all" && currentPeriod && tx.period > currentPeriod) return false;
+        return true;
+      })
       .map((tx) => {
         const isIncome = tx.type === "credit" || tx.budgetItemType === "income";
         const isWealth =
@@ -499,7 +503,11 @@ export default function ExpensesLogSection({
     });
 
     const paidCards = (creditCardPayments || [])
-      .filter((p) => (!p.period || p.period >= "2026-11") && isPayrollOutflow(p))
+      .filter((p) => {
+        if (p.period && p.period < "2026-11") return false;
+        if (periodFilter !== "all" && currentPeriod && p.period && p.period > currentPeriod) return false;
+        return isPayrollOutflow(p);
+      })
       .reduce((acc, p) => {
         const alreadyInMovements = allTaggedMovements
           .filter(
@@ -525,7 +533,7 @@ export default function ExpensesLogSection({
       }, 0);
 
     return Number((inc - exp - sav - paidCards + PAYROLL_RECONCILIATION_OFFSET).toFixed(2));
-  }, [expensesLog, creditCardPayments]);
+  }, [expensesLog, creditCardPayments, periodFilter, currentPeriod]);
 
   // Sincroniza automáticamente el saldo dinámico calculado hacia acc_nu_debito en Renta Fija / Supabase
   useEffect(() => {
@@ -578,10 +586,27 @@ export default function ExpensesLogSection({
     );
   }, [fixedIncomeAccounts]);
 
+  // Arrastre real acumulado de Efectivo (Billetera) desde el inicio del sistema (2026-11) hasta el periodo consultado,
+  // para que cada nuevo mes herede exactamente el efectivo real con el que cerró el mes anterior (ej. $19.367) y nunca un valor fijo por defecto.
   const cashWalletBalance = useMemo(() => {
+    const cumulativeMovements = (expensesLog || [])
+      .filter((tx) => {
+        if (!tx || tx.isSplitChild || tx.isSplitDeductionChild) return false;
+        if (tx.period && tx.period < "2026-11") return false;
+        if (periodFilter !== "all" && currentPeriod && tx.period && tx.period > currentPeriod) return false;
+        return true;
+      })
+      .map((tx) => {
+        const isIncome = tx.type === "credit" || tx.budgetItemType === "income";
+        return {
+          ...tx,
+          itemType: isIncome ? "income" : "expense",
+        };
+      });
+
     // 1. Cash Inflows:
     // a) Retiros o transferencias desde bancos/nómina hacia Efectivo (Billetera)
-    const cashWithdrawals = standaloneExpenses
+    const cashWithdrawals = cumulativeMovements
       .filter((tx) => {
         if (tx.itemType === "income") return false;
         return (
@@ -595,7 +620,7 @@ export default function ExpensesLogSection({
       .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
     // b) Ingresos y cobros directos en efectivo
-    const cashIncomes = standaloneExpenses
+    const cashIncomes = cumulativeMovements
       .filter((tx) => {
         if (tx.itemType !== "income") return false;
         const srcType = tx.paymentSource?.type;
@@ -606,7 +631,7 @@ export default function ExpensesLogSection({
 
     // c) Cobros en efectivo registrados en settlements de préstamos
     let cashSettlements = 0;
-    standaloneExpenses.forEach((tx) => {
+    cumulativeMovements.forEach((tx) => {
       if (Array.isArray(tx.settlements)) {
         tx.settlements.forEach((s) => {
           const isCash =
@@ -623,7 +648,7 @@ export default function ExpensesLogSection({
     });
 
     // 2. Cash Outflows (gastos pagados en efectivo físico)
-    const cashExpenses = standaloneExpenses
+    const cashExpenses = cumulativeMovements
       .filter((tx) => {
         if (tx.itemType === "income") return false;
         const isTransfer =
@@ -640,11 +665,25 @@ export default function ExpensesLogSection({
 
     // Si ya existe un movimiento de ingreso en efectivo para los cobros, no duplicar con cashSettlements
     const totalCashIn = cashWithdrawals + Math.max(cashIncomes, cashSettlements);
+    const hasCashHistory = totalCashIn > 0 || cashExpenses > 0;
     const dynamicNet = Math.max(0, totalCashIn - cashExpenses);
 
     const staticBase = Number(cashWalletAccount?.balance || 0);
-    return dynamicNet > 0 ? dynamicNet : staticBase;
-  }, [standaloneExpenses, cashWalletAccount]);
+    return hasCashHistory ? dynamicNet : staticBase;
+  }, [expensesLog, periodFilter, currentPeriod, cashWalletAccount]);
+
+  // Sincroniza automáticamente el saldo real de Efectivo (Billetera) hacia acc_cash_wallet en Renta Fija / Supabase
+  useEffect(() => {
+    if (!cashWalletAccount || Number.isNaN(cashWalletBalance)) return;
+    const currentCashBal = Number(cashWalletAccount.balance || 0);
+    if (Math.abs(currentCashBal - cashWalletBalance) > 0.01) {
+      const updatedCashAcc = { ...cashWalletAccount, balance: cashWalletBalance };
+      useFixedIncomeStore.setState((state) => ({
+        accounts: (state.accounts || []).map((a) => (a.id === cashWalletAccount.id ? updatedCashAcc : a)),
+      }));
+      updateFixedIncomeAccountApi(cashWalletAccount.id, updatedCashAcc).catch(() => {});
+    }
+  }, [cashWalletBalance, cashWalletAccount]);
 
   const cashCount = useMemo(() => {
     return combinedActivities.filter(

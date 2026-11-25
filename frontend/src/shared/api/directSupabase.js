@@ -150,15 +150,35 @@ export async function directFetchCashFlow() {
   const periodsData = {};
   const baseEnvelopes = { inflows: [], needs: [], wants: [], wealth: [] };
 
+  (configRes.data || []).forEach((cRow) => {
+    if (!cRow || !cRow.period || cRow.period === "base") return;
+    if (!periodsData[cRow.period]) {
+      periodsData[cRow.period] = { inflows: [], needs: [], wants: [], wealth: [] };
+    }
+    periodsData[cRow.period].allocationModel = cRow.allocation_model || baseConfig.allocation_model || "custom";
+    periodsData[cRow.period].customRatios = {
+      needs: Number(cRow.needs_ratio ?? baseConfig.needs_ratio ?? 40.0),
+      wants: Number(cRow.wants_ratio ?? baseConfig.wants_ratio ?? 20.0),
+      savings: Number(cRow.savings_ratio ?? baseConfig.savings_ratio ?? 40.0),
+    };
+  });
+
   (envelopesRes.data || []).forEach((row) => {
+    const extra = row.extra_json || {};
+    const dbAmount = Number(row.amount ?? extra.amount ?? extra.monthlyContribution ?? 0);
     const envelope = {
+      ...extra,
       id: row.id,
-      name: row.name,
-      amount: row.amount,
-      category: row.category,
-      subItems: row.sub_items_json || [],
-      isExplicitBudgetIncome: row.is_explicit_sankey_income,
-      ...(row.extra_json || {}),
+      name: row.name || extra.name,
+      amount: dbAmount,
+      ...(row.pillar === "wealth"
+        ? {
+            monthlyContribution: dbAmount,
+          }
+        : {}),
+      category: row.category || extra.category,
+      subItems: Array.isArray(row.sub_items_json) && row.sub_items_json.length > 0 ? row.sub_items_json : (extra.subItems || []),
+      isExplicitBudgetIncome: row.is_explicit_sankey_income != null ? row.is_explicit_sankey_income : extra.isExplicitBudgetIncome,
     };
 
     if (row.period === "base") {
@@ -288,6 +308,16 @@ export async function directFetchCashFlow() {
     };
   });
 
+  // Unwrap any legacy nested payrollAccount object
+  let cleanPayrollAccount = baseConfig.payroll_account_json || {};
+  let unwrappedFundingId = cleanPayrollAccount.defaultFundingAccountId || "acc_plenti_principal";
+  while (cleanPayrollAccount && typeof cleanPayrollAccount.payrollAccount === "object" && cleanPayrollAccount.payrollAccount !== null) {
+    if (cleanPayrollAccount.defaultFundingAccountId) {
+      unwrappedFundingId = cleanPayrollAccount.defaultFundingAccountId;
+    }
+    cleanPayrollAccount = cleanPayrollAccount.payrollAccount;
+  }
+
   return {
     startPeriod,
     activePeriod,
@@ -299,7 +329,8 @@ export async function directFetchCashFlow() {
       savings: baseConfig.savings_ratio ?? 40.0,
     },
     emergencyFundTargetMonths: baseConfig.emergency_months ?? 6,
-    payrollAccount: baseConfig.payroll_account_json || {},
+    defaultFundingAccountId: unwrappedFundingId,
+    payrollAccount: cleanPayrollAccount,
     deletedExpenseIds: baseConfig.deleted_ids_json?.deletedExpenseIds || [],
     deletedDebtIds: baseConfig.deleted_ids_json?.deletedDebtIds || [],
     deletedCreditCardPaymentIds: baseConfig.deleted_ids_json?.deletedCreditCardPaymentIds || [],
@@ -600,6 +631,11 @@ export async function directSaveCashFlow(payload = {}) {
     deletedExpenseIds,
     debts,
     deletedDebtIds,
+    inflows,
+    needs,
+    wants,
+    wealth,
+    periodsData,
   } = payload;
 
   const promises = [];
@@ -752,32 +788,146 @@ export async function directSaveCashFlow(payload = {}) {
     }
   }
 
-  // 6. Base Periods Config (ratios, emergencyFundTargetMonths, currency, payrollAccount, defaultFundingAccountId)
-  if (customRatios || emergencyFundTargetMonths != null || payrollAccount || defaultFundingAccountId) {
-    const configRow = {
-      period: "base",
-      user_id: uid,
-      active_period: activePeriod || "2026-11",
-      start_period: startPeriod || "2026-11",
-      currency: currency || "COP",
-      allocation_model: allocationModel || "custom",
-      needs_ratio: customRatios?.needs ?? 40.0,
-      wants_ratio: customRatios?.wants ?? 20.0,
-      savings_ratio: customRatios?.savings ?? 40.0,
-      emergency_months: emergencyFundTargetMonths ?? 6,
-      payroll_account_json: {
-        defaultFundingAccountId,
-        payrollAccount,
-      },
-      deleted_ids_json: {
-        deletedExpenseIds: deletedExpenseIds || [],
-        deletedDebtIds: deletedDebtIds || [],
-        deletedCreditCardPaymentIds: deletedCreditCardPaymentIds || [],
-        deletedCreditPurchaseIds: deletedCreditPurchaseIds || [],
-      },
-      updated_at: new Date().toISOString(),
+  // 6. Base & Per-Period Configs + Budget Envelopes (Strict Forward-Only Persistence)
+  const currentActiveP = activePeriod || "2026-12";
+  let flatPayroll = payrollAccount || {};
+  while (flatPayroll && typeof flatPayroll.payrollAccount === "object" && flatPayroll.payrollAccount !== null) {
+    flatPayroll = flatPayroll.payrollAccount;
+  }
+
+  const effectivePeriodsData = { ...(periodsData || {}) };
+  if (Array.isArray(inflows) || Array.isArray(needs) || Array.isArray(wants) || Array.isArray(wealth)) {
+    const existingActiveSnap = effectivePeriodsData[currentActiveP] || {};
+    effectivePeriodsData[currentActiveP] = {
+      ...existingActiveSnap,
+      inflows: Array.isArray(inflows) ? inflows : (existingActiveSnap.inflows || []),
+      needs: Array.isArray(needs) ? needs : (existingActiveSnap.needs || []),
+      wants: Array.isArray(wants) ? wants : (existingActiveSnap.wants || []),
+      wealth: Array.isArray(wealth) ? wealth : (existingActiveSnap.wealth || []),
+      customRatios: customRatios || existingActiveSnap.customRatios || { needs: 40, wants: 20, savings: 40 },
+      allocationModel: allocationModel || existingActiveSnap.allocationModel || "custom",
     };
-    promises.push(supabase.from("cf_periods_config").upsert([configRow]));
+  }
+
+  if (customRatios || emergencyFundTargetMonths != null || payrollAccount || defaultFundingAccountId) {
+    const configRows = [
+      {
+        period: "base",
+        user_id: uid,
+        active_period: currentActiveP,
+        start_period: startPeriod || "2026-11",
+        currency: currency || "COP",
+        allocation_model: allocationModel || "custom",
+        needs_ratio: customRatios?.needs ?? 40.0,
+        wants_ratio: customRatios?.wants ?? 20.0,
+        savings_ratio: customRatios?.savings ?? 40.0,
+        emergency_months: emergencyFundTargetMonths ?? 6,
+        payroll_account_json: {
+          defaultFundingAccountId: defaultFundingAccountId || "acc_plenti_principal",
+          payrollAccount: flatPayroll,
+        },
+        deleted_ids_json: {
+          deletedExpenseIds: deletedExpenseIds || [],
+          deletedDebtIds: deletedDebtIds || [],
+          deletedCreditCardPaymentIds: deletedCreditCardPaymentIds || [],
+          deletedCreditPurchaseIds: deletedCreditPurchaseIds || [],
+        },
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
+    // Forward-only period config persistence: only update currentActiveP and future periods (>= currentActiveP)
+    Object.keys(effectivePeriodsData).forEach((pKey) => {
+      if (pKey < currentActiveP) return;
+      const snap = effectivePeriodsData[pKey];
+      if (!snap) return;
+      const pRatios = snap.customRatios || customRatios || { needs: 40, wants: 20, savings: 40 };
+      configRows.push({
+        period: pKey,
+        user_id: uid,
+        active_period: currentActiveP,
+        start_period: startPeriod || "2026-11",
+        currency: currency || "COP",
+        allocation_model: snap.allocationModel || allocationModel || "custom",
+        needs_ratio: pRatios.needs ?? 40.0,
+        wants_ratio: pRatios.wants ?? 20.0,
+        savings_ratio: pRatios.savings ?? 40.0,
+        emergency_months: emergencyFundTargetMonths ?? 6,
+        payroll_account_json: {},
+        deleted_ids_json: {},
+        updated_at: new Date().toISOString(),
+      });
+    });
+
+    promises.push(supabase.from("cf_periods_config").upsert(configRows));
+  }
+
+  // 7. Forward-Only Envelopes Persistence (Only touch periods >= currentActiveP, plus 'base' template)
+  const forwardPeriodKeys = Object.keys(effectivePeriodsData).filter((pKey) => pKey >= currentActiveP);
+  if (forwardPeriodKeys.length > 0) {
+    const mapEnvelopeRow = (item, pillar, periodKey) => {
+      const amt =
+        pillar === "wealth"
+          ? Number(item.monthlyContribution ?? item.amount ?? 0)
+          : Number(item.amount ?? 0);
+      return {
+        id: item.id,
+        user_id: uid,
+        period: periodKey,
+        pillar,
+        name: item.name || "",
+        amount: amt,
+        category: item.category || pillar,
+        sub_items_json: Array.isArray(item.subItems) ? item.subItems : [],
+        is_explicit_sankey_income: Boolean(item.isExplicitBudgetIncome),
+        extra_json: {
+          ...item,
+          amount: amt,
+          ...(pillar === "wealth" ? { monthlyContribution: amt } : {}),
+        },
+        updated_at: new Date().toISOString(),
+      };
+    };
+
+    const syncEnvelopesForPeriods = async () => {
+      const targetPeriodsToReplace = [...forwardPeriodKeys, "base"];
+      await supabase
+        .from("cf_budget_envelopes")
+        .delete()
+        .eq("user_id", uid)
+        .in("period", targetPeriodsToReplace);
+
+      const allEnvRows = [];
+      forwardPeriodKeys.forEach((pKey) => {
+        const snap = effectivePeriodsData[pKey];
+        if (!snap) return;
+        ["inflows", "needs", "wants", "wealth"].forEach((pillar) => {
+          (snap[pillar] || []).forEach((item) => {
+            if (item && item.id) {
+              allEnvRows.push(mapEnvelopeRow(item, pillar, pKey));
+            }
+          });
+        });
+      });
+
+      // Keep 'base' synchronized with currentActiveP for mobile webhook rubros
+      const baseSnap = effectivePeriodsData[currentActiveP];
+      if (baseSnap) {
+        ["inflows", "needs", "wants", "wealth"].forEach((pillar) => {
+          (baseSnap[pillar] || []).forEach((item) => {
+            if (item && item.id) {
+              allEnvRows.push(mapEnvelopeRow(item, pillar, "base"));
+            }
+          });
+        });
+      }
+
+      if (allEnvRows.length > 0) {
+        await supabase.from("cf_budget_envelopes").upsert(allEnvRows);
+      }
+    };
+
+    promises.push(syncEnvelopesForPeriods());
   }
 
   await Promise.all(promises);
