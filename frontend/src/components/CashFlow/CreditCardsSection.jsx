@@ -90,7 +90,33 @@ export default function CreditCardsSection({
     };
   });
 
-  const totalMonthlyCreditBill = cardMetrics.reduce((acc, c) => acc + c.monthlyBill, 0);
+  // Filter purchases active in the currently viewed period ONLY (no past-month single-installment clutter)
+  const periodActivePurchases = creditPurchases.filter((p) => {
+    if (!p) return false;
+    const count = Number(p.installmentsCount) || 1;
+    if (count <= 1) {
+      return (p.startPeriod || activePeriod) === activePeriod;
+    }
+    const tot = Number(p.totalAmount) || Number(p.amount) || Number(p.monthlyInstallment) || 0;
+    const info = getInstallmentInfo(
+      {
+        ...p,
+        totalAmount: tot,
+        amount: tot,
+        installmentsCount: count,
+        monthlyInstallment: Number(p.monthlyInstallment) || tot / count,
+      },
+      activePeriod
+    );
+    return Boolean(info && info.isActive);
+  });
+
+  const periodPurchasesMonthlyTotal = periodActivePurchases.reduce(
+    (sum, p) => sum + (Number(p.monthlyInstallment) || Number(p.totalAmount) || Number(p.amount) || 0),
+    0
+  );
+
+  const periodCardPayments = creditCardPayments.filter((p) => !p.period || p.period === activePeriod);
 
   // ── Financial Health Rule: Max Credit Quota <= 50% of Net Salary ──
   const totalCreditLimit = creditCards.reduce((acc, c) => acc + (Number(c.totalLimit) || 0), 0);
@@ -419,20 +445,20 @@ export default function CreditCardsSection({
       <div style={{ marginTop: 20, background: "var(--bg-surface)", borderRadius: "18px", border: "1px solid var(--border)", padding: "16px 18px", boxShadow: "var(--shadow-card)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
           <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            🛍️ Compras a Cuotas Activas en este Período ({activePeriod})
+            🛍️ Compras con Tarjeta en este Período ({activePeriod}) ({periodActivePurchases.length})
           </h4>
           <span style={{ fontSize: "0.82rem", color: isLight ? "#0284c7" : "#38bdf8", fontWeight: 700, fontFamily: "JetBrains Mono, monospace" }}>
-            Total Cuotas del Mes: {formatMoney(totalMonthlyCreditBill, currency)}
+            Total Compras del Mes ({activePeriod}): {formatMoney(periodPurchasesMonthlyTotal, currency)}
           </span>
         </div>
 
-        {creditPurchases.length === 0 ? (
+        {periodActivePurchases.length === 0 ? (
           <div style={{ textAlign: "center", padding: "18px 0", color: "var(--text-muted)", fontSize: "0.84rem" }}>
-            No tienes compras a cuotas o diferidos registrados en este período.
+            No tienes compras con tarjeta registradas en este período ({activePeriod}).
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {creditPurchases.map((purchase) => {
+            {periodActivePurchases.map((purchase) => {
               const info = getInstallmentInfo(purchase, activePeriod);
               const card = creditCards.find((c) => c.id === purchase.cardId);
 
@@ -517,7 +543,7 @@ export default function CreditCardsSection({
       </div>
 
       {/* Credit Card Payments Log in Active Period */}
-      {creditCardPayments.length > 0 && (
+      {periodCardPayments.length > 0 && (
         <div style={{ marginTop: 18, background: "var(--bg-surface)", borderRadius: "18px", border: "1px solid var(--border)", padding: "18px 22px", boxShadow: "var(--shadow-card)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h4 style={{ margin: 0, fontSize: "0.92rem", fontWeight: 700, color: "#10b981", display: "flex", alignItems: "center", gap: 8 }}>
@@ -526,9 +552,7 @@ export default function CreditCardsSection({
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {creditCardPayments
-              .filter((p) => !p.period || p.period === activePeriod)
-              .map((payment) => (
+            {periodCardPayments.map((payment) => (
                 <div
                   key={payment.id}
                   style={{
