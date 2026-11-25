@@ -70,8 +70,13 @@ export default function CreditCardsSection({
       }
     });
 
-    // Dynamic usedLimit: prioritize active purchases sum if purchases exist, or fallback to card.usedLimit
-    const usedLimit = purchasesUsedLimit > 0 ? purchasesUsedLimit : (card.usedLimit !== undefined ? Number(card.usedLimit) : 0);
+    // Dynamic usedLimit: use authoritative card.usedLimit (which includes purchases, payments, and bank statement calibration)
+    const usedLimit =
+      card.usedLimit !== undefined && card.usedLimit !== null
+        ? Number(card.usedLimit)
+        : purchasesUsedLimit;
+    const hasMultiInstallments = cardPurchases.some((p) => Number(p.installmentsCount) > 1);
+    const effectiveMonthlyBill = hasMultiInstallments && monthlyBill > 0 ? monthlyBill : usedLimit;
     const availableLimit = Math.max(0, (Number(card.totalLimit) || 0) - usedLimit);
     const usagePct = card.totalLimit > 0 ? ((usedLimit / card.totalLimit) * 100).toFixed(0) : 0;
 
@@ -79,7 +84,7 @@ export default function CreditCardsSection({
       ...card,
       usedLimit,
       availableLimit,
-      monthlyBill,
+      monthlyBill: effectiveMonthlyBill,
       usagePct,
       purchasesCount: cardPurchases.length,
     };

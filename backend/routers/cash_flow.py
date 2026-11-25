@@ -187,27 +187,30 @@ def sync_cash_flow_state(payload: CashFlowSyncPayload, request: Request):
         del_cp_set.update(payload.deletedCreditPurchaseIds)
     del_cp_set.add("cp_tx_mb_1793340159066_a88869")
     del_cp_set.add("tx_mb_1793340159066_a88869")
+    del_cp_set.add("cp_cf_tx_mb_1793921439641_d54a55")
     db["deletedCreditPurchaseIds"] = list(del_cp_set)
 
     if payload.creditPurchases is not None:
         merged_cps = merge_lists_by_id(db.get("creditPurchases", []), payload.creditPurchases)
         seen_cp_ids = set()
+        seen_base_ids = set()
         clean_cps = []
         for cp in merged_cps:
             if isinstance(cp, dict):
                 cpid = cp.get("id")
-                desc = (cp.get("description") or "").lower()
-                if cpid in del_cp_set or cpid in seen_cp_ids:
+                if not cpid or cpid in del_cp_set or cpid in seen_cp_ids:
                     continue
-                if "bold" in desc:
+                base_id = cpid.replace("cp_", "").replace("cf_", "")
+                if base_id in seen_base_ids:
                     continue
                 seen_cp_ids.add(cpid)
+                seen_base_ids.add(base_id)
                 clean_cps.append(cp)
         db["creditPurchases"] = clean_cps
     elif del_cp_set:
         db["creditPurchases"] = [
             x for x in db.get("creditPurchases", [])
-            if isinstance(x, dict) and x.get("id") not in del_cp_set and "bold" not in (x.get("description") or "").lower()
+            if isinstance(x, dict) and x.get("id") not in del_cp_set
         ]
     # Persistent tombstone tracking for deleted transactions
     del_exp_set = set(db.get("deletedExpenseIds") or [])

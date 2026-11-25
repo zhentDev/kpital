@@ -65,6 +65,29 @@ const DEFAULT_NEEDS = [];
 const DEFAULT_WANTS = [];
 const DEFAULT_WEALTH = [];
 
+const CARD_DEFAULT_CALIBRATION_OFFSETS = {
+  cc_nu: -4471.81,
+  cc_rappi: -6315.63,
+};
+
+function getCardCalibrationOffset(card) {
+  if (card && card.calibrationOffset !== undefined && card.calibrationOffset !== null) {
+    return Number(card.calibrationOffset);
+  }
+  return CARD_DEFAULT_CALIBRATION_OFFSETS[card?.id] ?? 0;
+}
+
+function computeCardUsedLimit(card, purchasesList = []) {
+  const cardPurchasesTotal = (purchasesList || [])
+    .filter((p) => p && p.cardId === card.id)
+    .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
+  const offset = getCardCalibrationOffset(card);
+  if (cardPurchasesTotal > 0) {
+    return Math.max(0, Number((cardPurchasesTotal + offset).toFixed(2)));
+  }
+  return Math.max(0, Number(card?.usedLimit) || 0);
+}
+
 // Helper: Filter recurring items for forward inheritance
 function getRecurringItems(items = [], targetPeriod) {
   return items
@@ -357,6 +380,7 @@ export const useCashFlowStore = create(
         const deletedPaymentIds = new Set(combinedDeletedPaymentIds);
 
         const KNOWN_PHANTOM_CREDIT_PURCHASE_IDS = [
+          "cp_cf_tx_mb_1793921439641_d54a55",
           "cp_tx_mb_1793340159066_a88869",
           "tx_mb_1793340159066_a88869",
           "cp_tx_mb_1793940185466_353506",
@@ -998,7 +1022,7 @@ export const useCashFlowStore = create(
             return false;
           }
           if (cp.id === "cp_tx_mb_1793143745550_ad067e" || cp.description?.includes("SURTIMAYORISTA")) return false;
-          if (cp.id === "cp_tx_mb_1793340159066_a88869" || cp.description?.toLowerCase().includes("bold")) return false;
+          if (cp.id === "cp_tx_mb_1793340159066_a88869") return false;
           // Drop orphan cp_tx_* rows whose corresponding movement was deleted from expensesLog
           if (
             (cp.id.startsWith("cp_tx_") || cp.id.startsWith("cp_cf_tx_")) &&
@@ -1006,6 +1030,15 @@ export const useCashFlowStore = create(
           ) {
             return false;
           }
+          return true;
+        });
+
+        // Deduplicate creditPurchases by canonical base movement ID (prevents cp_tx_* and cp_cf_tx_* duplicates)
+        const seenPurchaseBaseIds = new Set();
+        sanitizedCreditPurchases = sanitizedCreditPurchases.filter((cp) => {
+          const baseKey = (cp.id || "").replace(/^cp_/, "").replace(/^cf_/, "");
+          if (seenPurchaseBaseIds.has(baseKey)) return false;
+          seenPurchaseBaseIds.add(baseKey);
           return true;
         });
 
@@ -1023,9 +1056,10 @@ export const useCashFlowStore = create(
         // Ensure credit card expenses in sanitizedExpensesLog are reflected in sanitizedCreditPurchases
         sanitizedExpensesLog.forEach((tx) => {
           if (tx.paymentSource?.type === "credit_card") {
-            const cleanId = (tx.id || "").replace("cf_", "");
+            const cleanId = (tx.id || "").replace(/^cf_/, "");
             if (
               deletedPurchaseIds.has(`cp_${cleanId}`) ||
+              deletedPurchaseIds.has(`cp_cf_${cleanId}`) ||
               deletedPurchaseIds.has(cleanId) ||
               deletedPurchaseIds.has(tx.id) ||
               deletedExpenseIds.has(`cp_${cleanId}`) ||
@@ -1034,9 +1068,17 @@ export const useCashFlowStore = create(
             ) {
               return;
             }
-            const cardId = tx.paymentSource.targetId || (tx.description?.toLowerCase().includes("rappi") ? "cc_rappi" : "cc_nu");
+            const targetHint = `${tx.paymentSource?.targetId || ""} ${tx.paymentSource?.targetName || ""} ${tx.account || ""} ${tx.bank || ""} ${tx.description || ""}`.toLowerCase();
+            const cardId =
+              tx.paymentSource?.targetId ||
+              (targetHint.includes("rappi") || targetHint.includes("visa") || targetHint.includes("0681")
+                ? "cc_rappi"
+                : "cc_nu");
+            tx.paymentSource.targetId = cardId;
             const amt = Number(tx.amount) || 0;
-            const matchingCp = sanitizedCreditPurchases.find((p) => p.id === `cp_${cleanId}` || p.id === tx.id);
+            const matchingCp = sanitizedCreditPurchases.find(
+              (p) => p.id === `cp_${cleanId}` || p.id === `cp_cf_${cleanId}` || p.id === tx.id
+            );
             if (matchingCp) {
               matchingCp.totalAmount = amt;
               matchingCp.amount = amt;
@@ -1103,14 +1145,13 @@ export const useCashFlowStore = create(
         });
         sanitizedExpensesLog = sortMovementsByDateTimeDesc(sanitizedExpensesLog);
 
-        // Sync credit cards usedLimit directly with actual active purchases
+        // Sync credit cards usedLimit with calibrated active purchases
         const syncedCreditCards = (mergedCreditCards || []).map((card) => {
-          const cardPurchasesTotal = sanitizedCreditPurchases
-            .filter((p) => p.cardId === card.id)
-            .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
+          const calibrationOffset = getCardCalibrationOffset(card);
           return {
             ...card,
-            usedLimit: cardPurchasesTotal > 0 ? cardPurchasesTotal : (Number(card.usedLimit) || 0),
+            calibrationOffset,
+            usedLimit: computeCardUsedLimit({ ...card, calibrationOffset }, sanitizedCreditPurchases),
           };
         });
 
@@ -1294,7 +1335,17 @@ export const useCashFlowStore = create(
 
       updateCreditCard: (id, updates) => {
         set((state) => ({
-          creditCards: state.creditCards.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+          creditCards: state.creditCards.map((c) => {
+            if (c.id !== id) return c;
+            const nextCard = { ...c, ...updates };
+            if (updates.usedLimit !== undefined && updates.usedLimit !== null) {
+              const cardPurchasesTotal = (state.creditPurchases || [])
+                .filter((p) => p && p.cardId === id)
+                .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
+              nextCard.calibrationOffset = Number((Number(updates.usedLimit) - cardPurchasesTotal).toFixed(2));
+            }
+            return nextCard;
+          }),
         }));
         const nextCards = get().creditCards;
         directSaveCashFlow({ creditCards: nextCards }).catch((err) =>
@@ -1327,12 +1378,10 @@ export const useCashFlowStore = create(
             monthlyInstallment: Number(purchase.monthlyInstallment) || tot,
           };
           const nextPurchases = [normalizedP, ...(state.creditPurchases || [])];
-          const nextCards = (state.creditCards || []).map((c) => {
-            const cardPurchasesTotal = nextPurchases
-              .filter((p) => p.cardId === c.id)
-              .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-            return { ...c, usedLimit: cardPurchasesTotal > 0 ? cardPurchasesTotal : c.usedLimit };
-          });
+          const nextCards = (state.creditCards || []).map((c) => ({
+            ...c,
+            usedLimit: computeCardUsedLimit(c, nextPurchases),
+          }));
           return { creditPurchases: nextPurchases, creditCards: nextCards };
         });
         get().syncStateWithBackend();
@@ -1349,12 +1398,10 @@ export const useCashFlowStore = create(
             }
             return p;
           });
-          const nextCards = (state.creditCards || []).map((c) => {
-            const cardPurchasesTotal = nextPurchases
-              .filter((p) => p.cardId === c.id)
-              .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-            return { ...c, usedLimit: cardPurchasesTotal > 0 ? cardPurchasesTotal : c.usedLimit };
-          });
+          const nextCards = (state.creditCards || []).map((c) => ({
+            ...c,
+            usedLimit: computeCardUsedLimit(c, nextPurchases),
+          }));
           return { creditPurchases: nextPurchases, creditCards: nextCards };
         });
         get().syncStateWithBackend();
@@ -1375,15 +1422,10 @@ export const useCashFlowStore = create(
           const nextPurchases = (state.creditPurchases || []).filter(
             (p) => p.id !== id && p.id !== cleanTxId && p.id !== cpId
           );
-          const updatedCards = (state.creditCards || []).map((c) => {
-            const cardPurchasesTotal = nextPurchases
-              .filter((p) => p.cardId === c.id)
-              .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-            return {
-              ...c,
-              usedLimit: cardPurchasesTotal,
-            };
-          });
+          const updatedCards = (state.creditCards || []).map((c) => ({
+            ...c,
+            usedLimit: computeCardUsedLimit(c, nextPurchases),
+          }));
           return {
             creditPurchases: nextPurchases,
             deletedCreditPurchaseIds: nextDeletedPurchases,
@@ -1416,12 +1458,10 @@ export const useCashFlowStore = create(
               createdAt: tx.createdAt || new Date().toISOString(),
             };
             updatedPurchases = [purchaseObj, ...updatedPurchases];
-            updatedCards = (state.creditCards || []).map((c) => {
-              const cardPurchasesTotal = updatedPurchases
-                .filter((p) => p.cardId === c.id)
-                .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-              return { ...c, usedLimit: cardPurchasesTotal > 0 ? cardPurchasesTotal : c.usedLimit };
-            });
+            updatedCards = (state.creditCards || []).map((c) => ({
+              ...c,
+              usedLimit: computeCardUsedLimit(c, updatedPurchases),
+            }));
           }
 
           return {
@@ -1504,13 +1544,11 @@ export const useCashFlowStore = create(
             updatedPurchases = updatedPurchases.filter((p) => p.id !== `cp_${cleanId}` && p.id !== updatedTx.id);
           }
 
-          // Dynamically sync creditCards usedLimit
-          updatedCards = updatedCards.map((c) => {
-            const cardPurchasesTotal = updatedPurchases
-              .filter((p) => p.cardId === c.id)
-              .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-            return { ...c, usedLimit: cardPurchasesTotal > 0 ? cardPurchasesTotal : c.usedLimit };
-          });
+          // Dynamically sync creditCards usedLimit with calibration offset
+          updatedCards = updatedCards.map((c) => ({
+            ...c,
+            usedLimit: computeCardUsedLimit(c, updatedPurchases),
+          }));
 
           const updatedLog = (state.expensesLog || []).map((tx) =>
             tx.id === updatedTx.id ? { ...tx, ...updatedTx } : tx
@@ -1548,13 +1586,11 @@ export const useCashFlowStore = create(
             (p) => p.id !== id && p.id !== `cp_${cleanId}` && p.id !== `cp_${id}`
           );
 
-          // Dynamically sync creditCards usedLimit
-          updatedCards = (state.creditCards || []).map((c) => {
-            const cardPurchasesTotal = updatedPurchases
-              .filter((p) => p.cardId === c.id)
-              .reduce((sum, p) => sum + (Number(p.totalAmount) || Number(p.amount) || 0), 0);
-            return { ...c, usedLimit: cardPurchasesTotal };
-          });
+          // Dynamically sync creditCards usedLimit with calibration offset
+          updatedCards = (state.creditCards || []).map((c) => ({
+            ...c,
+            usedLimit: computeCardUsedLimit(c, updatedPurchases),
+          }));
 
           // Also remove matching deduction from parent card payment if this was a split deduction
           let updatedPayments = state.creditCardPayments || [];
@@ -1635,7 +1671,12 @@ export const useCashFlowStore = create(
         const updatedCards = (state.creditCards || []).map((c) => {
           if (c.id === targetCardId) {
             const currentUsed = Number(c.usedLimit) || 0;
-            return { ...c, usedLimit: Math.max(0, currentUsed - amount) };
+            const prevOffset = getCardCalibrationOffset(c);
+            return {
+              ...c,
+              usedLimit: Math.max(0, Number((currentUsed - amount).toFixed(2))),
+              calibrationOffset: Number((prevOffset - amount).toFixed(2)),
+            };
           }
           return c;
         });
@@ -1693,7 +1734,12 @@ export const useCashFlowStore = create(
           const currentUsed = Number(card.usedLimit) || 0;
           updatedCards = updatedCards.map((c) => {
             if (c.id === effectiveCardId) {
-              return { ...c, usedLimit: Math.max(0, currentUsed - totalAmount) };
+              const prevOffset = getCardCalibrationOffset(c);
+              return {
+                ...c,
+                usedLimit: Math.max(0, Number((currentUsed - totalAmount).toFixed(2))),
+                calibrationOffset: Number((prevOffset - totalAmount).toFixed(2)),
+              };
             }
             return c;
           });
@@ -3219,7 +3265,12 @@ export const useCashFlowStore = create(
           const updatedCards = state.creditCards.map((c) => {
             if (breakdownMap[c.id] !== undefined) {
               const currentUsed = Number(c.usedLimit) || 0;
-              return { ...c, usedLimit: Math.max(0, currentUsed - breakdownMap[c.id]) };
+              const prevOffset = getCardCalibrationOffset(c);
+              return {
+                ...c,
+                usedLimit: Math.max(0, Number((currentUsed - breakdownMap[c.id]).toFixed(2))),
+                calibrationOffset: Number((prevOffset - breakdownMap[c.id]).toFixed(2)),
+              };
             }
             return c;
           });
@@ -3285,7 +3336,12 @@ export const useCashFlowStore = create(
 
             updatedCards = state.creditCards.map((c) => {
               if (breakdownMap[c.id] !== undefined) {
-                return { ...c, usedLimit: (Number(c.usedLimit) || 0) + breakdownMap[c.id] };
+                const prevOffset = getCardCalibrationOffset(c);
+                return {
+                  ...c,
+                  usedLimit: Number(((Number(c.usedLimit) || 0) + breakdownMap[c.id]).toFixed(2)),
+                  calibrationOffset: Number((prevOffset + breakdownMap[c.id]).toFixed(2)),
+                };
               }
               return c;
             });

@@ -624,6 +624,14 @@ func syncToSupabaseDirect(bank, account, description, txType string, amount floa
 		"type":       sourceType,
 		"targetName": targetName,
 	}
+	if isCard {
+		cardHint := strings.ToLower(account + " " + bank + " " + rawText)
+		if strings.Contains(cardHint, "rappi") || strings.Contains(cardHint, "visa") || strings.Contains(cardHint, "0681") {
+			paymentSource["targetId"] = "cc_rappi"
+		} else {
+			paymentSource["targetId"] = "cc_nu"
+		}
+	}
 	if matchedAcc != nil {
 		accNameLower := strings.ToLower(matchedAcc.Name)
 		if matchedAcc.ID == "acc_nu_debito" || strings.Contains(accNameLower, "nómina") || strings.Contains(accNameLower, "nomina") || strings.Contains(accNameLower, "nu débito") || strings.Contains(accNameLower, "nu debito") {
