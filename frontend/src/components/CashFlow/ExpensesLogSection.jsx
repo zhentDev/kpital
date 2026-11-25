@@ -477,8 +477,8 @@ export default function ExpensesLogSection({
   const payrollAvailableBalance = useMemo(() => {
     const allTaggedMovements = (expensesLog || [])
       .filter((tx) => {
-        if (!tx.period || tx.period < "2026-11") return false;
-        if (periodFilter !== "all" && currentPeriod && tx.period > currentPeriod) return false;
+        if (tx.period && tx.period < "2026-11") return false;
+        if (activePeriod && tx.period && tx.period > activePeriod) return false;
         return true;
       })
       .map((tx) => {
@@ -505,7 +505,7 @@ export default function ExpensesLogSection({
     const paidCards = (creditCardPayments || [])
       .filter((p) => {
         if (p.period && p.period < "2026-11") return false;
-        if (periodFilter !== "all" && currentPeriod && p.period && p.period > currentPeriod) return false;
+        if (activePeriod && p.period && p.period > activePeriod) return false;
         return isPayrollOutflow(p);
       })
       .reduce((acc, p) => {
@@ -533,7 +533,7 @@ export default function ExpensesLogSection({
       }, 0);
 
     return Number((inc - exp - sav - paidCards + PAYROLL_RECONCILIATION_OFFSET).toFixed(2));
-  }, [expensesLog, creditCardPayments, periodFilter, currentPeriod]);
+  }, [expensesLog, creditCardPayments, activePeriod]);
 
   // Sincroniza automáticamente el saldo dinámico calculado hacia acc_nu_debito en Renta Fija / Supabase
   useEffect(() => {
@@ -593,7 +593,7 @@ export default function ExpensesLogSection({
       .filter((tx) => {
         if (!tx || tx.isSplitChild || tx.isSplitDeductionChild) return false;
         if (tx.period && tx.period < "2026-11") return false;
-        if (periodFilter !== "all" && currentPeriod && tx.period && tx.period > currentPeriod) return false;
+        if (activePeriod && tx.period && tx.period > activePeriod) return false;
         return true;
       })
       .map((tx) => {
@@ -670,7 +670,7 @@ export default function ExpensesLogSection({
 
     const staticBase = Number(cashWalletAccount?.balance || 0);
     return hasCashHistory ? dynamicNet : staticBase;
-  }, [expensesLog, periodFilter, currentPeriod, cashWalletAccount]);
+  }, [expensesLog, activePeriod, cashWalletAccount]);
 
   // Sincroniza automáticamente el saldo real de Efectivo (Billetera) hacia acc_cash_wallet en Renta Fija / Supabase
   useEffect(() => {
