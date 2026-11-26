@@ -966,14 +966,13 @@ async function fiWithSupabaseFallback(apiRequest, supabaseFallback) {
     }
   }
 
-  // Background sync with Render backend
-  try {
-    const res = await apiRequest();
-    if (res && res.ok) {
-      return await res.json();
-    }
-  } catch (err) {
-    console.warn("[FixedIncome] Render backend sync skipped or error:", err);
+  // Non-blocking background sync with Render backend so UI never hangs on cold starts
+  if (typeof apiRequest === "function") {
+    Promise.resolve()
+      .then(() => apiRequest())
+      .catch((err) => {
+        console.warn("[FixedIncome] Render backend sync skipped or error:", err);
+      });
   }
 
   return directResult || { success: true, directSupabase: true };
@@ -1080,18 +1079,20 @@ export async function syncFixedIncomeStateApi(state) {
     console.warn("[FixedIncome] Direct Supabase save error:", err);
   }
 
-  // 2. Background sync to Render backend
-  try {
-    const res = await safeFetch(`${getBase()}/fixed-income/sync`, {
+  // 2. Non-blocking background sync to Render backend
+  safeFetch(
+    `${getBase()}/fixed-income/sync`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
       timeoutMs: 15000,
-    }, 2, 1000);
-    if (res && res.ok) return await res.json();
-  } catch (err) {
+    },
+    1,
+    1000
+  ).catch((err) => {
     console.warn("[FixedIncome] Render backend sync notice:", err);
-  }
+  });
 
   return { success: true, directSupabase: true };
 }

@@ -541,32 +541,35 @@ export async function directDeleteFixedIncomeCDT(cdtId) {
 export async function directSaveFixedIncome(state = {}) {
   const { entities, accounts, cdts, transactions, deletedTxIds } = state;
   const uid = OWNER_USER_ID;
+  const tasks = [];
 
   // 1. Delete requested transactions
   if (Array.isArray(deletedTxIds) && deletedTxIds.length > 0) {
-    try {
-      await supabase.from("fi_transactions").delete().in("id", deletedTxIds);
-    } catch (e) {
-      console.warn("[directSaveFixedIncome] Error deleting txs:", e);
-    }
+    tasks.push(
+      supabase
+        .from("fi_transactions")
+        .delete()
+        .in("id", deletedTxIds)
+        .catch((e) => console.warn("[directSaveFixedIncome] Error deleting txs:", e))
+    );
   }
 
   // 2. Upsert entities
   if (Array.isArray(entities) && entities.length > 0) {
-    await supabase.from("fi_entities").upsert(entities.map((e) => mapFiEntityToRow(e, uid)));
+    tasks.push(supabase.from("fi_entities").upsert(entities.map((e) => mapFiEntityToRow(e, uid))));
   }
 
   // 3. Upsert accounts
   if (Array.isArray(accounts) && accounts.length > 0) {
-    await supabase.from("fi_accounts").upsert(accounts.map((a) => mapFiAccountToRow(a, uid)));
+    tasks.push(supabase.from("fi_accounts").upsert(accounts.map((a) => mapFiAccountToRow(a, uid))));
   }
 
   // 4. Upsert cdts
   if (Array.isArray(cdts) && cdts.length > 0) {
-    await supabase.from("fi_cdts").upsert(cdts.map((c) => mapFiCdtToRow(c, uid)));
+    tasks.push(supabase.from("fi_cdts").upsert(cdts.map((c) => mapFiCdtToRow(c, uid))));
   }
 
-  // 5. Upsert transactions
+  // 5. Upsert transactions in parallel chunks
   if (Array.isArray(transactions) && transactions.length > 0) {
     const delSet = new Set(deletedTxIds || []);
     const validTxs = transactions.filter((t) => t && t.id && !delSet.has(t.id));
@@ -587,12 +590,14 @@ export async function directSaveFixedIncome(state = {}) {
         extra_json: t,
         updated_at: new Date().toISOString(),
       }));
-      for (let i = 0; i < txRows.length; i += 50) {
-        const chunk = txRows.slice(i, i + 50);
-        await supabase.from("fi_transactions").upsert(chunk);
+      for (let i = 0; i < txRows.length; i += 100) {
+        const chunk = txRows.slice(i, i + 100);
+        tasks.push(supabase.from("fi_transactions").upsert(chunk));
       }
     }
   }
+
+  await Promise.all(tasks);
 
   return { success: true, timestamp: new Date().toISOString(), directSupabase: true };
 }

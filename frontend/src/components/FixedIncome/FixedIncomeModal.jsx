@@ -104,6 +104,13 @@ export default function FixedIncomeModal({
   ]);
   const [calcResult, setCalcResult] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const isSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    isSubmittingRef.current = false;
+    setIsSaving(false);
+  }, [isOpen, activeTab]);
 
   // Memoized options for CustomSelectDropdown (includes existing entities + all traditional/modern bank presets)
   const entityOptions = useMemo(() => {
@@ -430,6 +437,7 @@ export default function FixedIncomeModal({
 
   const handleSaveTransaction = async (e) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSaving) return;
     if (!txAccountId) {
       toast.error("Selecciona una cuenta de ahorro o bolsillo");
       return;
@@ -439,61 +447,44 @@ export default function FixedIncomeModal({
       toast.error("Ingresa un monto válido mayor a 0");
       return;
     }
+    isSubmittingRef.current = true;
+    setIsSaving(true);
+
     const targetAcc = accounts.find((a) => a.id === txAccountId);
     const signedAmount = txType === "credit" ? numAmt : -numAmt;
     const defaultDesc = txType === "credit" ? `Aporte a ${targetAcc?.name || "Cajita"}` : `Retiro de ${targetAcc?.name || "Cajita"}`;
 
     if (editItem && editItem.id) {
-      // Editing existing transaction
-      const oldSignedAmount = Number(editItem.amount || 0);
-      const delta = signedAmount - oldSignedAmount;
-
-      await updateTransaction({
-        id: editItem.id,
-        accountId: txAccountId,
-        date: txDate,
-        time: txTime ? (txTime.length === 5 ? `${txTime}:00` : txTime) : null,
-        description: txDescription.trim() || defaultDesc,
-        amount: signedAmount,
-        type: txType,
-        currency: targetAcc?.currency || "COP",
-      });
-
-      if (txUpdateAccountBalance) {
-        if (editItem.accountId === txAccountId && targetAcc) {
-          const newBal = Math.max(0, (targetAcc.balance || 0) + delta);
-          await updateAccount({ ...targetAcc, balance: newBal });
-        } else {
-          // Changed account: revert from old, add to new
-          const oldAcc = accounts.find((a) => a.id === editItem.accountId);
-          if (oldAcc) {
-            await updateAccount({ ...oldAcc, balance: Math.max(0, (oldAcc.balance || 0) - oldSignedAmount) });
-          }
-          if (targetAcc) {
-            await updateAccount({ ...targetAcc, balance: Math.max(0, (targetAcc.balance || 0) + signedAmount) });
-          }
-        }
-      }
-
+      // Editing existing transaction (atomic store update of transaction + account balance)
+      updateTransaction(
+        {
+          id: editItem.id,
+          accountId: txAccountId,
+          date: txDate,
+          time: txTime ? (txTime.length === 5 ? `${txTime}:00` : txTime) : null,
+          description: txDescription.trim() || defaultDesc,
+          amount: signedAmount,
+          type: txType,
+          currency: targetAcc?.currency || "COP",
+        },
+        { updateAccountBalance: txUpdateAccountBalance, silent: true }
+      );
       toast.success("Movimiento actualizado correctamente");
     } else {
-      // Creating new transaction
-      await addTransaction({
-        accountId: txAccountId,
-        date: txDate,
-        time: txTime ? (txTime.length === 5 ? `${txTime}:00` : txTime) : null,
-        description: txDescription.trim() || defaultDesc,
-        amount: signedAmount,
-        type: txType,
-        currency: targetAcc?.currency || "COP",
-      });
-
-      if (txUpdateAccountBalance && targetAcc) {
-        const newBal = Math.max(0, (targetAcc.balance || 0) + signedAmount);
-        await updateAccount({ ...targetAcc, balance: newBal });
-      }
-
-      toast.success(`Movimiento registrado: ${txType === "credit" ? "+" : "-"}$${numAmt.toLocaleString("en-US")} COP`);
+      // Creating new transaction (atomic store update of transaction + account balance)
+      addTransaction(
+        {
+          accountId: txAccountId,
+          date: txDate,
+          time: txTime ? (txTime.length === 5 ? `${txTime}:00` : txTime) : null,
+          description: txDescription.trim() || defaultDesc,
+          amount: signedAmount,
+          type: txType,
+          currency: targetAcc?.currency || "COP",
+        },
+        { updateAccountBalance: txUpdateAccountBalance, silent: true }
+      );
+      toast.success(`Movimiento registrado: ${txType === "credit" ? "+" : "-"}$${numAmt.toLocaleString("en-US")} ${targetAcc?.currency || "COP"}`);
     }
 
     setTxDescription("");
@@ -628,13 +619,16 @@ export default function FixedIncomeModal({
 
   const handleSaveEntity = async (e) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSaving) return;
     if (!entityName.trim()) {
       toast.error("Ingresa el nombre de la entidad");
       return;
     }
+    isSubmittingRef.current = true;
+    setIsSaving(true);
     const finalLogo = entityLogoUrl || svgToDataUri(getBankPreset(entityName).logoSvg);
     if (editItem?.id) {
-      await updateEntity({
+      updateEntity({
         id: editItem.id,
         name: entityName,
         country: entityCountry,
@@ -643,7 +637,7 @@ export default function FixedIncomeModal({
         logoUrl: finalLogo,
       });
     } else {
-      await addEntity({
+      addEntity({
         name: entityName,
         country: entityCountry,
         color: entityColor,
@@ -658,6 +652,7 @@ export default function FixedIncomeModal({
 
   const handleSaveAccount = async (e) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSaving) return;
     if (!selectedEntityId) {
       toast.error("Selecciona una entidad");
       return;
@@ -666,6 +661,8 @@ export default function FixedIncomeModal({
       toast.error("Ingresa el nombre de la cuenta o bolsillo");
       return;
     }
+    isSubmittingRef.current = true;
+    setIsSaving(true);
 
     let finalEntityId = selectedEntityId;
     if (selectedEntityId.startsWith("preset_")) {
@@ -677,14 +674,16 @@ export default function FixedIncomeModal({
       if (existingEnt) {
         finalEntityId = existingEnt.id;
       } else {
-        const newEnt = await addEntity({
+        const newEntId = `ent_${Date.now()}`;
+        addEntity({
+          id: newEntId,
           name: bp.name,
           country: bp.country,
           color: bp.color,
           icon: bp.icon,
           logoUrl: svgToDataUri(bp.logoSvg),
         });
-        finalEntityId = newEnt?.id || `ent_${Date.now()}`;
+        finalEntityId = newEntId;
       }
     }
 
@@ -703,9 +702,9 @@ export default function FixedIncomeModal({
       createdAt: editItem?.createdAt || `${accountStartDate}T00:00:00.000Z`,
     };
     if (editItem?.id) {
-      await updateAccount({ ...accountData, id: editItem.id });
+      updateAccount({ ...accountData, id: editItem.id });
     } else {
-      await addAccount(accountData);
+      addAccount(accountData);
     }
     setAccountName("");
     setAccountBalance("");
@@ -715,6 +714,7 @@ export default function FixedIncomeModal({
 
   const handleSaveCDT = async (e) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSaving) return;
     if (!selectedEntityId) {
       toast.error("Selecciona una entidad");
       return;
@@ -731,6 +731,8 @@ export default function FixedIncomeModal({
       toast.error("Ingresa un plazo en días válido");
       return;
     }
+    isSubmittingRef.current = true;
+    setIsSaving(true);
 
     let finalEntityId = selectedEntityId;
     if (selectedEntityId.startsWith("preset_")) {
@@ -745,14 +747,16 @@ export default function FixedIncomeModal({
       if (existingEnt) {
         finalEntityId = existingEnt.id;
       } else {
-        const newEnt = await addEntity({
+        const newEntId = `ent_${Date.now()}`;
+        addEntity({
+          id: newEntId,
           name: bp.name,
           country: bp.country,
           color: bp.color,
           icon: bp.icon,
           logoUrl: svgToDataUri(bp.logoSvg),
         });
-        finalEntityId = newEnt?.id || `ent_${Date.now()}`;
+        finalEntityId = newEntId;
       }
     }
 
@@ -778,9 +782,9 @@ export default function FixedIncomeModal({
       } : {}),
     };
     if (editItem?.id) {
-      await updateCDT({ ...cdtData, id: editItem.id });
+      updateCDT({ ...cdtData, id: editItem.id });
     } else {
-      await addCDT(cdtData);
+      addCDT(cdtData);
     }
     setCdtName("");
     setCdtCapital("");
@@ -1120,6 +1124,7 @@ export default function FixedIncomeModal({
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
@@ -1127,10 +1132,11 @@ export default function FixedIncomeModal({
                     border: "none",
                     color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
+                    opacity: isSaving ? 0.65 : 1,
                   }}
                 >
-                  {editItem ? "Guardar Cambios" : "Guardar Cuenta"}
+                  {isSaving ? "⏳ Guardando..." : editItem ? "Guardar Cambios" : "Guardar Cuenta"}
                 </button>
               </div>
             </form>
@@ -1611,6 +1617,7 @@ export default function FixedIncomeModal({
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
@@ -1618,10 +1625,11 @@ export default function FixedIncomeModal({
                     border: "none",
                     color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
+                    opacity: isSaving ? 0.65 : 1,
                   }}
                 >
-                  {editItem ? "Guardar Cambios" : "Registrar CDT"}
+                  {isSaving ? "⏳ Guardando..." : editItem ? "Guardar Cambios" : "Registrar CDT"}
                 </button>
               </div>
             </form>
@@ -1921,6 +1929,7 @@ export default function FixedIncomeModal({
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     padding: "8px 20px",
                     borderRadius: 8,
@@ -1928,10 +1937,11 @@ export default function FixedIncomeModal({
                     border: "none",
                     color: isLight ? "#ffffff" : "#000",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
+                    opacity: isSaving ? 0.65 : 1,
                   }}
                 >
-                  {editItem ? "Guardar Cambios" : "Crear Entidad"}
+                  {isSaving ? "⏳ Guardando..." : editItem ? "Guardar Cambios" : "Crear Entidad"}
                 </button>
               </div>
             </form>
@@ -2057,6 +2067,7 @@ export default function FixedIncomeModal({
                 </button>
                 <button
                   type="submit"
+                  disabled={isSaving}
                   style={{
                     padding: "10px 22px",
                     borderRadius: 10,
@@ -2064,10 +2075,15 @@ export default function FixedIncomeModal({
                     border: "none",
                     color: "#fff",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    cursor: isSaving ? "not-allowed" : "pointer",
+                    opacity: isSaving ? 0.65 : 1,
                   }}
                 >
-                  {editItem?.id ? "Guardar Cambios" : "Registrar Movimiento"}
+                  {isSaving
+                    ? "⏳ Guardando..."
+                    : editItem?.id
+                      ? "Guardar Cambios"
+                      : "Registrar Movimiento"}
                 </button>
               </div>
             </form>

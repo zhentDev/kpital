@@ -2962,7 +2962,7 @@ export default function FixedIncomeHub() {
                               const be = (b.name || "").toLowerCase().includes("emergencia") ? 0 : 1;
                               return ae - be || Number(b.balance || 0) - Number(a.balance || 0);
                             });
-                          const displayBalance = accTx.length > 0 ? netTxBalance : Number(acc.balance || 0);
+                          const displayBalance = Number(acc.balance ?? netTxBalance ?? 0);
                           const canMove = siblingPockets.length > 0 && displayBalance > 0;
                           const isMoving = internalTransfer?.fromId === acc.id;
                           return (

@@ -409,17 +409,19 @@ export function calculateAccountYield(account, transactions = [], historicalRate
     !isNaN(Number(account.balance)) &&
     Number(account.balance) >= 0;
 
-  // Liquid available balance: account.balance represents the liquid available balance (Disponible siempre) in the pocket.
-  const liquidTotal = hasAuthoritativeBalance
-    ? Number(account.balance)
-    : Math.max(0, grossPocketBalance - activeCDTsCapital);
-
   // Available cash in hand: if monthly disbursement, current in-progress month's yields are not yet in hand
   const liquidAvail = isMonthlyDisbursement
     ? (hasAuthoritativeBalance
-        ? liquidTotal
+        ? Number(account.balance)
         : Math.max(0, netCapital + creditedYield + explicitInterestTotal - activeCDTsCapital))
-    : liquidTotal;
+    : (hasAuthoritativeBalance
+        ? Number(account.balance)
+        : Math.max(0, grossPocketBalance - activeCDTsCapital));
+
+  // Total balance including in-progress monthly accrued yield (to be disbursed on the 1st)
+  const liquidTotal = isMonthlyDisbursement
+    ? liquidAvail + pendingMonthlyYield
+    : liquidAvail;
 
   const liquidNetCap = hasAuthoritativeBalance
     ? Math.max(0, liquidTotal - Math.min(liquidTotal, finalEarnedInterest))

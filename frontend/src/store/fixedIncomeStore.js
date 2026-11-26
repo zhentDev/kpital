@@ -90,7 +90,9 @@ export const useFixedIncomeStore = create((set, get) => ({
           t.id === "tx_cf_tx_sub_1792795620492_e98s" ||
           t.id === "tx_cf_cf_tx_in_1794686489118" ||
           t.id === "tx_cf_1794686235085" ||
-          t.id === "tx_cf_1794686257611"
+          t.id === "tx_cf_1794686257611" ||
+          t.id === "tx_mb_1793921843708_2ace5d" ||
+          t.id === "tx_mb_1793921512540_78f419"
         );
       };
       const deletedTxSet = new Set([
@@ -103,6 +105,8 @@ export const useFixedIncomeStore = create((set, get) => ({
         "tx_cf_cf_tx_in_1794686489118",
         "tx_cf_1794686235085",
         "tx_cf_1794686257611",
+        "tx_mb_1793921843708_2ace5d",
+        "tx_mb_1793921512540_78f419",
       ]);
 
       const FAKE_CC_ACCOUNT_IDS = new Set(["acc_tarjetanum_aaf8", "acc_rappicardv_288a"]);
@@ -248,6 +252,27 @@ export const useFixedIncomeStore = create((set, get) => ({
           }
         }
 
+        // Reconcile RappiPay Fondo de emergencia if old phantom +500k test balance remained after tombstone
+        if (acc.id === "acc_1789760692910") {
+          const rappiEmergTxs = cleanFinandinaTxs.filter((t) => t.accountId === "acc_1789760692910");
+          if (rappiEmergTxs.length > 0) {
+            const net = Number(
+              rappiEmergTxs
+                .reduce((sum, tx) => {
+                  const isDebit = tx.type === "debit" || Number(tx.amount) < 0;
+                  const amt = Math.abs(Number(tx.amount || 0));
+                  return sum + (isDebit ? -amt : amt);
+                }, 0)
+                .toFixed(2)
+            );
+            if (Math.abs(Number(acc.balance || 0) - (net + 500000)) < 5) {
+              const updated = { ...acc, balance: Math.max(0, net) };
+              updateFixedIncomeAccountApi(updated.id, updated).catch(() => {});
+              return updated;
+            }
+          }
+        }
+
         return acc;
       });
       finalTransactions = cleanFinandinaTxs;
@@ -277,47 +302,40 @@ export const useFixedIncomeStore = create((set, get) => ({
       logoUrl: entityData.logoUrl || undefined,
       createdAt: new Date().toISOString(),
     };
+    set((state) => ({ entities: [...state.entities, newEntity] }));
+    toast.success(`Entidad ${newEntity.name} creada`);
     try {
       await createFixedIncomeEntity(newEntity);
-      set((state) => ({ entities: [...state.entities, newEntity] }));
-      toast.success(`Entidad ${newEntity.name} creada`);
       return newEntity;
     } catch {
-      set((state) => ({ entities: [...state.entities, newEntity] }));
       toast.error("Error al sincronizar entidad con el servidor");
       return newEntity;
     }
   },
 
   updateEntity: async (entity) => {
+    set((state) => ({
+      entities: state.entities.map((e) => (e.id === entity.id ? { ...e, ...entity } : e)),
+    }));
+    toast.success("Entidad actualizada");
     try {
       await updateFixedIncomeEntityApi(entity.id, entity);
-      set((state) => ({
-        entities: state.entities.map((e) => (e.id === entity.id ? { ...e, ...entity } : e)),
-      }));
-      toast.success("Entidad actualizada");
     } catch {
-      set((state) => ({
-        entities: state.entities.map((e) => (e.id === entity.id ? { ...e, ...entity } : e)),
-      }));
+      // Optimistic state kept
     }
   },
 
   deleteEntity: async (entityId) => {
+    set((state) => ({
+      entities: state.entities.filter((e) => e.id !== entityId),
+      accounts: state.accounts.filter((a) => a.entityId !== entityId),
+      cdts: state.cdts.filter((c) => c.entityId !== entityId),
+    }));
+    toast.success("Entidad eliminada");
     try {
       await deleteFixedIncomeEntityApi(entityId);
-      set((state) => ({
-        entities: state.entities.filter((e) => e.id !== entityId),
-        accounts: state.accounts.filter((a) => a.entityId !== entityId),
-        cdts: state.cdts.filter((c) => c.entityId !== entityId),
-      }));
-      toast.success("Entidad eliminada");
     } catch {
-      set((state) => ({
-        entities: state.entities.filter((e) => e.id !== entityId),
-        accounts: state.accounts.filter((a) => a.entityId !== entityId),
-        cdts: state.cdts.filter((c) => c.entityId !== entityId),
-      }));
+      // Optimistic state kept
     }
   },
 
@@ -357,10 +375,11 @@ export const useFixedIncomeStore = create((set, get) => ({
 
     const nextAccounts = [...get().accounts, newAccount];
     const nextTxs = openingTx ? [openingTx, ...(get().transactions || [])] : get().transactions;
+    set({ accounts: nextAccounts, transactions: nextTxs });
+    toast.success(`Cuenta ${newAccount.name} agregada`);
 
     try {
       await createFixedIncomeAccount(newAccount);
-      set({ accounts: nextAccounts, transactions: nextTxs });
       if (openingTx) {
         await syncFixedIncomeStateApi({
           entities: get().entities,
@@ -369,38 +388,35 @@ export const useFixedIncomeStore = create((set, get) => ({
           transactions: nextTxs,
         });
       }
-      toast.success(`Cuenta ${newAccount.name} agregada`);
     } catch {
-      set({ accounts: nextAccounts, transactions: nextTxs });
+      // Optimistic state kept
     }
   },
 
-  updateAccount: async (account) => {
+  updateAccount: async (account, options = {}) => {
     if (!account || !account.id) return;
+    set((state) => ({
+      accounts: state.accounts.map((a) => (a.id && a.id === account.id ? { ...a, ...account } : a)),
+    }));
+    if (!options?.silent) {
+      toast.success("Cuenta actualizada");
+    }
     try {
       await updateFixedIncomeAccountApi(account.id, account);
-      set((state) => ({
-        accounts: state.accounts.map((a) => (a.id && a.id === account.id ? { ...a, ...account } : a)),
-      }));
-      toast.success("Cuenta actualizada");
     } catch {
-      set((state) => ({
-        accounts: state.accounts.map((a) => (a.id && a.id === account.id ? { ...a, ...account } : a)),
-      }));
+      // Optimistic state kept
     }
   },
 
   deleteAccount: async (accountId) => {
+    set((state) => ({
+      accounts: state.accounts.filter((a) => a.id !== accountId),
+    }));
+    toast.success("Cuenta eliminada");
     try {
       await deleteFixedIncomeAccountApi(accountId);
-      set((state) => ({
-        accounts: state.accounts.filter((a) => a.id !== accountId),
-      }));
-      toast.success("Cuenta eliminada");
     } catch {
-      set((state) => ({
-        accounts: state.accounts.filter((a) => a.id !== accountId),
-      }));
+      // Optimistic state kept
     }
   },
 
@@ -429,13 +445,12 @@ export const useFixedIncomeStore = create((set, get) => ({
       } : {}),
       createdAt: new Date().toISOString(),
     };
+    set((state) => ({ cdts: [...state.cdts, newCDT] }));
+    toast.success(`CDT ${newCDT.name} registrado`);
     try {
       await createFixedIncomeCDT(newCDT);
-      set((state) => ({ cdts: [...state.cdts, newCDT] }));
-      toast.success(`CDT ${newCDT.name} registrado`);
       return newCDT;
     } catch {
-      set((state) => ({ cdts: [...state.cdts, newCDT] }));
       toast.error("No se pudo guardar el CDT en la nube");
       return newCDT;
     }
@@ -443,92 +458,181 @@ export const useFixedIncomeStore = create((set, get) => ({
 
   updateCDT: async (cdt) => {
     if (!cdt || !cdt.id) return;
+    set((state) => ({
+      cdts: state.cdts.map((c) => (c.id && c.id === cdt.id ? { ...c, ...cdt } : c)),
+    }));
+    toast.success("CDT actualizado");
     try {
       await updateFixedIncomeCDTApi(cdt.id, cdt);
-      set((state) => ({
-        cdts: state.cdts.map((c) => (c.id && c.id === cdt.id ? { ...c, ...cdt } : c)),
-      }));
-      toast.success("CDT actualizado");
     } catch {
-      set((state) => ({
-        cdts: state.cdts.map((c) => (c.id && c.id === cdt.id ? { ...c, ...cdt } : c)),
-      }));
       toast.error("No se pudo actualizar el CDT en la nube");
     }
   },
 
   deleteCDT: async (cdtId) => {
+    set((state) => ({
+      cdts: state.cdts.filter((c) => c.id !== cdtId),
+    }));
+    toast.success("CDT eliminado");
     try {
       await deleteFixedIncomeCDTApi(cdtId);
-      set((state) => ({
-        cdts: state.cdts.filter((c) => c.id !== cdtId),
-      }));
-      toast.success("CDT eliminado");
     } catch {
       toast.error("Error al eliminar el CDT");
     }
   },
 
   // ── Transaction Actions ───────────────────────────
-  addTransaction: async (txData) => {
+  addTransaction: async (txData, options = {}) => {
+    const shouldUpdateBalance = Boolean(options?.updateAccountBalance ?? txData?.updateAccountBalance);
+    const rawAmount = Number(txData.amount || 0);
+    const resolvedType = txData.type || (rawAmount >= 0 ? "credit" : "debit");
+    const signedAmount = resolvedType === "debit" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+
     const newTx = {
       id: txData.id || `tx_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       accountId: txData.accountId,
       date: txData.date || new Date().toISOString().slice(0, 10),
+      time: txData.time || null,
       description: txData.description || "Movimiento",
-      amount: Number(txData.amount || 0),
+      amount: signedAmount,
       currency: txData.currency || "COP",
-      type: txData.type || (Number(txData.amount) >= 0 ? "credit" : "debit"),
+      type: resolvedType,
       createdAt: new Date().toISOString(),
     };
     const currentTx = get().transactions || [];
     const updatedTx = [newTx, ...currentTx];
-    set({ transactions: updatedTx });
+    const currentAccounts = get().accounts || [];
+    const updatedAccounts = shouldUpdateBalance && newTx.accountId
+      ? currentAccounts.map((a) =>
+          a.id === newTx.accountId
+            ? {
+                ...a,
+                balance: Math.max(0, Number((Number(a.balance || 0) + signedAmount).toFixed(2))),
+              }
+            : a
+        )
+      : currentAccounts;
+
+    set({ transactions: updatedTx, accounts: updatedAccounts });
+    if (!options?.silent) {
+      toast.success("Movimiento registrado");
+    }
     try {
       await syncFixedIncomeStateApi({
         entities: get().entities,
-        accounts: get().accounts,
+        accounts: updatedAccounts,
         cdts: get().cdts,
         transactions: updatedTx,
       });
-      toast.success("Movimiento registrado");
     } catch {
       toast.error("Error sincronizando movimiento con el servidor");
     }
   },
 
   deleteTransaction: async (txId) => {
-    const nextDeleted = [...new Set([...(get().deletedTxIds || []), txId])];
-    const updatedTx = (get().transactions || []).filter((t) => t.id !== txId);
-    set({ transactions: updatedTx, deletedTxIds: nextDeleted });
+    if (!txId) return;
+    const state = get();
+    const targetTx = (state.transactions || []).find((t) => t.id === txId);
+    const nextDeleted = [...new Set([...(state.deletedTxIds || []), txId])];
+    const updatedTx = (state.transactions || []).filter((t) => t.id !== txId);
+
+    let updatedAccounts = state.accounts || [];
+    if (targetTx && targetTx.accountId) {
+      const amtAbs = Math.abs(Number(targetTx.amount || 0));
+      const wasDebit = targetTx.type === "debit" || Number(targetTx.amount) < 0;
+      const inverseDelta = wasDebit ? amtAbs : -amtAbs;
+      updatedAccounts = updatedAccounts.map((a) =>
+        a.id === targetTx.accountId
+          ? {
+              ...a,
+              balance: Math.max(0, Number((Number(a.balance || 0) + inverseDelta).toFixed(2))),
+            }
+          : a
+      );
+    }
+
+    set({ transactions: updatedTx, accounts: updatedAccounts, deletedTxIds: nextDeleted });
+    toast.success("Movimiento eliminado");
     try {
       await syncFixedIncomeStateApi({
         entities: get().entities,
-        accounts: get().accounts,
+        accounts: updatedAccounts,
         cdts: get().cdts,
         transactions: updatedTx,
         deletedTxIds: [txId],
       });
-      toast.success("Movimiento eliminado");
     } catch {
       toast.error("Error sincronizando eliminación con el servidor");
     }
   },
 
-  updateTransaction: async (txData) => {
+  updateTransaction: async (txData, options = {}) => {
     if (!txData || !txData.id) return;
-    const updatedTx = (get().transactions || []).map((t) =>
-      t.id === txData.id ? { ...t, ...txData } : t
+    const state = get();
+    const oldTx = (state.transactions || []).find((t) => t.id === txData.id);
+    const shouldUpdateBalance = Boolean(options?.updateAccountBalance ?? txData?.updateAccountBalance);
+
+    const rawAmount = Number(txData.amount ?? oldTx?.amount ?? 0);
+    const resolvedType = txData.type || oldTx?.type || (rawAmount >= 0 ? "credit" : "debit");
+    const newSignedAmount = resolvedType === "debit" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+
+    const normalizedTxData = {
+      ...txData,
+      amount: newSignedAmount,
+      type: resolvedType,
+    };
+
+    const updatedTx = (state.transactions || []).map((t) =>
+      t.id === txData.id ? { ...t, ...normalizedTxData } : t
     );
-    set({ transactions: updatedTx });
+
+    let updatedAccounts = state.accounts || [];
+    if (shouldUpdateBalance && oldTx) {
+      const oldAbs = Math.abs(Number(oldTx.amount || 0));
+      const oldWasDebit = oldTx.type === "debit" || Number(oldTx.amount) < 0;
+      const oldSignedAmount = oldWasDebit ? -oldAbs : oldAbs;
+      const newAccId = txData.accountId || oldTx.accountId;
+
+      if (oldTx.accountId === newAccId) {
+        const delta = newSignedAmount - oldSignedAmount;
+        updatedAccounts = updatedAccounts.map((a) =>
+          a.id === newAccId
+            ? {
+                ...a,
+                balance: Math.max(0, Number((Number(a.balance || 0) + delta).toFixed(2))),
+              }
+            : a
+        );
+      } else {
+        updatedAccounts = updatedAccounts.map((a) => {
+          if (a.id === oldTx.accountId) {
+            return {
+              ...a,
+              balance: Math.max(0, Number((Number(a.balance || 0) - oldSignedAmount).toFixed(2))),
+            };
+          }
+          if (a.id === newAccId) {
+            return {
+              ...a,
+              balance: Math.max(0, Number((Number(a.balance || 0) + newSignedAmount).toFixed(2))),
+            };
+          }
+          return a;
+        });
+      }
+    }
+
+    set({ transactions: updatedTx, accounts: updatedAccounts });
+    if (!options?.silent) {
+      toast.success("Movimiento actualizado");
+    }
     try {
       await syncFixedIncomeStateApi({
         entities: get().entities,
-        accounts: get().accounts,
+        accounts: updatedAccounts,
         cdts: get().cdts,
         transactions: updatedTx,
       });
-      toast.success("Movimiento actualizado");
     } catch {
       toast.error("Error actualizando movimiento en el servidor");
     }
@@ -536,18 +640,38 @@ export const useFixedIncomeStore = create((set, get) => ({
 
   deleteTransactions: async (txIds) => {
     const idSet = new Set(txIds);
-    const nextDeleted = [...new Set([...(get().deletedTxIds || []), ...txIds])];
-    const updatedTx = (get().transactions || []).filter((t) => !idSet.has(t.id));
-    set({ transactions: updatedTx, deletedTxIds: nextDeleted });
+    const state = get();
+    const toDelete = (state.transactions || []).filter((t) => idSet.has(t.id));
+    const nextDeleted = [...new Set([...(state.deletedTxIds || []), ...txIds])];
+    const updatedTx = (state.transactions || []).filter((t) => !idSet.has(t.id));
+
+    const balanceAdjustments = {};
+    toDelete.forEach((t) => {
+      if (!t.accountId) return;
+      const amtAbs = Math.abs(Number(t.amount || 0));
+      const wasDebit = t.type === "debit" || Number(t.amount) < 0;
+      const inverseDelta = wasDebit ? amtAbs : -amtAbs;
+      balanceAdjustments[t.accountId] = (balanceAdjustments[t.accountId] || 0) + inverseDelta;
+    });
+
+    const updatedAccounts = (state.accounts || []).map((a) => {
+      if (!balanceAdjustments[a.id]) return a;
+      return {
+        ...a,
+        balance: Math.max(0, Number((Number(a.balance || 0) + balanceAdjustments[a.id]).toFixed(2))),
+      };
+    });
+
+    set({ transactions: updatedTx, accounts: updatedAccounts, deletedTxIds: nextDeleted });
+    toast.success(`${idSet.size} movimiento(s) eliminado(s)`);
     try {
       await syncFixedIncomeStateApi({
         entities: get().entities,
-        accounts: get().accounts,
+        accounts: updatedAccounts,
         cdts: get().cdts,
         transactions: updatedTx,
         deletedTxIds: Array.from(idSet),
       });
-      toast.success(`${idSet.size} movimiento(s) eliminado(s)`);
     } catch {
       toast.error("Error eliminando movimientos en el servidor");
     }
