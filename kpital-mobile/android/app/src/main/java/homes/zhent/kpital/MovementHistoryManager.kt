@@ -160,7 +160,7 @@ object MovementHistoryManager {
             val list = loadMovementsInternal(context).toMutableList()
 
             // Filtro anti-duplicados inteligente
-            val isDuplicate = list.any {
+            val existingMatch = list.firstOrNull {
                 (it.rawText.isNotBlank() && it.rawText.equals(movement.rawText, ignoreCase = true) &&
                         kotlin.math.abs(it.timestamp - movement.timestamp) < 86_400_000L) ||
                 (it.bank.equals(movement.bank, ignoreCase = true) &&
@@ -169,9 +169,10 @@ object MovementHistoryManager {
                         kotlin.math.abs(it.timestamp - movement.timestamp) < 900_000L)
             }
 
-            if (isDuplicate) {
-                Log.d(TAG, "Notificación duplicada detectada para ${movement.bank} ($${movement.amount}). Clasificada automáticamente en Descartadas.")
+            if (existingMatch != null) {
+                Log.d(TAG, "Notificación ya registrada previamente (${existingMatch.status}) para ${movement.bank} ($${movement.amount}). Evitando duplicado.")
                 movement.status = STATUS_DISCARDED
+                return@withLock existingMatch.id
             }
 
             list.add(0, movement)

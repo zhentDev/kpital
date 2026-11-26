@@ -25,8 +25,10 @@ class DebtEveningReminderReceiver : BroadcastReceiver() {
 
         when (action) {
             Intent.ACTION_BOOT_COMPLETED,
-            "android.intent.action.QUICKBOOT_POWERON" -> {
-                Log.i(TAG, "Dispositivo reiniciado. Reprogramando alarma de las 8:00 PM...")
+            "android.intent.action.QUICKBOOT_POWERON",
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                Log.i(TAG, "Sistema reiniciado o APK actualizado ($action). Reconectando KpitalNotificationListener y alarma 8PM...")
+                KpitalNotificationListener.requestRebindIfDisconnected(appContext, forceToggle = true)
                 DebtAlertManager.scheduleDaily8PmAlarm(appContext)
             }
 

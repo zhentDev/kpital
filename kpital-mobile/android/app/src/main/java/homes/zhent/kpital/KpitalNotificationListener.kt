@@ -33,19 +33,43 @@ class KpitalNotificationListener : NotificationListenerService() {
         var isConnected: Boolean = false
             private set
 
+        @Volatile
+        private var activeInstance: KpitalNotificationListener? = null
+
         /**
          * Fuerza a Android a reconectar el listener si el sistema lo desconectó
-         * tras actualizar el APK.
+         * tras actualizar el APK (incluyendo reinicio del componente en PackageManager).
          */
-        fun requestRebindIfDisconnected(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                try {
-                    val component = ComponentName(context, KpitalNotificationListener::class.java)
+        fun requestRebindIfDisconnected(context: Context, forceToggle: Boolean = false) {
+            try {
+                val component = ComponentName(context, KpitalNotificationListener::class.java)
+                if (!isConnected || forceToggle) {
+                    try {
+                        val pm = context.packageManager
+                        pm.setComponentEnabledSetting(
+                            component,
+                            android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            android.content.pm.PackageManager.DONT_KILL_APP
+                        )
+                        pm.setComponentEnabledSetting(
+                            component,
+                            android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                            android.content.pm.PackageManager.DONT_KILL_APP
+                        )
+                        Log.d(TAG, "Componente KpitalNotificationListener reiniciado en PackageManager")
+                    } catch (pmErr: Exception) {
+                        Log.w(TAG, "No se pudo alternar estado del componente: ${pmErr.message}")
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     Log.d(TAG, "Solicitando requestRebind para KpitalNotificationListener...")
                     requestRebind(component)
-                } catch (e: Exception) {
-                    Log.w(TAG, "requestRebind no pudo ejecutarse: ${e.message}")
                 }
+                if (isConnected) {
+                    activeInstance?.scanActiveNotifications()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "requestRebind no pudo ejecutarse: ${e.message}")
             }
         }
 
@@ -186,18 +210,39 @@ class KpitalNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         isConnected = true
+        activeInstance = this
         Log.i(TAG, "🟢 KpitalNotificationListener conectado exitosamente a Android OS")
         try {
             DebtAlertManager.scheduleDaily8PmAlarm(this)
         } catch (e: Exception) {
             Log.e(TAG, "Error programando alarma 8PM en onListenerConnected: ${e.message}")
         }
+        scanActiveNotifications()
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         isConnected = false
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         Log.w(TAG, "🔴 KpitalNotificationListener desconectado por Android OS")
+    }
+
+    /**
+     * Escanea todas las notificaciones activas actualmente presentes en la barra de estado
+     * para recuperar movimientos que hayan llegado mientras el servicio se reconectaba.
+     */
+    fun scanActiveNotifications() {
+        try {
+            val currentList = activeNotifications ?: return
+            Log.d(TAG, "Escaneando ${currentList.size} notificaciones activas en la barra de estado...")
+            for (sbn in currentList) {
+                handleNotificationEvent(sbn, "ACTIVE_SCAN")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudieron escanear notificaciones activas: ${e.message}")
+        }
     }
 
     private fun createNotificationChannel() {
